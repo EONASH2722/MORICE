@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.python-version
+.venv/
+env/
+
+# Builds
+build/
+dist/
+
+# Local configs
+.env
+.env.*
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Large model and binary assets (keep out of git)
+*.gguf
+*.bin
+morice/assets/llama-bin/
+morice/assets/tesseract/
+
+# OS
+.DS_Store
+Thumbs.db
