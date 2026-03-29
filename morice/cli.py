@@ -239,6 +239,8 @@ def run_cli():
             web_query = extract_web_query(user_input) or (user_input if needs_web(user_input) else None)
             if web_query:
                 web_context = search_web(web_query)
+                if not web_context:
+                    web_context = "Web lookup returned no results."
         extra_system = ""
         if pending_image_context:
             lowered = pending_image_context.lower()

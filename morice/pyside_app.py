@@ -389,6 +389,7 @@ class MoriceWindow(QWidget):
             pass
 
     def append_message(self, author: str, message: str, is_user: bool = False):
+        was_at_bottom = self._is_at_bottom()
         bubble = ChatBubble(author, message, is_user=is_user)
         bubble.installEventFilter(self)
         opacity = QGraphicsOpacityEffect(bubble)
@@ -406,7 +407,7 @@ class MoriceWindow(QWidget):
         self._anims.append(anim)
         anim.start()
 
-        QTimer.singleShot(0, self._maybe_autoscroll)
+        QTimer.singleShot(0, lambda: self._maybe_autoscroll(force=was_at_bottom))
 
     def _on_scroll_change(self, value: int):
         bar = self.scroll.verticalScrollBar()
@@ -415,12 +416,18 @@ class MoriceWindow(QWidget):
             return
         self.user_scrolled = value < (bar.maximum() - 40)
 
-    def _maybe_autoscroll(self):
+    def _maybe_autoscroll(self, force: bool = False):
         bar = self.scroll.verticalScrollBar()
         if bar.maximum() <= 0:
             return
-        if not self.user_scrolled:
+        if force or not self.user_scrolled:
             bar.setValue(bar.maximum())
+
+    def _is_at_bottom(self, margin: int = 8) -> bool:
+        bar = self.scroll.verticalScrollBar()
+        if bar.maximum() <= 0:
+            return True
+        return bar.value() >= (bar.maximum() - margin)
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.Wheel and source in {self.chat_list, self.scroll.viewport()}:
@@ -571,6 +578,8 @@ class MoriceWindow(QWidget):
                 web_query = extract_web_query(user_input) or (user_input if needs_web(user_input) else None)
                 if web_query:
                     web_context = search_web(web_query)
+                    if not web_context:
+                        web_context = "Web lookup returned no results."
 
             extra_system = ""
             if image_path:

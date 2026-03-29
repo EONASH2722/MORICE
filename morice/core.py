@@ -88,6 +88,7 @@ def wants_help(text: str) -> bool:
 def help_text() -> str:
     return (
         "Commands: wake up son, @notes <question>, @web <query>, @image <path>, precision on/off, math steps on/off.\n"
+        "Web: @web uses DuckDuckGo + Wikipedia fallback for better coverage.\n"
         "Memory: show my last messages, what did I say about <topic>.\n"
         "Ask for code, math, science, or game scripts and I will answer directly."
     )
