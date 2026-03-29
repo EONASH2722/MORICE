@@ -19,7 +19,7 @@ A polished local AI assistant with a glass‑style desktop UI, offline GGUF supp
 ## Quick Start (Ollama)
 1. Install and run Ollama.
 2. Pull a model:
-   - `ollama pull llama3:latest`
+   - Terminal: `ollama pull llama3:latest`
 3. Start MORICE:
    - App: `python -m morice.pyside_app`
    - Terminal: `python -m morice.cli`
