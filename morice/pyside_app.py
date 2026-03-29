@@ -223,13 +223,16 @@ class MoriceWindow(QWidget):
 
         self.chat_list = QWidget()
         self.chat_list_layout = QVBoxLayout(self.chat_list)
-        self.chat_list_layout.setContentsMargins(10, 10, 10, 10)
+        self.chat_list_layout.setContentsMargins(12, 16, 12, 24)
         self.chat_list_layout.setSpacing(10)
         self.chat_list_layout.setAlignment(Qt.AlignTop)
         self.chat_list.setFocusPolicy(Qt.NoFocus)
         self.chat_list.installEventFilter(self)
         self.scroll.setWidget(self.chat_list)
         self.scroll.verticalScrollBar().valueChanged.connect(self._on_scroll_change)
+        self._bottom_spacer = QWidget()
+        self._bottom_spacer.setFixedHeight(8)
+        self.chat_list_layout.addWidget(self._bottom_spacer)
 
         root.addWidget(chat_container, stretch=1)
 
@@ -396,7 +399,8 @@ class MoriceWindow(QWidget):
         bubble.setGraphicsEffect(opacity)
         opacity.setOpacity(0.0)
 
-        self.chat_list_layout.insertWidget(self.chat_list_layout.count(), bubble)
+        insert_index = max(0, self.chat_list_layout.count() - 1)
+        self.chat_list_layout.insertWidget(insert_index, bubble)
 
         anim = QPropertyAnimation(opacity, b"opacity")
         anim.setDuration(250)
