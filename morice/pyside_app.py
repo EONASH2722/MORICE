@@ -53,6 +53,7 @@ from .core import (
     wants_html_cube_movement,
     html_cube_movement_script,
     wake_up_response,
+    riddle_response,
 )
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload, search_notes
 from .llm_client import chat
@@ -191,7 +192,7 @@ class MoriceWindow(QWidget):
         self.last_notes_hits = []
         self.last_notes_term = ""
         self.pending_image_path = ""
-        self.precision_mode = False
+        self.precision_mode = True
         self.math_steps_mode = False
         self.user_scrolled = False
         self.first_user_message = ""
@@ -243,11 +244,11 @@ class MoriceWindow(QWidget):
         self.input.setObjectName("InputBox")
         self.input.returnPressed.connect(self.on_send)
 
-        precision_btn = QPushButton("Precision: OFF")
+        precision_btn = QPushButton("Precision: ON")
         precision_btn.setObjectName("PrecisionButton")
         precision_btn.clicked.connect(self.on_toggle_precision)
         self.precision_btn = precision_btn
-        self.precision_btn.setProperty("active", "false")
+        self.precision_btn.setProperty("active", "true")
 
         attach_btn = QPushButton("Attach")
         attach_btn.setObjectName("AttachButton")
@@ -460,6 +461,11 @@ class MoriceWindow(QWidget):
         summon_message = summon_response(user_input)
         if summon_message:
             self.append_message(MORICE_NAME, summon_message)
+            return
+
+        riddle_reply = riddle_response(user_input)
+        if riddle_reply:
+            self.append_message(MORICE_NAME, enforce_father(riddle_reply))
             return
 
         father_reply = father_identity_response(user_input)

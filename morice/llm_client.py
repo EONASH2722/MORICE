@@ -95,6 +95,11 @@ def _needs_precision(text: str) -> bool:
             "physics",
             "chemistry",
             "science",
+            "rocket",
+            "quantum",
+            "riddle",
+            "puzzle",
+            "logic",
             "algorithm",
         }
     )
@@ -116,8 +121,8 @@ def chat(
     precision_mode: bool = False,
     math_steps_mode: bool = False,
 ):
-    temperature = 0.2 if _needs_precision(user_message) else 0.7
-    top_p = 0.9 if _needs_precision(user_message) else 0.95
+    temperature = 0.2 if _needs_precision(user_message) else 0.5
+    top_p = 0.9 if _needs_precision(user_message) else 0.9
     if precision_mode:
         temperature = 0.1
         top_p = 0.85

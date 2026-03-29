@@ -24,6 +24,68 @@ A polished local AI assistant with a glass‑style desktop UI, offline GGUF supp
    - App: `python -m morice.pyside_app`
    - Terminal: `python -m morice.cli`
 
+## Easy Install (Step‑by‑Step)
+This is the simplest path with the least setup work.
+
+### A) If you want the desktop app only (no coding)
+1. Download the latest `MORICE.exe` (Release build).
+2. Keep the `MORICE.exe` file in a folder of your choice.
+3. Start Ollama and run:
+   - `ollama pull llama3:latest`
+4. Double‑click `MORICE.exe` and chat.
+
+### B) If you want the full source (recommended for updates)
+1. Download or clone the repo.
+2. Install Python 3.12+ and run:
+   - `py -3.12 -m pip install -r requirements.txt` (if you have one)
+3. Install Ollama.
+4. Pull the model:
+   - `ollama pull llama3:latest`
+5. Start MORICE:
+   - `python -m morice.pyside_app`
+
+## What Files Are Included
+This repo contains:
+- App source (`morice/`) and UI files
+- Launchers (`morice_app_launcher.py`, `morice.cmd`)
+- Build files (`MORICE.spec`)
+- README + LICENSE
+
+Large model files are **not** included. You must download them yourself.
+
+## Model Setup (Baby‑Easy)
+If you can run three commands, you’re done:
+
+```bash
+ollama pull llama3:latest
+ollama serve
+python -m morice.pyside_app
+```
+
+That’s it. MORICE will connect automatically.
+
+## How To Open MORICE (App + Terminal)
+### Desktop App (Python)
+```bash
+cd /d D:\MORICE
+python -m morice.pyside_app
+```
+
+### Terminal Chat (Python)
+```bash
+cd /d D:\MORICE
+python -m morice.cli
+```
+
+### One‑Click App (Build)
+If you have the build:
+`D:\MORICE\dist\MORICE\MORICE.exe`
+
+### Shortcut Command (if you added MORICE to PATH)
+```bat
+morice
+```
+
 ## Offline Mode (GGUF)
 1. Install the local engine:
    - `py -3.12 -m pip install llama-cpp-python`

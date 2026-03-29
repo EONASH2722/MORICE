@@ -33,6 +33,7 @@ from .core import (
     wants_html_cube_movement,
     html_cube_movement_script,
     wake_up_response,
+    riddle_response,
 )
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload
 from .llm_client import chat
@@ -66,7 +67,7 @@ def run_cli():
     last_notes_hits = []
     last_notes_term = ""
     pending_image_context = ""
-    precision_mode = False
+    precision_mode = True
     math_steps_mode = False
     first_user_message = ""
     user_messages: list[str] = []
@@ -102,6 +103,11 @@ def run_cli():
         summon_message = summon_response(user_input)
         if summon_message:
             print(f"{MORICE_NAME}: {summon_message}")
+            continue
+
+        riddle_reply = riddle_response(user_input)
+        if riddle_reply:
+            print(f"{MORICE_NAME}: {enforce_father(riddle_reply)}")
             continue
 
         father_reply = father_identity_response(user_input)
