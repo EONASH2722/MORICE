@@ -55,7 +55,7 @@ Notes are on‑demand by default: use `@notes` in your prompt.
 ## Web Lookup
 Web lookup is enabled by default:
 
-Ex- `@web latest unity 3d version`
+Example- `@web latest unity 3d version`
 
 Disable with:
 `set MORICE_WEB=0`
