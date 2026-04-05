@@ -1,30 +1,41 @@
 # MORICE
 
-A polished local AI assistant with a glass‑style desktop UI, offline GGUF support, and on‑demand knowledge lookup. Built to run smoothly on mid‑range gaming laptops while still feeling fast, responsive, and human.
+A polished local AI assistant with a glass-style desktop UI, offline GGUF support, and on-demand knowledge lookup. Built to run smoothly on mid-range gaming laptops while still feeling fast, responsive, and human.
 
 ## Highlights ✨
 - Glass UI app (PySide6) with smooth interactions and precision toggle.
 - Terminal mode for quick workflows. ⚡
 - Local models via Ollama or offline GGUF (llama.cpp). 🧠
-- On‑demand notes with `@notes` and lightweight web lookup. 📚
+- On-demand notes with `@notes` and lightweight web lookup. 📚
 - Image OCR (text extraction) for screenshots and notes. 🖼️
+
+## Core Strengths
+MORICE shines when you want fast, local, practical help without cloud dependence. Its strongest areas are problem solving, code generation, and grounding answers in your own notes.
+
+- Local-first reliability: runs on your machine (Ollama or GGUF) and can work offline.
+- Coding and scripting: generates complete, runnable code and practical commands.
+- Math and logic: handles equations, step-by-step reasoning, and trick riddles when needed.
+- Knowledge grounding: pulls answers from `@notes` and supports lightweight web lookups.
+- Clear, actionable output: concise answers with just enough detail to execute.
+
+Tip: the model sets the ceiling. Best results come from Llama 3.1 8B (or higher) with web lookup enabled.
 
 ## System Requirements
 - Windows 10/11 (x64)
 - CPU: 4+ cores recommended
 - RAM: 16 GB recommended (8 GB minimum)
-- GPU: RTX 3050 (6–8 GB VRAM) or better for faster generation
-- Disk: ~15–25 GB free if you keep GGUF models locally
+- GPU: RTX 3050 (6-8 GB VRAM) or better for faster generation
+- Disk: ~15-25 GB free if you keep GGUF models locally
 
 ## Quick Start (Ollama)
 1. Install and run Ollama.
 2. Pull a model:
-   - Terminal: `ollama pull llama3:latest`
+   - `ollama pull llama3:latest`
 3. Start MORICE:
    - App: `python -m morice.pyside_app`
    - Terminal: `python -m morice.cli`
 
-## Easy Install (Step‑by‑Step)
+## Easy Install (Step-by-Step)
 This is the simplest path with the least setup work.
 
 ### A) If you want the desktop app only (no coding)
@@ -32,7 +43,7 @@ This is the simplest path with the least setup work.
 2. Keep the `MORICE.exe` file in a folder of your choice.
 3. Start Ollama and run:
    - `ollama pull llama3:latest`
-4. Double‑click `MORICE.exe` and chat.
+4. Double-click `MORICE.exe` and chat.
 
 ### B) If you want the full source (recommended for updates)
 1. Download or clone the repo.
@@ -51,9 +62,9 @@ This repo contains:
 - Build files (`MORICE.spec`)
 - README + LICENSE
 
-Large model files are **not** included. You must download them yourself.
+Large model files are not included. You must download them yourself.
 
-## Model Setup (Baby‑Easy)
+## Model Setup (Baby-Easy)
 If you can run three commands, you’re done:
 
 ```bash
@@ -77,7 +88,7 @@ cd /d D:\MORICE
 python -m morice.cli
 ```
 
-### One‑Click App (Build)
+### One-Click App (Build)
 If you have the build:
 `D:\MORICE\dist\MORICE\MORICE.exe`
 
@@ -112,10 +123,10 @@ Default folder:
 Change it with:
 `setx MORICE_KB_DIR "D:\your\folder"`
 
-Notes are on‑demand by default: use `@notes` in your prompt.
+Notes are on-demand by default: use `@notes` in your prompt.
 
 ## Web Lookup
-Web lookup is enabled by default:
+Web lookup is enabled by default and uses DuckDuckGo with Wikipedia fallback.
 
 Example: `@web latest unity 3d version`
 
@@ -127,7 +138,7 @@ The app can extract text from images (OCR). This is for reading text, not full i
 
 ## Modes
 - `precision on` / `precision off` for higher accuracy in code + math
-- `math steps on` / `math steps off` for step‑by‑step math
+- `math steps on` / `math steps off` for step-by-step math
 
 ## Environment Variables
 - `MORICE_MODEL` sets Ollama model name
@@ -154,7 +165,7 @@ If you want a fresh desktop build:
 ## Warning ⚠️
 - Models can use a lot of VRAM. If you get OOM, lower GPU layers or use CPU.
 - GGUF files are large. Use Git LFS or external hosting for repo storage.
-- OCR is text‑only; it will not “understand” images like a vision model.
+- OCR is text-only; it will not “understand” images like a vision model.
 
 ## Roadmap
 MORICE is actively evolving. Some parts of the app may still show minor glitches or UI quirks, and there is room for performance and UX upgrades. These fixes and improvements are planned for the near future.
@@ -170,4 +181,4 @@ Code: MIT (see LICENSE).
 Models: If you use Meta Llama 3.1, you must follow the Meta Llama 3.1 Community License. This repo does not bundle models unless you add them yourself.
 
 ---
-Built for performance, clarity, and real‑world use. 🧩
+Built for performance, clarity, and real-world use. 🧩
