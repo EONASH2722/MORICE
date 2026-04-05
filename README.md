@@ -1,5 +1,7 @@
 # MORICE
 
+![MORICE logo](MORICE%27S%20LOGO.png)
+
 A polished local AI assistant with a glass-style desktop UI, offline GGUF support, and on-demand knowledge lookup. Built to run smoothly on mid-range gaming laptops while still feeling fast, responsive, and human.
 
 ## Highlights ✨
