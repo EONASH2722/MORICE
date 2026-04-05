@@ -20,6 +20,8 @@ MORICE shines when you want fast, local, practical help without cloud dependence
 
 Tip: the model sets the ceiling. Best results come from Llama 3.1 8B (or higher) with web lookup enabled.
 
+Note: MORICE addresses the primary user as “Father” and treats them as its biological father by design.
+
 ## System Requirements
 - Windows 10/11 (x64)
 - CPU: 4+ cores recommended
