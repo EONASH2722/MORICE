@@ -4,6 +4,8 @@
 
 A polished local AI assistant with a glass-style desktop UI, offline GGUF support, and on-demand knowledge lookup. Built to run smoothly on mid-range gaming laptops while still feeling fast, responsive, and human.
 
+Repo: [github.com/EONASH2722/MORICE](https://github.com/EONASH2722/MORICE)
+
 ## Highlights ✨
 - Glass UI app (PySide6) with smooth interactions and precision toggle.
 - Terminal mode for quick workflows. ⚡
@@ -22,7 +24,7 @@ MORICE shines when you want fast, local, practical help without cloud dependence
 
 Tip: the model sets the ceiling. Best results come from Llama 3.1 8B (or higher) with web lookup enabled.
 
-Note: MORICE addresses the primary user as “Father” and treats them as its biological father by design.
+Note: MORICE addresses the primary user as "Father" and treats them as its biological father by design.
 
 ## System Requirements
 - Windows 10/11 (x64)
@@ -69,7 +71,7 @@ This repo contains:
 Large model files are not included. You must download them yourself.
 
 ## Model Setup (Baby-Easy)
-If you can run three commands, you’re done:
+If you can run three commands, you're done:
 
 ```bash
 ollama pull llama3:latest
@@ -77,7 +79,7 @@ ollama serve
 python -m morice.pyside_app
 ```
 
-That’s it. MORICE will connect automatically.
+That's it. MORICE will connect automatically.
 
 ## How To Open MORICE (App + Terminal)
 ### Desktop App (Python)
@@ -139,6 +141,7 @@ Disable with:
 
 ## Image OCR
 The app can extract text from images (OCR). This is for reading text, not full image reasoning.
+Image reading is still rough and can miss text; a stronger OCR pipeline is planned.
 
 ## Modes
 - `precision on` / `precision off` for higher accuracy in code + math
@@ -169,7 +172,7 @@ If you want a fresh desktop build:
 ## Warning ⚠️
 - Models can use a lot of VRAM. If you get OOM, lower GPU layers or use CPU.
 - GGUF files are large. Use Git LFS or external hosting for repo storage.
-- OCR is text-only; it will not “understand” images like a vision model.
+- OCR is text-only; it will not "understand" images like a vision model.
 
 ## Roadmap
 MORICE is actively evolving. Some parts of the app may still show minor glitches or UI quirks, and there is room for performance and UX upgrades. These fixes and improvements are planned for the near future.
