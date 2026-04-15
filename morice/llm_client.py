@@ -1,9 +1,10 @@
 import json
 import os
+import socket
 import urllib.error
 import urllib.request
 
-from .core import SYSTEM_PROMPT
+from .core import SYSTEM_PROMPT, emotional_checkin_response
 from .local_llama import chat as local_chat
 from .llama_server import ensure_server
 
@@ -25,6 +26,12 @@ def _post_json(url, payload, timeout):
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _get_json(url, timeout):
+    request = urllib.request.Request(url, headers={"Accept": "application/json"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
@@ -70,6 +77,20 @@ def _try_openai_chat(base_url, payload, timeout):
     return content or "(No response)"
 
 
+def _list_ollama_models(base_url, timeout=8):
+    try:
+        data = _get_json(f"{base_url.rstrip('/')}/api/tags", timeout)
+    except Exception:
+        return []
+
+    names = []
+    for item in data.get("models", []):
+        name = (item.get("name") or item.get("model") or "").strip()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
 def _needs_precision(text: str) -> bool:
     lowered = text.lower()
     return any(
@@ -109,6 +130,105 @@ def _resolve_gguf_path():
     if DEFAULT_GGUF and os.path.exists(DEFAULT_GGUF):
         return DEFAULT_GGUF
     return ""
+
+
+def _fallback_models(requested_model, base_url, user_message):
+    available = _list_ollama_models(base_url)
+    if not available:
+        return []
+
+    is_precision_task = _needs_precision(user_message)
+
+    def score(name):
+        lowered = name.lower()
+        value = 100
+        if "-cloud" in lowered:
+            value += 1000
+        if requested_model and lowered == requested_model.lower():
+            value += 300
+        if "deepseek-r1:1.5b" in lowered:
+            value -= 55
+        if "llama3" in lowered:
+            value -= 35 if not is_precision_task else 20
+        if "deepseek-coder" in lowered:
+            value -= 45 if is_precision_task else 5
+        if "120b" in lowered:
+            value += 400
+        return value
+
+    ordered = []
+    for name in sorted(available, key=score):
+        if "-cloud" in name.lower():
+            continue
+        if requested_model and name.lower() == requested_model.lower():
+            continue
+        ordered.append(name)
+    return ordered
+
+
+def _friendly_backend_reply(user_message, requested_model, fallback_used):
+    emotional = emotional_checkin_response(user_message)
+    if emotional:
+        return emotional
+
+    fallback_hint = ""
+    if fallback_used:
+        fallback_hint = f" I also tried {fallback_used}."
+    if requested_model:
+        return (
+            f"My local model stumbled, Father.{fallback_hint} "
+            f"Fast fix: reopen Ollama or switch MORICE to a lighter model like deepseek-r1:1.5b. "
+            f"Current model: {requested_model}."
+        )
+    return (
+        "My local model stumbled, Father. Fast fix: reopen Ollama or set MORICE_MODEL to a lighter local model like "
+        "deepseek-r1:1.5b."
+    )
+
+
+def _is_timeout_error(exc):
+    reason = getattr(exc, "reason", None)
+    return isinstance(reason, (TimeoutError, socket.timeout))
+
+
+def _try_ollama_messages(base_url, messages, model, timeout, temperature, top_p):
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {"temperature": temperature, "top_p": top_p},
+    }
+
+    last_error = None
+
+    try:
+        return _try_chat_endpoint(base_url, payload, timeout)
+    except urllib.error.HTTPError as exc:
+        last_error = exc
+        if exc.code not in {404, 405, 500}:
+            raise
+    except urllib.error.URLError:
+        raise
+
+    try:
+        return _try_generate_endpoint(base_url, messages, model, timeout)
+    except urllib.error.HTTPError as exc:
+        last_error = exc
+        if exc.code not in {404, 405, 500}:
+            raise
+    except urllib.error.URLError:
+        raise
+
+    try:
+        return _try_openai_chat(base_url, payload, timeout)
+    except urllib.error.URLError:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        last_error = exc
+
+    if last_error:
+        raise last_error
+    raise RuntimeError("No supported local model endpoint succeeded.")
 
 
 def chat(
@@ -192,49 +312,34 @@ def chat(
     messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
-    payload = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-        "options": {"temperature": temperature, "top_p": top_p},
-    }
+    fallback_models = _fallback_models(model, base_url, user_message)
 
     try:
-        return _try_chat_endpoint(base_url, payload, timeout)
+        return _try_ollama_messages(base_url, messages, model, timeout, temperature, top_p)
     except urllib.error.HTTPError as exc:
-        if exc.code == 500:
-            return (
-                "(MORICE) Ollama returned 500. Make sure it is running and the model exists. "
-                f"Try: ollama run {model}"
-            )
-        if exc.code not in {404, 405}:
+        if exc.code not in {404, 405, 500}:
             return f"(MORICE) Model error: {exc}"
     except urllib.error.URLError as exc:
-        return (
-            f"(MORICE) Could not reach the local model at {base_url}. "
-            f"Details: {exc}"
-        )
-
-    try:
-        return _try_generate_endpoint(base_url, messages, model, timeout)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 500:
+        if not _is_timeout_error(exc):
             return (
-                "(MORICE) Ollama returned 500. Make sure it is running and the model exists. "
-                f"Try: ollama run {model}"
+                f"(MORICE) Could not reach the local model at {base_url}. "
+                f"Details: {exc}"
             )
-        if exc.code not in {404, 405}:
-            return f"(MORICE) Model error: {exc}"
-    except urllib.error.URLError as exc:
-        return (
-            f"(MORICE) Could not reach the local model at {base_url}. "
-            f"Details: {exc}"
-        )
+    except Exception:
+        pass
 
-    try:
-        return _try_openai_chat(base_url, payload, timeout)
-    except urllib.error.URLError as exc:
-        return (
-            f"(MORICE) Could not reach the local model at {base_url}. "
-            f"Details: {exc}"
-        )
+    for fallback_model in fallback_models:
+        try:
+            return _try_ollama_messages(base_url, messages, fallback_model, max(timeout, 180), temperature, top_p)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in {404, 405, 500}:
+                return f"(MORICE) Model error: {exc}"
+        except urllib.error.URLError as exc:
+            if _is_timeout_error(exc):
+                continue
+            break
+        except Exception:
+            continue
+
+    fallback_used = fallback_models[0] if fallback_models else ""
+    return _friendly_backend_reply(user_message, model, fallback_used)

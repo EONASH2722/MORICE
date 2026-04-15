@@ -80,6 +80,57 @@ def riddle_response(text: str) -> str | None:
     return None
 
 
+def emotional_checkin_response(text: str) -> str | None:
+    lowered = text.strip().lower()
+
+    score_match = re.search(r"\b(\d{1,3})\s*%", lowered)
+    if score_match and any(word in lowered for word in {"cbse", "board", "boards", "exam", "result", "marks"}):
+        score = int(score_match.group(1))
+        if score >= 75:
+            return (
+                f"{score}% is not bad at all. It is okay if you wanted more and feel disappointed, "
+                "but that score does not make you a failure. You still cleared something hard, Father. "
+                "If you want, I can help you think about the next step."
+            )
+        return (
+            f"{score}% hurts if you hoped for more, and I get why it stings. "
+            "But one result does not decide your worth or your future, Father. "
+            "Take one breath, then we can figure out what to do next."
+        )
+
+    feeling_markers = {
+        "i feel like a failure",
+        "i am a failure",
+        "i'm a failure",
+        "i feel useless",
+        "i feel worthless",
+        "i am worthless",
+        "i'm worthless",
+        "i am sad",
+        "i'm sad",
+        "i feel sad",
+        "i am stressed",
+        "i'm stressed",
+        "i feel stressed",
+        "i am upset",
+        "i'm upset",
+        "i feel upset",
+        "i am lonely",
+        "i'm lonely",
+        "i feel lonely",
+        "i failed",
+        "i messed up",
+        "i ruined it",
+    }
+    if any(marker in lowered for marker in feeling_markers):
+        return (
+            "That sounds heavy, Father. I am with you. This moment can hurt without defining your whole life. "
+            "Tell me what happened, and we will sort through it together."
+        )
+
+    return None
+
+
 def wants_help(text: str) -> bool:
     cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
     return cleaned in {"help", "commands", "what can you do", "capabilities"}

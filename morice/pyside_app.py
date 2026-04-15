@@ -54,6 +54,7 @@ from .core import (
     html_cube_movement_script,
     wake_up_response,
     riddle_response,
+    emotional_checkin_response,
 )
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload, search_notes
 from .llm_client import chat
@@ -477,6 +478,11 @@ class MoriceWindow(QWidget):
         riddle_reply = riddle_response(user_input)
         if riddle_reply:
             self.append_message(MORICE_NAME, enforce_father(riddle_reply))
+            return
+
+        emotional_reply = emotional_checkin_response(user_input)
+        if emotional_reply:
+            self.append_message(MORICE_NAME, enforce_father(emotional_reply))
             return
 
         father_reply = father_identity_response(user_input)
