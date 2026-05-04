@@ -64,7 +64,8 @@ def run_cli():
     print(f"{MORICE_NAME} terminal is ready. Type 'exit' to quit.")
     history = []
 
-    awake = False
+    # Start awake so normal chat works immediately from the first message.
+    awake = True
     last_notes_hits = []
     last_notes_term = ""
     pending_image_context = ""

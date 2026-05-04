@@ -43,7 +43,8 @@ class MoriceApp(tk.Tk):
             pass
 
         self.history = []
-        self.awake = False
+        # Start awake so normal chat works immediately from the first message.
+        self.awake = True
         self.last_notes_hits = []
         self.last_notes_term = ""
 

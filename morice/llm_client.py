@@ -1,6 +1,9 @@
 import json
 import os
+import shutil
 import socket
+import subprocess
+import time
 import urllib.error
 import urllib.request
 
@@ -16,7 +19,13 @@ DEFAULT_GPU_LAYERS = int(os.getenv("MORICE_GPU_LAYERS", "0"))
 DEFAULT_CHAT_FORMAT = os.getenv("MORICE_CHAT_FORMAT", "").strip() or None
 DEFAULT_THREADS = int(os.getenv("MORICE_THREADS", str(max(1, (os.cpu_count() or 4) - 2))))
 DEFAULT_BATCH = int(os.getenv("MORICE_BATCH", "64"))
-DEFAULT_USE_SERVER = os.getenv("MORICE_LLAMA_SERVER", "0") == "1"
+DEFAULT_USE_SERVER = os.getenv("MORICE_LLAMA_SERVER", "1") == "1"
+DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "256"))
+_OLLAMA_PROCESS = None
+
+
+def _asset_path(*parts: str) -> str:
+    return os.path.join(os.path.dirname(__file__), "assets", *parts)
 
 
 def _post_json(url, payload, timeout):
@@ -34,6 +43,53 @@ def _get_json(url, timeout):
     request = urllib.request.Request(url, headers={"Accept": "application/json"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _ollama_exe() -> str:
+    explicit = os.getenv("MORICE_OLLAMA_EXE", "").strip()
+    if explicit and os.path.exists(explicit):
+        return explicit
+    discovered = shutil.which("ollama")
+    if discovered:
+        return discovered
+    local_appdata = os.getenv("LOCALAPPDATA", "")
+    candidate = os.path.join(local_appdata, "Programs", "Ollama", "ollama.exe")
+    if candidate and os.path.exists(candidate):
+        return candidate
+    return ""
+
+
+def _is_ollama_ready(base_url: str) -> bool:
+    try:
+        _get_json(f"{base_url.rstrip('/')}/api/tags", timeout=2)
+        return True
+    except Exception:
+        return False
+
+
+def _ensure_ollama(base_url: str) -> bool:
+    global _OLLAMA_PROCESS
+
+    if _is_ollama_ready(base_url):
+        return True
+
+    exe = _ollama_exe()
+    if not exe:
+        return False
+
+    if not _OLLAMA_PROCESS or _OLLAMA_PROCESS.poll() is not None:
+        _OLLAMA_PROCESS = subprocess.Popen(
+            [exe, "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+
+    for _ in range(30):
+        if _is_ollama_ready(base_url):
+            return True
+        time.sleep(0.5)
+    return False
 
 
 def _build_prompt(messages):
@@ -59,6 +115,7 @@ def _try_generate_endpoint(base_url, messages, model, timeout):
         "model": model,
         "prompt": _build_prompt(messages),
         "stream": False,
+        "options": {"num_predict": DEFAULT_MAX_TOKENS},
     }
     data = _post_json(generate_url, prompt_payload, timeout)
     content = data.get("response", "").strip()
@@ -78,6 +135,7 @@ def _try_openai_chat(base_url, payload, timeout):
 
 
 def _list_ollama_models(base_url, timeout=8):
+    _ensure_ollama(base_url)
     try:
         data = _get_json(f"{base_url.rstrip('/')}/api/tags", timeout)
     except Exception:
@@ -129,6 +187,11 @@ def _needs_precision(text: str) -> bool:
 def _resolve_gguf_path():
     if DEFAULT_GGUF and os.path.exists(DEFAULT_GGUF):
         return DEFAULT_GGUF
+    if DEFAULT_MODEL:
+        return ""
+    bundled = _asset_path("Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf")
+    if os.path.exists(bundled):
+        return bundled
     return ""
 
 
@@ -196,7 +259,11 @@ def _try_ollama_messages(base_url, messages, model, timeout, temperature, top_p)
         "model": model,
         "messages": messages,
         "stream": False,
-        "options": {"temperature": temperature, "top_p": top_p},
+        "options": {
+            "temperature": temperature,
+            "top_p": top_p,
+            "num_predict": DEFAULT_MAX_TOKENS,
+        },
     }
 
     last_error = None
@@ -268,6 +335,7 @@ def chat(
                 "stream": False,
                 "temperature": temperature,
                 "top_p": top_p,
+                "max_tokens": DEFAULT_MAX_TOKENS,
             }
             try:
                 base_url = ensure_server(
@@ -312,6 +380,7 @@ def chat(
     messages.extend(history)
     messages.append({"role": "user", "content": user_message})
 
+    _ensure_ollama(base_url)
     fallback_models = _fallback_models(model, base_url, user_message)
 
     try:
@@ -321,10 +390,8 @@ def chat(
             return f"(MORICE) Model error: {exc}"
     except urllib.error.URLError as exc:
         if not _is_timeout_error(exc):
-            return (
-                f"(MORICE) Could not reach the local model at {base_url}. "
-                f"Details: {exc}"
-            )
+            fallback_used = fallback_models[0] if fallback_models else ""
+            return _friendly_backend_reply(user_message, model, fallback_used)
     except Exception:
         pass
 

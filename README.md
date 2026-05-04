@@ -140,8 +140,9 @@ Disable with:
 `set MORICE_WEB=0`
 
 ## Image OCR
-The app can extract text from images (OCR). This is for reading text, not full image reasoning.
-Image reading is still rough and can miss text; a stronger OCR pipeline is planned.
+OCR is temporarily disabled in the current build.
+Tesseract was used for early testing, then removed while the next OCR backend is being prepared.
+Image attachments still work, but text extraction is not active right now.
 
 ## Modes
 - `precision on` / `precision off` for higher accuracy in code + math
@@ -172,7 +173,7 @@ If you want a fresh desktop build:
 ## Warning ⚠️
 - Models can use a lot of VRAM. If you get OOM, lower GPU layers or use CPU.
 - GGUF files are large. Use Git LFS or external hosting for repo storage.
-- OCR is text-only; it will not "understand" images like a vision model.
+- OCR is currently disabled while the next OCR backend is being integrated.
 
 ## Roadmap
 MORICE is actively evolving. Some parts of the app may still show minor glitches or UI quirks, and there is room for performance and UX upgrades. These fixes and improvements are planned for the near future.

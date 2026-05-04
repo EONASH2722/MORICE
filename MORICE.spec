@@ -13,7 +13,7 @@ a = Analysis(
         (os.path.join(project_dir, 'morice', 'assets', 'morice_logo.ico'), 'morice\\assets'),
         (os.path.join(project_dir, 'morice', 'assets', 'Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf'), 'morice\\assets'),
         (os.path.join(project_dir, 'morice', 'assets', 'llama-bin'), 'morice\\assets\\llama-bin'),
-        (os.path.join(project_dir, 'morice', 'assets', 'tesseract'), 'morice\\assets\\tesseract'),
+        (os.path.join(project_dir, 'morice', 'assets', 'OCR_NOTES.md'), 'morice\\assets'),
     ],
     hiddenimports=[],
     hookspath=[],

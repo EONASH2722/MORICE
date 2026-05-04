@@ -24,7 +24,8 @@ dist/
 *.gguf
 *.bin
 morice/assets/llama-bin/
-morice/assets/tesseract/
+# OCR note:
+# Tesseract was used for early OCR testing, but the runtime bundle was removed.
 
 # OS
 .DS_Store

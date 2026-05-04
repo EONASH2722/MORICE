@@ -189,13 +189,16 @@ class MoriceWindow(QWidget):
             self.setWindowIcon(QIcon(icon_path))
 
         self.history = []
-        self.awake = False
+        # Start awake so normal chat works immediately from the first message.
+        self.awake = True
         self.last_notes_hits = []
         self.last_notes_term = ""
         self.pending_image_path = ""
         self.precision_mode = True
         self.math_steps_mode = False
-        self.user_scrolled = False
+        self.follow_latest = True
+        self._auto_scrolling = False
+        self._last_scroll_max = 0
         self.first_user_message = ""
         self.user_messages: list[str] = []
 
@@ -230,7 +233,10 @@ class MoriceWindow(QWidget):
         self.chat_list.setFocusPolicy(Qt.NoFocus)
         self.chat_list.installEventFilter(self)
         self.scroll.setWidget(self.chat_list)
-        self.scroll.verticalScrollBar().valueChanged.connect(self._on_scroll_change)
+        scroll_bar = self.scroll.verticalScrollBar()
+        self._last_scroll_max = scroll_bar.maximum()
+        scroll_bar.valueChanged.connect(self._on_scroll_change)
+        scroll_bar.rangeChanged.connect(self._on_scroll_range_change)
         self._bottom_spacer = QWidget()
         self._bottom_spacer.setFixedHeight(8)
         self.chat_list_layout.addWidget(self._bottom_spacer)
@@ -307,6 +313,33 @@ class MoriceWindow(QWidget):
                 background: rgba(0,0,0,0.92);
                 border-radius: 14px;
                 border: 1px solid rgba(255,255,255,0.08);
+            }
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: rgba(255,255,255,0.035);
+                width: 12px;
+                margin: 8px 3px 8px 0;
+                border-radius: 6px;
+            }
+            QScrollBar::handle:vertical {
+                background: rgba(120,160,220,0.48);
+                min-height: 48px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: rgba(140,185,255,0.68);
+            }
+            QScrollBar::add-line:vertical,
+            QScrollBar::sub-line:vertical {
+                height: 0;
+                background: transparent;
+            }
+            QScrollBar::add-page:vertical,
+            QScrollBar::sub-page:vertical {
+                background: transparent;
             }
             #InputFrame {
                 background: rgba(20,20,20,0.7);
@@ -392,8 +425,13 @@ class MoriceWindow(QWidget):
         except Exception:
             pass
 
-    def append_message(self, author: str, message: str, is_user: bool = False):
-        was_at_bottom = self._is_at_bottom()
+    def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
+        should_follow = self.follow_latest or self._is_at_bottom()
+        if force_scroll is None:
+            force_scroll = is_user or should_follow
+        if force_scroll:
+            self.follow_latest = True
+
         bubble = ChatBubble(author, message, is_user=is_user)
         bubble.installEventFilter(self)
         opacity = QGraphicsOpacityEffect(bubble)
@@ -412,45 +450,79 @@ class MoriceWindow(QWidget):
         self._anims.append(anim)
         anim.start()
 
-        QTimer.singleShot(0, lambda: self._maybe_autoscroll(force=was_at_bottom))
+        self._schedule_latest_scroll(force=force_scroll)
 
     def _on_scroll_change(self, value: int):
-        bar = self.scroll.verticalScrollBar()
-        if bar.maximum() <= 0:
-            self.user_scrolled = False
+        if self._auto_scrolling:
             return
-        self.user_scrolled = value < (bar.maximum() - 40)
 
-    def _maybe_autoscroll(self, force: bool = False):
+        bar = self.scroll.verticalScrollBar()
+        maximum = bar.maximum()
+        if maximum <= 0:
+            self.follow_latest = True
+            return
+
+        old_max = max(0, self._last_scroll_max)
+        if maximum != old_max and value >= old_max - 48:
+            self.follow_latest = True
+            return
+
+        self.follow_latest = value >= maximum - 48
+
+    def _on_scroll_range_change(self, _minimum: int, maximum: int):
+        bar = self.scroll.verticalScrollBar()
+        old_max = self._last_scroll_max
+        was_following = self.follow_latest or bar.value() >= old_max - 48
+        self._last_scroll_max = maximum
+        if was_following:
+            self.follow_latest = True
+            self._schedule_latest_scroll(force=True)
+
+    def _schedule_latest_scroll(self, force: bool = False):
+        if force:
+            self.follow_latest = True
+        if not self.follow_latest:
+            return
+
+        for delay in (0, 16, 50, 120):
+            QTimer.singleShot(delay, self._scroll_to_latest)
+
+    def _scroll_to_latest(self):
+        if not self.follow_latest:
+            return
+
         bar = self.scroll.verticalScrollBar()
         if bar.maximum() <= 0:
             return
-        if force or not self.user_scrolled:
+        self._auto_scrolling = True
+        try:
             bar.setValue(bar.maximum())
+        finally:
+            self._auto_scrolling = False
+        self.follow_latest = True
 
-    def _is_at_bottom(self, margin: int = 8) -> bool:
+    def _is_at_bottom(self, margin: int = 48) -> bool:
         bar = self.scroll.verticalScrollBar()
         if bar.maximum() <= 0:
             return True
         return bar.value() >= (bar.maximum() - margin)
 
     def eventFilter(self, source, event):
-        if event.type() == QEvent.Wheel and source in {self.chat_list, self.scroll.viewport()}:
-            bar = self.scroll.verticalScrollBar()
-            bar.setValue(bar.value() - event.angleDelta().y())
-            return True
-        if event.type() == QEvent.Wheel and isinstance(source, ChatBubble):
-            bar = self.scroll.verticalScrollBar()
-            bar.setValue(bar.value() - event.angleDelta().y())
-            return True
+        if event.type() == QEvent.Wheel:
+            return False
         return super().eventFilter(source, event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._schedule_latest_scroll()
 
     def on_send(self):
         user_input = self.input.text().strip()
         if not user_input:
             return
+        self.follow_latest = True
         self.input.clear()
-        self.append_message("All Father", user_input, is_user=True)
+        self.append_message("All Father", user_input, is_user=True, force_scroll=True)
         self.user_messages.append(user_input)
         if not self.first_user_message:
             self.first_user_message = user_input
