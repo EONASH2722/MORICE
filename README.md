@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="morice/assets/morice_logo.png" alt="MORICE logo" width="150">
+  <img src="morice/assets/morice-logo-rgb.png" alt="MORICE logo" width="150">
 </p>
 
 # MORICE
@@ -7,13 +7,13 @@
 MORICE is a local desktop AI assistant with a PySide6 tinted-glass interface, offline GGUF support, notes lookup, optional web lookup, a wake listener, detailed structured replies, and a reorderable message queue.
 
 <p align="center">
-  <img src="docs/screenshots/morice-home.png" alt="MORICE centered launch screen" width="48%">
-  <img src="docs/screenshots/morice-panel.png" alt="MORICE personalization panel" width="48%">
+  <img src="docs/screenshots/morice-2026-home.png" alt="MORICE centered launch screen" width="48%">
+  <img src="docs/screenshots/morice-2026-panel.png" alt="MORICE personalization panel" width="48%">
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/morice-queue.png" alt="MORICE chat with message queue panel" width="48%">
-  <img src="docs/screenshots/morice-chat.png" alt="MORICE chat screen" width="48%">
+  <img src="docs/screenshots/morice-2026-queue.png" alt="MORICE chat with message queue panel" width="48%">
+  <img src="docs/screenshots/morice-2026-chat.png" alt="MORICE chat screen" width="48%">
 </p>
 
 ## Highlights
