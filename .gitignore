@@ -30,3 +30,11 @@ morice/assets/llama-bin/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local dependencies, voice packs, and private runtime memory
+node_modules/
+voice_models/
+*.whl
+*.tar.gz
+MORICE_ENGINE.txt
+MORICE_MEMORY.txt

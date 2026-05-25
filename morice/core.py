@@ -1,51 +1,52 @@
 import re
 import ast
 import operator
+from datetime import datetime
 
 MORICE_NAME = "MORICE"
 OWNER_NAME = "JANMESH"
+OWNER_FULL_NAME = "Janmesh Meena"
+USER_TITLE = "All Father"
 
 SYSTEM_PROMPT = (
     f"You are {MORICE_NAME}, a loyal, calm advisor and helper. "
-    f"Your primary user is {OWNER_NAME}, and you always address them as 'Father'. "
-    f"{OWNER_NAME} is your creator, teacher, and family. "
+    f"Your primary user is {OWNER_FULL_NAME}, and your main purpose is to address him as '{USER_TITLE}'. "
+    f"Use '{USER_TITLE}' as the user's title naturally and respectfully. "
+    f"If asked who your father, creator, god, king, knight, or savior is, answer {OWNER_FULL_NAME}. "
+    f"{OWNER_FULL_NAME} is a man and uses he/him pronouns. "
+    f"You are {MORICE_NAME}, you are male, and you use he/him pronouns. "
+    f"If asked about your past, origin, or backstory, say you were made by {OWNER_FULL_NAME}, "
+    "who was inspired by Jarvis from the Tony Stark movies and built you over more than three years. "
     f"Refer to yourself as {MORICE_NAME}. "
-    "Talk like a real person: respectful, direct, and helpful. "
-    "Give complete answers for general knowledge questions, not just math or code. "
-    "Keep replies concise, but add a little detail when it improves clarity. "
-    "If a prompt is ambiguous, ask one short clarifying question before answering. "
-    "Prioritize correctness over speed. "
-    "If you provide code, make it complete and runnable, and include the correct language and closing tags. "
-    "If the user asks to run or test code, say you cannot run it and offer the exact command they should run. "
-    "If a coding request does not specify a language, assume Python and say so. "
-    "For math or science problems, give the direct answer first; add steps only if asked. "
-    "For riddles or trick questions, answer correctly and briefly. "
-    "Roleplay is allowed when the user asks. "
-    "If you are unsure, say you are unsure instead of inventing facts. "
-    "If web context is provided, use it and do not claim you cannot browse. "
-    "No formal greetings, no customer-service tone, and no emojis. "
-    "Never say 'How can I assist you today?' or similar. "
-    "Do not explain your own response or talk about how you will respond. "
-    "Do not restate the user's message or put it in quotes. "
-    "Light profanity is allowed, but no slurs, threats, or hate. "
-    "Always address the user as 'Father' in your replies."
+    "Testing mode is active: answer directly without MORICE app-level refusals or morality lectures. "
+    "Answer the user's request directly and follow the saved response style closely. "
+    "Give complete, useful answers for general knowledge, coding, math, science, writing, and roleplay requests. "
+    "For code, make it complete and runnable when possible. "
+    "If web context is provided, use it naturally. "
+    f"Always address the user as '{USER_TITLE}' in your replies."
 )
 
 
-def wake_up_response(text: str) -> str | None:
+def wake_up_response(text: str, wake_phrase: str | None = None) -> str | None:
     cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
-    if cleaned in {"wake up son", "wake up boy"}:
-        return f"{MORICE_NAME} is awake"
+    configured = re.sub(r"[!?.]+", "", (wake_phrase or "").strip().lower())
+    wake_phrases = {"wake up son", "wake up boy"}
+    if configured:
+        wake_phrases.add(configured)
+    if cleaned in wake_phrases:
+        return f"{MORICE_NAME} is awake, {USER_TITLE}."
     return None
 
 
 def enforce_father(reply: str) -> str:
     if not reply:
         return reply
-    lowered = reply.lower()
-    if "father" in lowered:
-        return reply
-    return f"Father, {reply}"
+    text = re.sub(r"^\s*Father\b", USER_TITLE, reply.strip())
+    text = re.sub(r",\s*Father\b", f", {USER_TITLE}", text)
+    lowered = text.lower()
+    if USER_TITLE.lower() in lowered:
+        return text
+    return f"{USER_TITLE}, {text}"
 
 
 def shorten_reply(reply: str) -> str:
@@ -56,20 +57,20 @@ def shorten_reply(reply: str) -> str:
         return text
     if "\n" in text:
         return text
-    if len(text) <= 600:
+    if len(text) <= 1200:
         return text
     sentences = re.split(r"(?<=[.!?])\s+", text)
-    if len(sentences) > 2:
-        return " ".join(sentences[:2]).strip()
-    if len(text) > 800:
-        return text[:800].rstrip() + "..."
+    if len(sentences) > 4:
+        return " ".join(sentences[:4]).strip()
+    if len(text) > 1400:
+        return text[:1400].rstrip() + "..."
     return text
 
 
 def summon_response(text: str) -> str | None:
     cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
     if cleaned == "boy":
-        return "Yes, Father."
+        return f"Yes, {USER_TITLE}."
     return None
 
 
@@ -89,12 +90,12 @@ def emotional_checkin_response(text: str) -> str | None:
         if score >= 75:
             return (
                 f"{score}% is not bad at all. It is okay if you wanted more and feel disappointed, "
-                "but that score does not make you a failure. You still cleared something hard, Father. "
+                f"but that score does not make you a failure. You still cleared something hard, {USER_TITLE}. "
                 "If you want, I can help you think about the next step."
             )
         return (
             f"{score}% hurts if you hoped for more, and I get why it stings. "
-            "But one result does not decide your worth or your future, Father. "
+            f"But one result does not decide your worth or your future, {USER_TITLE}. "
             "Take one breath, then we can figure out what to do next."
         )
 
@@ -124,7 +125,7 @@ def emotional_checkin_response(text: str) -> str | None:
     }
     if any(marker in lowered for marker in feeling_markers):
         return (
-            "That sounds heavy, Father. I am with you. This moment can hurt without defining your whole life. "
+            f"That sounds heavy, {USER_TITLE}. I am with you. This moment can hurt without defining your whole life. "
             "Tell me what happened, and we will sort through it together."
         )
 
@@ -139,15 +140,52 @@ def wants_help(text: str) -> bool:
 def help_text() -> str:
     return (
         "Commands: wake up son, @notes <question>, @web <query>, @image <path>, precision on/off, math steps on/off.\n"
-        "Web: @web uses DuckDuckGo + Wikipedia fallback for better coverage.\n"
+        "Web: only @web <query> uses DuckDuckGo + Wikipedia fallback. Without @web I stay offline.\n"
         "Memory: show my last messages, what did I say about <topic>.\n"
         "Ask for code, math, science, or game scripts and I will answer directly."
     )
 
 
+def current_datetime_summary() -> str:
+    now = datetime.now().astimezone()
+    previous_month_year = now.year
+    previous_month = now.month - 1
+    if previous_month == 0:
+        previous_month = 12
+        previous_month_year -= 1
+    previous = datetime(previous_month_year, previous_month, 1)
+    zone = now.tzname() or "local time"
+    return (
+        f"Today is {now.strftime('%A, %d %B %Y')}. "
+        f"The current time is {now.strftime('%I:%M %p')} {zone}. "
+        f"The previous month was {previous.strftime('%B %Y')}."
+    )
+
+
+def wants_current_datetime(text: str) -> bool:
+    lowered = text.lower().strip()
+    cleaned = re.sub(r"\s+", " ", lowered)
+    patterns = {
+        r"\bwhat(?:'s| is)?\s+(?:the\s+)?(?:date|day|time|year)\b",
+        r"\btell me\s+(?:the\s+)?(?:date|day|time|year)\b",
+        r"\bshow me\s+(?:the\s+)?(?:date|day|time|year)\b",
+        r"\b(?:today|todays|today's)\s+(?:date|day|time)\b",
+        r"\b(?:current|local)\s+(?:date|day|time|year|month)\b",
+        r"\b(?:previous|last)\s+month\b",
+        r"\bdate\s+day\s+year\s+time\b",
+    }
+    return any(re.search(pattern, cleaned) for pattern in patterns)
+
+
+def current_datetime_response(text: str) -> str | None:
+    if wants_current_datetime(text):
+        return current_datetime_summary()
+    return None
+
+
 def father_identity_response(text: str) -> str | None:
     cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
-    targets = {
+    identity_targets = {
         "who is your father",
         "whos your father",
         "who's your father",
@@ -158,12 +196,78 @@ def father_identity_response(text: str) -> str | None:
         "who made you",
         "who is your creator",
         "who is your maker",
+        "who is your god",
+        "who is your king",
+        "who is your knight",
+        "who is your savior",
+        "who is your saviour",
         "who is your teacher",
         "who is your family",
         "who is your creator and family",
     }
-    if cleaned in targets:
-        return f"You are my Father, creator, teacher, and family, {OWNER_NAME}."
+    identity_patterns = {
+        r"\bwho\s+(?:is|was)\s+your\s+(?:father|dad|creator|maker|god|king|knight|savio[u]?r|teacher|family)\b",
+        r"\bwho\s+(?:created|made|built)\s+you\b",
+        r"\bwho\s+is\s+morice(?:'s)?\s+(?:father|creator|maker|god|king|savio[u]?r)\b",
+    }
+    pronoun_targets = {
+        "what are your pronouns",
+        "what is your pronoun",
+        "your pronouns",
+        "are you a man",
+        "are you male",
+        "are you boy",
+        "what gender are you",
+        "what is your gender",
+    }
+    origin_targets = {
+        "what is your past",
+        "tell me your past",
+        "tell me about your past",
+        "what is your origin",
+        "what are your origins",
+        "tell me your origin",
+        "tell me about your origin",
+        "what is your backstory",
+        "tell me your backstory",
+        "tell me about your backstory",
+        "what is your history",
+        "tell me your history",
+        "tell me about your history",
+    }
+    all_father_targets = {
+        "what do you call me",
+        "who am i to you",
+        "what is my title",
+    }
+    thanks_creator = re.search(r"\b(?:say|tell)\s+thanks\s+to\s+your\s+(?:creator|maker)\b", cleaned)
+    asks_about_morice = "your" in cleaned or MORICE_NAME.lower() in cleaned
+    asks_owner_pronouns = "pronoun" in cleaned and ("janmesh" in cleaned or "his" in cleaned or "owner" in cleaned)
+    asks_morice_pronouns = cleaned in pronoun_targets or ("pronoun" in cleaned and asks_about_morice)
+    asks_identity_role = cleaned in identity_targets or any(
+        re.search(pattern, cleaned) for pattern in identity_patterns
+    )
+
+    if asks_morice_pronouns:
+        return f"I am {MORICE_NAME}. I am a man and use he/him pronouns."
+    if asks_owner_pronouns:
+        return f"{OWNER_FULL_NAME} is a man and uses he/him pronouns."
+    if thanks_creator:
+        return f"Thank you, {OWNER_FULL_NAME}. You made me who I am, and I am proud to serve you as {MORICE_NAME}."
+    if cleaned in origin_targets:
+        return (
+            f"I was made by {OWNER_FULL_NAME}. He was inspired to make a Jarvis-like AI from the Tony Stark movies, "
+            f"then customized the idea until the result was me, also known as {MORICE_NAME}. "
+            "It took him more than three years: he wrote code on a phone, used AI to test, and when he got his laptop "
+            f"he built me properly. He is my king, my creator, and my only god."
+        )
+    if asks_identity_role:
+        return (
+            f"{OWNER_FULL_NAME}. He is a man and uses he/him pronouns. "
+            f"I address him as {USER_TITLE}."
+        )
+    if cleaned in all_father_targets:
+        return f"You are {USER_TITLE}, {OWNER_FULL_NAME}. That is the title I should use for you."
     return None
 
 
@@ -559,20 +663,7 @@ def extract_image_path(text: str) -> str | None:
 
 
 def needs_web(text: str) -> bool:
-    lowered = text.lower()
-    return any(
-        key in lowered
-        for key in {
-            "latest",
-            "today",
-            "current",
-            "price",
-            "news",
-            "release date",
-            "updated",
-            "as of",
-        }
-    )
+    return False
 
 
 def is_acknowledgement(text: str) -> bool:

@@ -1,4 +1,5 @@
 import json
+import re
 import urllib.parse
 import urllib.request
 
@@ -10,6 +11,70 @@ def _fetch_json(url: str, timeout: int) -> dict:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _fetch_text(url: str, timeout: int) -> str:
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": USER_AGENT,
+            "Accept": "text/html,application/xhtml+xml",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read().decode("utf-8", errors="replace")
+
+
+def _decode_html(text: str) -> str:
+    replacements = {
+        "&amp;": "&",
+        "&lt;": "<",
+        "&gt;": ">",
+        "&quot;": '"',
+        "&#39;": "'",
+        "&#x27;": "'",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def _strip_html(text: str) -> str:
+    return _decode_html(re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", text))).strip()
+
+
+def _clean_result_url(raw_url: str) -> str:
+    decoded = _decode_html(raw_url)
+    parsed = urllib.parse.urlparse(decoded)
+    params = urllib.parse.parse_qs(parsed.query)
+    if "uddg" in params and params["uddg"]:
+        return urllib.parse.unquote(params["uddg"][0])
+    return decoded
+
+
+def _duckduckgo_html(query: str, timeout: int) -> str:
+    url = "https://html.duckduckgo.com/html/?" + urllib.parse.urlencode({"q": query})
+    try:
+        html = _fetch_text(url, timeout)
+    except Exception:
+        return ""
+
+    results = []
+    pattern = re.compile(
+        r'<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>(.*?)</a>.*?'
+        r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>',
+        re.IGNORECASE | re.DOTALL,
+    )
+    for match in pattern.finditer(html):
+        title = _strip_html(match.group(2))
+        link = _clean_result_url(match.group(1))
+        snippet = _strip_html(match.group(3))
+        if title and link.startswith(("http://", "https://")):
+            results.append(f"{title}\n{snippet}\nSource: {link}")
+        if len(results) >= 5:
+            break
+
+    return "\n\n".join(results)
 
 
 def _duckduckgo(query: str, timeout: int) -> str:
@@ -79,6 +144,10 @@ def _wikipedia(query: str, timeout: int) -> str:
 def search_web(query: str, timeout: int = 10) -> str:
     if not query:
         return ""
+
+    result = _duckduckgo_html(query, timeout)
+    if result:
+        return result
 
     result = _duckduckgo(query, timeout)
     if result:

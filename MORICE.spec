@@ -11,7 +11,8 @@ a = Analysis(
     binaries=[],
     datas=[
         (os.path.join(project_dir, 'morice', 'assets', 'morice_logo.ico'), 'morice\\assets'),
-        (os.path.join(project_dir, 'morice', 'assets', 'Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf'), 'morice\\assets'),
+        (os.path.join(project_dir, 'morice', 'assets', 'morice_logo.png'), 'morice\\assets'),
+        (os.path.join(project_dir, 'Hermes-3-Llama-3.1-8B.Q4_K_M.gguf'), 'morice\\assets'),
         (os.path.join(project_dir, 'morice', 'assets', 'llama-bin'), 'morice\\assets\\llama-bin'),
         (os.path.join(project_dir, 'morice', 'assets', 'OCR_NOTES.md'), 'morice\\assets'),
     ],

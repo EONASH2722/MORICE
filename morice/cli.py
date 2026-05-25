@@ -35,6 +35,7 @@ from .core import (
     wake_up_response,
     riddle_response,
     emotional_checkin_response,
+    current_datetime_response,
 )
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload
 from .llm_client import chat
@@ -122,6 +123,11 @@ def run_cli():
             print(f"{MORICE_NAME}: {enforce_father(father_reply)}")
             continue
 
+        datetime_reply = current_datetime_response(user_input)
+        if datetime_reply:
+            print(f"{MORICE_NAME}: {enforce_father(datetime_reply)}")
+            continue
+
         if wants_first_message(user_input) and first_user_message:
             print(f"{MORICE_NAME}: {enforce_father(first_user_message)}")
             continue
@@ -185,7 +191,10 @@ def run_cli():
 
         if wants_web_capability(user_input):
             if os.getenv("MORICE_WEB", "1") == "1":
-                print(f"{MORICE_NAME}: {enforce_father('Yes. Use @web <query> or ask a time-sensitive question.')}")
+                print(
+                    f"{MORICE_NAME}: "
+                    f"{enforce_father('Offline mode is active. Start the message with @web <query> when you want web search.')}"
+                )
             else:
                 print(
                     f"{MORICE_NAME}: {enforce_father('Web is disabled. Set MORICE_WEB=1 to enable it.')}"
@@ -227,11 +236,11 @@ def run_cli():
                 script = unity_3d_movement_script()
             else:
                 script = unity_2d_movement_script()
-            print(f"{MORICE_NAME}: Father, here is the script.\n{script}")
+            print(f"{MORICE_NAME}: All Father, here is the script.\n{script}")
             continue
 
         if wants_html_cube_movement(user_input):
-            print(f"{MORICE_NAME}: Father, here is the script.\n{html_cube_movement_script()}")
+            print(f"{MORICE_NAME}: All Father, here is the script.\n{html_cube_movement_script()}")
             continue
 
         if not math_steps_mode and not wants_steps_detail(user_input):
@@ -243,7 +252,7 @@ def run_cli():
         context = retrieve_context(user_input) if should_use_context(user_input) else ""
         web_context = ""
         if os.getenv("MORICE_WEB", "1") == "1":
-            web_query = extract_web_query(user_input) or (user_input if needs_web(user_input) else None)
+            web_query = extract_web_query(user_input)
             if web_query:
                 web_context = search_web(web_query)
                 if not web_context:
@@ -259,8 +268,6 @@ def run_cli():
                 "Image context (best effort, may be incomplete):\n"
                 f"{pending_image_context}"
             )
-            if "no readable text detected" in lowered:
-                extra_system += "\nDo not invent text. Ask the user to paste the question."
             pending_image_context = ""
         if context:
             extra_system = (

@@ -7,7 +7,7 @@ import time
 import urllib.error
 import urllib.request
 
-from .core import SYSTEM_PROMPT, emotional_checkin_response
+from .core import SYSTEM_PROMPT, current_datetime_summary, emotional_checkin_response
 from .local_llama import chat as local_chat
 from .llama_server import ensure_server
 
@@ -20,12 +20,21 @@ DEFAULT_CHAT_FORMAT = os.getenv("MORICE_CHAT_FORMAT", "").strip() or None
 DEFAULT_THREADS = int(os.getenv("MORICE_THREADS", str(max(1, (os.cpu_count() or 4) - 2))))
 DEFAULT_BATCH = int(os.getenv("MORICE_BATCH", "64"))
 DEFAULT_USE_SERVER = os.getenv("MORICE_LLAMA_SERVER", "1") == "1"
-DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "256"))
+DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "360"))
 _OLLAMA_PROCESS = None
 
 
 def _asset_path(*parts: str) -> str:
     return os.path.join(os.path.dirname(__file__), "assets", *parts)
+
+
+def _project_path(*parts: str) -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", *parts))
+
+
+def _is_stale_llama_model(model_name: str) -> bool:
+    lowered = model_name.lower()
+    return any(marker in lowered for marker in ("llama3", "llama-3", "meta-llama"))
 
 
 def _post_json(url, payload, timeout):
@@ -187,11 +196,15 @@ def _needs_precision(text: str) -> bool:
 def _resolve_gguf_path():
     if DEFAULT_GGUF and os.path.exists(DEFAULT_GGUF):
         return DEFAULT_GGUF
-    if DEFAULT_MODEL:
+    candidates = [
+        _project_path("Hermes-3-Llama-3.1-8B.Q4_K_M.gguf"),
+        _asset_path("Hermes-3-Llama-3.1-8B.Q4_K_M.gguf"),
+    ]
+    if DEFAULT_MODEL and not _is_stale_llama_model(DEFAULT_MODEL):
         return ""
-    bundled = _asset_path("Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf")
-    if os.path.exists(bundled):
-        return bundled
+    for bundled in candidates:
+        if os.path.exists(bundled):
+            return bundled
     return ""
 
 
@@ -211,8 +224,6 @@ def _fallback_models(requested_model, base_url, user_message):
             value += 300
         if "deepseek-r1:1.5b" in lowered:
             value -= 55
-        if "llama3" in lowered:
-            value -= 35 if not is_precision_task else 20
         if "deepseek-coder" in lowered:
             value -= 45 if is_precision_task else 5
         if "120b" in lowered:
@@ -239,19 +250,19 @@ def _friendly_backend_reply(user_message, requested_model, fallback_used):
         fallback_hint = f" I also tried {fallback_used}."
     if requested_model:
         return (
-            f"My local model stumbled, Father.{fallback_hint} "
+            f"My local model stumbled, All Father.{fallback_hint} "
             f"Fast fix: reopen Ollama or switch MORICE to a lighter model like deepseek-r1:1.5b. "
             f"Current model: {requested_model}."
         )
     return (
-        "My local model stumbled, Father. Fast fix: reopen Ollama or set MORICE_MODEL to a lighter local model like "
+        "My local model stumbled, All Father. Fast fix: reopen Ollama or set MORICE_MODEL to a lighter local model like "
         "deepseek-r1:1.5b."
     )
 
 
 def _is_timeout_error(exc):
     reason = getattr(exc, "reason", None)
-    return isinstance(reason, (TimeoutError, socket.timeout))
+    return isinstance(exc, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout))
 
 
 def _try_ollama_messages(base_url, messages, model, timeout, temperature, top_p):
@@ -298,6 +309,20 @@ def _try_ollama_messages(base_url, messages, model, timeout, temperature, top_p)
     raise RuntimeError("No supported local model endpoint succeeded.")
 
 
+def _friendly_local_timeout_reply() -> str:
+    return (
+        "Hermes took too long on that one, All Father. I kept MORICE alive. "
+        "Try sending a shorter prompt, turning Precision off, or letting the queued message run next."
+    )
+
+
+def _runtime_context() -> str:
+    return (
+        f"Runtime context: {current_datetime_summary()} "
+        "Use this for date, day, month, year, and time questions."
+    )
+
+
 def chat(
     history,
     user_message,
@@ -316,7 +341,7 @@ def chat(
     gguf_path = _resolve_gguf_path()
     if gguf_path:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        system_additions = []
+        system_additions = [_runtime_context()]
         if extra_system:
             system_additions.append(extra_system)
         if precision_mode:
@@ -345,8 +370,20 @@ def chat(
                     DEFAULT_THREADS,
                     DEFAULT_BATCH,
                 )
-                return _try_openai_chat(base_url, payload, timeout)
+                try:
+                    return _try_openai_chat(base_url, payload, timeout)
+                except Exception as exc:  # noqa: BLE001
+                    if _is_timeout_error(exc):
+                        try:
+                            return _try_openai_chat(base_url, payload, max(timeout, 240))
+                        except Exception as retry_exc:  # noqa: BLE001
+                            if _is_timeout_error(retry_exc):
+                                return _friendly_local_timeout_reply()
+                            return f"(MORICE) Local server retry error: {retry_exc}"
+                    return f"(MORICE) Local server error: {exc}"
             except Exception as exc:  # noqa: BLE001
+                if _is_timeout_error(exc):
+                    return _friendly_local_timeout_reply()
                 return f"(MORICE) Local server error: {exc}"
 
         try:
@@ -367,7 +404,7 @@ def chat(
     if not model:
         return "(MORICE) MORICE_MODEL is not set. Set it or configure MORICE_GGUF_PATH for offline mode."
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    system_additions = []
+    system_additions = [_runtime_context()]
     if extra_system:
         system_additions.append(extra_system)
     if precision_mode:

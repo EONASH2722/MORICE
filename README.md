@@ -1,192 +1,118 @@
+<p align="center">
+  <img src="morice/assets/morice_logo.png" alt="MORICE logo" width="150">
+</p>
+
 # MORICE
 
-![MORICE logo](MORICE%27S%20LOGO.png)
+MORICE is a local desktop AI assistant with a PySide6 tinted-glass interface, offline GGUF support, notes lookup, optional web lookup, a wake listener, and a reorderable message queue.
 
-A polished local AI assistant with a glass-style desktop UI, offline GGUF support, and on-demand knowledge lookup. Built to run smoothly on mid-range gaming laptops while still feeling fast, responsive, and human.
+<p align="center">
+  <img src="docs/screenshots/morice-home.png" alt="MORICE centered launch screen" width="48%">
+  <img src="docs/screenshots/morice-queue.png" alt="MORICE message queue panel" width="48%">
+</p>
 
-Repo: [github.com/EONASH2722/MORICE](https://github.com/EONASH2722/MORICE)
+## Highlights
 
-## Highlights ✨
-- Glass UI app (PySide6) with smooth interactions and precision toggle.
-- Terminal mode for quick workflows. ⚡
-- Local models via Ollama or offline GGUF (llama.cpp). 🧠
-- On-demand notes with `@notes` and lightweight web lookup. 📚
-- Image OCR (text extraction) for screenshots and notes. 🖼️
+- Tinted-glass desktop app with a centered launch composer.
+- Animated purple wave backdrop behind the starting type bar.
+- Composer drops to the bottom with a small bounce after the first prompt.
+- Wake listener can launch and wake MORICE with either two claps or magic words.
+- While MORICE is replying, use `Steer` to queue follow-up messages.
+- Open `Panel` to reorder, remove, or clear queued messages before they send.
+- Processing status is shown while MORICE works and disappears when the reply arrives.
+- Chat text is selectable/copyable.
 
-## Core Strengths
-MORICE shines when you want fast, local, practical help without cloud dependence. Its strongest areas are problem solving, code generation, and grounding answers in your own notes.
+## Current Setup
 
-- Local-first reliability: runs on your machine (Ollama or GGUF) and can work offline.
-- Coding and scripting: generates complete, runnable code and practical commands.
-- Math and logic: handles equations, step-by-step reasoning, and trick riddles when needed.
-- Knowledge grounding: pulls answers from `@notes` and supports lightweight web lookups.
-- Clear, actionable output: concise answers with just enough detail to execute.
+- Main engine: `Hermes-3-Llama-3.1-8B.Q4_K_M.gguf`
+- Runtime: llama.cpp `llama-server.exe`
+- Desktop app: `python -m morice.pyside_app`
+- Packaged app: `dist\MORICE\MORICE.exe`
+- Wake listener: `start-wake-listener.bat`
 
-Tip: the model sets the ceiling. Best results come from Llama 3.1 8B (or higher) with web lookup enabled.
+MORICE addresses the primary user as `All Father`.
 
-Note: MORICE addresses the primary user as "Father" and treats them as its biological father by design.
+## Start
 
-## System Requirements
-- Windows 10/11 (x64)
-- CPU: 4+ cores recommended
-- RAM: 16 GB recommended (8 GB minimum)
-- GPU: RTX 3050 (6-8 GB VRAM) or better for faster generation
-- Disk: ~15-25 GB free if you keep GGUF models locally
-
-## Quick Start (Ollama)
-1. Install and run Ollama.
-2. Pull a model:
-   - `ollama pull llama3:latest`
-3. Start MORICE:
-   - App: `python -m morice.pyside_app`
-   - Terminal: `python -m morice.cli`
-
-## Easy Install (Step-by-Step)
-This is the simplest path with the least setup work.
-
-### A) If you want the desktop app only (no coding)
-1. Download the latest `MORICE.exe` (Release build).
-2. Keep the `MORICE.exe` file in a folder of your choice.
-3. Start Ollama and run:
-   - `ollama pull llama3:latest`
-4. Double-click `MORICE.exe` and chat.
-
-### B) If you want the full source (recommended for updates)
-1. Download or clone the repo.
-2. Install Python 3.12+ and run:
-   - `py -3.12 -m pip install -r requirements.txt` (if you have one)
-3. Install Ollama.
-4. Pull the model:
-   - `ollama pull llama3:latest`
-5. Start MORICE:
-   - `python -m morice.pyside_app`
-
-## What Files Are Included
-This repo contains:
-- App source (`morice/`) and UI files
-- Launchers (`morice_app_launcher.py`, `morice.cmd`)
-- Build files (`MORICE.spec`)
-- README + LICENSE
-
-Large model files are not included. You must download them yourself.
-
-## Model Setup (Baby-Easy)
-If you can run three commands, you're done:
-
-```bash
-ollama pull llama3:latest
-ollama serve
-python -m morice.pyside_app
-```
-
-That's it. MORICE will connect automatically.
-
-## How To Open MORICE (App + Terminal)
-### Desktop App (Python)
-```bash
-cd /d D:\MORICE
-python -m morice.pyside_app
-```
-
-### Terminal Chat (Python)
-```bash
-cd /d D:\MORICE
-python -m morice.cli
-```
-
-### One-Click App (Build)
-If you have the build:
-`D:\MORICE\dist\MORICE\MORICE.exe`
-
-### Shortcut Command (if you added MORICE to PATH)
 ```bat
-morice
+cd /d "D:\MORICE - Copy"
+python -m morice.pyside_app
 ```
 
-## Offline Mode (GGUF)
-1. Install the local engine:
-   - `py -3.12 -m pip install llama-cpp-python`
-2. Download a GGUF model and set the path:
-   - `setx MORICE_GGUF_PATH "D:\path\to\model.gguf"`
-3. (Optional) Tune performance:
-   - `setx MORICE_CTX "4096"`
-   - `setx MORICE_GPU_LAYERS "0"` (0 = CPU)
-   - `setx MORICE_THREADS "8"`
-   - `setx MORICE_BATCH "64"`
-4. Run MORICE normally. It will use the GGUF model and ignore Ollama.
+Or run the packaged build after creating it:
 
-## Wake Phrase
-Type `wake up son` to activate:
+```bat
+cd /d "D:\MORICE - Copy"
+dist\MORICE\MORICE.exe
+```
 
-`MORICE is awake`
+## Wake Listener
 
-## Knowledge Notes
-MORICE can read your local notes to answer questions.
+Start the always-listening wake process:
 
-Default folder:
-`D:\FOOD FOR MORICE`
+```bat
+cd /d "D:\MORICE - Copy"
+start-wake-listener.bat
+```
 
-Change it with:
-`setx MORICE_KB_DIR "D:\your\folder"`
+Wake behavior:
 
-Notes are on-demand by default: use `@notes` in your prompt.
+- Say the saved wake line, for example `wake up son`.
+- Or clap twice.
+- Either path launches the app if needed and sets MORICE awake automatically.
+
+The wake line can be changed in the MORICE panel.
+
+## Message Queue
+
+When MORICE is generating, the send button becomes `Steer`. Type a follow-up and press Enter or click `Steer`; it is added to the queue. Open `Panel` to move queued messages up/down, remove one, or clear the queue. MORICE sends the next queued item automatically as soon as the current reply arrives.
 
 ## Web Lookup
-Web lookup is enabled by default and uses DuckDuckGo with Wikipedia fallback.
 
-Example: `@web latest unity 3d version`
+Use:
 
-Disable with:
-`set MORICE_WEB=0`
+```text
+@web your search query
+```
 
-## Image OCR
-OCR is temporarily disabled in the current build.
-Tesseract was used for early testing, then removed while the next OCR backend is being prepared.
-Image attachments still work, but text extraction is not active right now.
+`web:` also works. MORICE stays offline unless a message starts with `@web` or `web:`.
 
-## Modes
-- `precision on` / `precision off` for higher accuracy in code + math
-- `math steps on` / `math steps off` for step-by-step math
+## Notes
+
+Default notes folder:
+
+```text
+D:\FOOD FOR MORICE
+```
+
+Use `@notes` in a message to include local notes.
+
+## Useful Commands
+
+- `wake up son`
+- `precision on` / `precision off`
+- `math steps on` / `math steps off`
+- `@web <query>`
+- `@notes <question>`
 
 ## Environment Variables
-- `MORICE_MODEL` sets Ollama model name
-- `MORICE_OLLAMA_URL` sets Ollama base URL
-- `MORICE_GGUF_PATH` sets GGUF model path
-- `MORICE_CTX` context length
-- `MORICE_GPU_LAYERS` GPU layers (0 = CPU)
-- `MORICE_THREADS` CPU threads
-- `MORICE_BATCH` batch size
-- `MORICE_GPU_FALLBACK` set to `1` to fall back to CPU on GPU OOM
-- `MORICE_KB_DIR` notes folder
-- `MORICE_KB_TOPK` top chunks
-- `MORICE_KB_CHUNK` chunk size
-- `MORICE_KB_OVERLAP` chunk overlap
-- `MORICE_KB_REQUIRE_TAG` set to `1` to only use notes with `@notes`
-- `MORICE_KB_PRELOAD` set to `1` to preload notes at startup
-- `MORICE_WEB` set to `1` to enable web lookup
 
-## Build the App
-If you want a fresh desktop build:
+- `MORICE_GGUF_PATH` sets a specific GGUF path.
+- `MORICE_MODEL` sets an Ollama model name and bypasses the GGUF default.
+- `MORICE_LLAMA_SERVER` set to `1` to use bundled llama-server.
+- `MORICE_CTX` sets context length.
+- `MORICE_GPU_LAYERS` sets GPU layers.
+- `MORICE_THREADS` sets CPU threads.
+- `MORICE_BATCH` sets batch size.
+- `MORICE_WEB` set to `0` to disable web lookup.
 
-`py -3.12 -m PyInstaller -y MORICE.spec`
+## Build
 
-## Warning ⚠️
-- Models can use a lot of VRAM. If you get OOM, lower GPU layers or use CPU.
-- GGUF files are large. Use Git LFS or external hosting for repo storage.
-- OCR is currently disabled while the next OCR backend is being integrated.
+```bat
+cd /d "D:\MORICE - Copy"
+py -3.12 -m PyInstaller -y MORICE.spec
+```
 
-## Roadmap
-MORICE is actively evolving. Some parts of the app may still show minor glitches or UI quirks, and there is room for performance and UX upgrades. These fixes and improvements are planned for the near future.
+## License
 
-## Contact
-Email: `janmeshmeena10@gmail.com`  
-WhatsApp/SMS: `+91 8828328565`  
-Instagram: `girik2723`
-
-## Licensing
-Code: MIT (see LICENSE).
-
-Models: If you use Meta Llama 3.1, you must follow the Meta Llama 3.1 Community License. This repo does not bundle models unless you add them yourself.
-
----
-Built for performance, clarity, and real-world use. 🧩
+Code: MIT. Models: follow the license for the GGUF model you use.

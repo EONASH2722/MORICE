@@ -2,10 +2,11 @@ import os
 import sys
 import threading
 import ctypes
+import math
 from ctypes import wintypes
 
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QTimer, Signal, QEvent
-from PySide6.QtGui import QFont, QColor, QIcon
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QTimer, Signal, QEvent
+from PySide6.QtGui import QFont, QColor, QIcon, QCursor, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -17,11 +18,16 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QFrame,
     QGraphicsOpacityEffect,
+    QGraphicsDropShadowEffect,
     QFileDialog,
+    QListWidget,
+    QSizePolicy,
+    QTextEdit,
 )
 
 from .core import (
     MORICE_NAME,
+    USER_TITLE,
     compute_math,
     enforce_father,
     shorten_reply,
@@ -30,6 +36,7 @@ from .core import (
     wants_help,
     help_text,
     father_identity_response,
+    wants_web_capability,
     wants_first_message,
     wants_memory_list,
     wants_memory_search,
@@ -55,9 +62,18 @@ from .core import (
     wake_up_response,
     riddle_response,
     emotional_checkin_response,
+    current_datetime_response,
 )
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload, search_notes
 from .llm_client import chat
+from .settings import (
+    DEFAULT_SETTINGS,
+    load_settings,
+    normalize_wake_phrase,
+    normalize_response_style,
+    save_settings,
+    wake_signal_path,
+)
 from .web_search import search_web
 from .vision import describe_image
 
@@ -94,6 +110,64 @@ def _icon_path() -> str:
     return os.path.join(os.path.dirname(__file__), "assets", "morice_logo.ico")
 
 
+
+class ComposerStageFrame(QFrame):
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("ComposerStage")
+        self._wave_phase = 0.0
+        self._wave_timer = QTimer(self)
+        self._wave_timer.timeout.connect(self._advance_wave)
+        self._wave_timer.start(45)
+
+    def _advance_wave(self):
+        self._wave_phase = (self._wave_phase + 0.16) % (math.pi * 2)
+        self.update()
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        width = max(1, rect.width())
+        height = max(1, rect.height())
+
+        painter.fillRect(rect, QColor(7, 7, 12, 118))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(34, 36, 82, 38))
+        painter.drawEllipse(int(width * 0.05), int(height * 0.28), int(width * 0.9), int(height * 0.58))
+        painter.setBrush(QColor(124, 72, 255, 30))
+        painter.drawEllipse(int(width * 0.12), int(height * 0.44), int(width * 0.76), int(height * 0.38))
+
+        start_y = int(height * 0.40)
+        end_y = int(height * 0.86)
+        if end_y <= start_y:
+            return
+
+        for y in range(start_y, end_y, 11):
+            vertical_fade = (y - start_y) / max(1, end_y - start_y)
+            for x in range(-24, width + 24, 13):
+                wave_y = (
+                    height * 0.66
+                    + math.sin((x * 0.014) + self._wave_phase) * height * 0.060
+                    + math.sin((x * 0.031) - (self._wave_phase * 0.7)) * height * 0.026
+                )
+                envelope = 1.0 - (abs(y - wave_y) / max(1.0, height * 0.245))
+                if envelope <= 0:
+                    continue
+                shimmer = 0.66 + 0.34 * math.sin((x * 0.045) + (y * 0.018) + self._wave_phase)
+                strength = max(0.0, min(1.0, envelope * vertical_fade * shimmer))
+                alpha = int(22 + 150 * strength)
+                if alpha < 28:
+                    continue
+                blend = 0.5 + 0.5 * math.sin((x * 0.011) + self._wave_phase * 0.55)
+                red = int(126 + 92 * blend)
+                green = int(74 + 46 * (1.0 - blend))
+                blue = int(218 + 30 * strength)
+                size = 2 + int(5 * strength)
+                painter.setBrush(QColor(red, green, blue, alpha))
+                painter.drawEllipse(x, y, size, size)
+
+
 class ChatBubble(QFrame):
     def __init__(self, author: str, message: str, is_user: bool = False):
         super().__init__()
@@ -104,14 +178,80 @@ class ChatBubble(QFrame):
 
         author_label = QLabel(author)
         author_label.setObjectName("AuthorLabel")
+        author_label.setTextFormat(Qt.PlainText)
+        author_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        author_label.setFocusPolicy(Qt.StrongFocus)
         message_label = QLabel(message)
         message_label.setWordWrap(True)
         message_label.setObjectName("MessageLabel")
+        message_label.setTextFormat(Qt.PlainText)
+        message_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        message_label.setFocusPolicy(Qt.StrongFocus)
 
         layout.addWidget(author_label)
         layout.addWidget(message_label)
 
         self.setProperty("user", "true" if is_user else "false")
+
+
+class ThinkingBubble(QFrame):
+    def __init__(self, detail: str):
+        super().__init__()
+        self.setObjectName("ThinkingBubble")
+        self._visible = True
+        self._lines: list[str] = []
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setSpacing(8)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(8)
+
+        self.dot = QLabel()
+        self.dot.setObjectName("ThinkingDot")
+        self.dot.setFixedSize(10, 10)
+
+        self.toggle = QPushButton("Hide processing")
+        self.toggle.setObjectName("ThinkingButton")
+        self.toggle.clicked.connect(self.toggle_detail)
+
+        self.detail_label = QLabel()
+        self.detail_label.setObjectName("ThinkingDetail")
+        self.detail_label.setTextFormat(Qt.PlainText)
+        self.detail_label.setWordWrap(True)
+        self.detail_label.setVisible(True)
+        self.detail_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        self.detail_label.setFocusPolicy(Qt.StrongFocus)
+
+        header.addWidget(self.dot)
+        header.addWidget(self.toggle, stretch=1)
+
+        layout.addLayout(header)
+        layout.addWidget(self.detail_label)
+        self.set_detail(detail)
+
+    def toggle_detail(self):
+        self._visible = not self._visible
+        self.detail_label.setVisible(self._visible)
+        self.toggle.setText("Hide processing" if self._visible else "Show processing")
+
+    def set_detail(self, detail: str):
+        detail = (detail or "").strip()
+        if not detail:
+            return
+        if self._lines and self._lines[-1] == detail:
+            return
+        self._lines.append(detail)
+        self.detail_label.setText("\n".join(f"{index + 1}. {line}" for index, line in enumerate(self._lines)))
+
+    def finish(self):
+        self.set_detail("Done. Reply is shown below.")
+        self.toggle.setText("Processing done")
+        self.dot.setProperty("done", "true")
+        self.dot.style().unpolish(self.dot)
+        self.dot.style().polish(self.dot)
 
 
 class TitleBar(QFrame):
@@ -126,9 +266,22 @@ class TitleBar(QFrame):
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
 
+        self.sidebar_btn = QPushButton("Panel")
+        self.sidebar_btn.setObjectName("SidebarButton")
+        self.sidebar_btn.clicked.connect(self._parent.toggle_sidebar)
+
+        logo = QLabel()
+        logo.setObjectName("TitleLogo")
+        icon = QIcon(_icon_path())
+        logo_pixmap = icon.pixmap(22, 22)
+        if not logo_pixmap.isNull():
+            logo.setPixmap(logo_pixmap)
+
         title = QLabel(f"{MORICE_NAME}")
         title.setObjectName("TitleLabel")
 
+        layout.addWidget(self.sidebar_btn)
+        layout.addWidget(logo)
         layout.addWidget(title)
         layout.addStretch(1)
 
@@ -177,6 +330,7 @@ class TitleBar(QFrame):
 
 class MoriceWindow(QWidget):
     message_ready = Signal(str, str, bool)
+    thinking_update = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -189,8 +343,7 @@ class MoriceWindow(QWidget):
             self.setWindowIcon(QIcon(icon_path))
 
         self.history = []
-        # Start awake so normal chat works immediately from the first message.
-        self.awake = True
+        self.awake = os.getenv("MORICE_START_AWAKE", "").strip() == "1"
         self.last_notes_hits = []
         self.last_notes_term = ""
         self.pending_image_path = ""
@@ -201,8 +354,22 @@ class MoriceWindow(QWidget):
         self._last_scroll_max = 0
         self.first_user_message = ""
         self.user_messages: list[str] = []
+        self.is_busy = False
+        self.thinking_bubble: ThinkingBubble | None = None
+        self._thinking_token = 0
+        self.composer_centered = True
+        self._input_hovered = False
+        self.input_glow: QGraphicsDropShadowEffect | None = None
+        self._composer_anim: QPropertyAnimation | None = None
+        self._dock_placeholder: QWidget | None = None
+        self.message_queue: list[str] = []
+        self.settings = load_settings()
+        self.response_style = self.settings.get("response_style", "").strip()
+        self.wake_phrase = normalize_wake_phrase(self.settings.get("wake_phrase", ""))
 
-        self.message_ready.connect(self.append_message)
+        self.wake_signal_path = wake_signal_path()
+        self.message_ready.connect(self._on_message_ready)
+        self.thinking_update.connect(self._on_thinking_update)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
@@ -211,8 +378,20 @@ class MoriceWindow(QWidget):
         self.title_bar = TitleBar(self)
         root.addWidget(self.title_bar)
 
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(12)
+        root.addLayout(body, stretch=1)
+
+        content_layout = QVBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(12)
+        self.content_layout = content_layout
+        body.addLayout(content_layout, stretch=1)
+
         chat_container = QFrame()
         chat_container.setObjectName("ChatContainer")
+        self.chat_container = chat_container
         chat_layout = QVBoxLayout(chat_container)
         chat_layout.setContentsMargins(0, 0, 0, 0)
         chat_layout.setSpacing(0)
@@ -222,7 +401,8 @@ class MoriceWindow(QWidget):
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setFocusPolicy(Qt.StrongFocus)
         self.scroll.viewport().installEventFilter(self)
-        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         chat_layout.addWidget(self.scroll)
 
         self.chat_list = QWidget()
@@ -241,10 +421,124 @@ class MoriceWindow(QWidget):
         self._bottom_spacer.setFixedHeight(8)
         self.chat_list_layout.addWidget(self._bottom_spacer)
 
-        root.addWidget(chat_container, stretch=1)
+        content_layout.addWidget(chat_container, stretch=1)
+        chat_container.setVisible(False)
+
+        self.sidebar = QFrame()
+        self.sidebar.setObjectName("SidebarPanel")
+        self.sidebar.setFixedWidth(340)
+        sidebar_layout = QVBoxLayout(self.sidebar)
+        sidebar_layout.setContentsMargins(16, 16, 16, 16)
+        sidebar_layout.setSpacing(12)
+
+        sidebar_title = QLabel("Morice panel")
+        sidebar_title.setObjectName("SidebarTitle")
+
+        current_label = QLabel("Current personalization")
+        current_label.setObjectName("SidebarSectionLabel")
+
+        self.current_style_value = QLabel()
+        self.current_style_value.setObjectName("CurrentStyleValue")
+        self.current_style_value.setWordWrap(True)
+        self.current_style_value.setTextFormat(Qt.PlainText)
+        self.current_style_value.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        self.current_style_value.setFocusPolicy(Qt.StrongFocus)
+
+        style_label = QLabel("Personalise response")
+        style_label.setObjectName("StyleLabel")
+
+        self.style_input = QTextEdit()
+        self.style_input.setObjectName("StyleInput")
+        self.style_input.setPlaceholderText("Example: mid-length, funny, direct, teacher-like, Hinglish...")
+        self.style_input.setPlainText(self.response_style)
+        self.style_input.setFixedHeight(120)
+
+        wake_label = QLabel("Wake line")
+        wake_label.setObjectName("StyleLabel")
+
+        self.wake_input = QLineEdit()
+        self.wake_input.setObjectName("WakeInput")
+        self.wake_input.setPlaceholderText("Example: wake up son")
+        self.wake_input.setText(self.wake_phrase)
+
+        save_style_btn = QPushButton("Save personalization")
+        save_style_btn.setObjectName("StyleSaveButton")
+        save_style_btn.clicked.connect(self.on_save_response_style)
+        self.save_style_btn = save_style_btn
+
+        clear_style_btn = QPushButton("Clear")
+        clear_style_btn.setObjectName("StyleClearButton")
+        clear_style_btn.clicked.connect(self.on_clear_response_style)
+        self.clear_style_btn = clear_style_btn
+
+        style_buttons = QHBoxLayout()
+        style_buttons.setContentsMargins(0, 0, 0, 0)
+        style_buttons.setSpacing(8)
+        style_buttons.addWidget(save_style_btn, stretch=1)
+        style_buttons.addWidget(clear_style_btn)
+
+        self.style_status = QLabel("")
+        self.style_status.setObjectName("StyleStatus")
+        self.style_status.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
+        self.style_status.setFocusPolicy(Qt.StrongFocus)
+
+        queue_label = QLabel("Message queue")
+        queue_label.setObjectName("StyleLabel")
+
+        self.queue_list = QListWidget()
+        self.queue_list.setObjectName("QueueList")
+        self.queue_list.setFixedHeight(118)
+
+        queue_up_btn = QPushButton("Up")
+        queue_up_btn.setObjectName("QueueButton")
+        queue_up_btn.clicked.connect(self.on_queue_up)
+        self.queue_up_btn = queue_up_btn
+
+        queue_down_btn = QPushButton("Down")
+        queue_down_btn.setObjectName("QueueButton")
+        queue_down_btn.clicked.connect(self.on_queue_down)
+        self.queue_down_btn = queue_down_btn
+
+        queue_remove_btn = QPushButton("Remove")
+        queue_remove_btn.setObjectName("QueueButton")
+        queue_remove_btn.clicked.connect(self.on_queue_remove)
+        self.queue_remove_btn = queue_remove_btn
+
+        queue_clear_btn = QPushButton("Clear queue")
+        queue_clear_btn.setObjectName("QueueButton")
+        queue_clear_btn.clicked.connect(self.on_queue_clear)
+        self.queue_clear_btn = queue_clear_btn
+
+        queue_buttons = QHBoxLayout()
+        queue_buttons.setContentsMargins(0, 0, 0, 0)
+        queue_buttons.setSpacing(8)
+        queue_buttons.addWidget(queue_up_btn)
+        queue_buttons.addWidget(queue_down_btn)
+        queue_buttons.addWidget(queue_remove_btn)
+        queue_buttons.addWidget(queue_clear_btn)
+
+        sidebar_layout.addWidget(sidebar_title)
+        sidebar_layout.addWidget(current_label)
+        sidebar_layout.addWidget(self.current_style_value)
+        sidebar_layout.addSpacing(8)
+        sidebar_layout.addWidget(style_label)
+        sidebar_layout.addWidget(self.style_input)
+        sidebar_layout.addWidget(wake_label)
+        sidebar_layout.addWidget(self.wake_input)
+        sidebar_layout.addLayout(style_buttons)
+        sidebar_layout.addWidget(self.style_status)
+        sidebar_layout.addSpacing(8)
+        sidebar_layout.addWidget(queue_label)
+        sidebar_layout.addWidget(self.queue_list)
+        sidebar_layout.addLayout(queue_buttons)
+        sidebar_layout.addStretch(1)
+
+        body.addWidget(self.sidebar)
+        self.sidebar.setVisible(False)
 
         input_frame = QFrame()
         input_frame.setObjectName("InputFrame")
+        self.input_frame = input_frame
         input_layout = QHBoxLayout(input_frame)
         input_layout.setContentsMargins(12, 12, 12, 12)
         input_layout.setSpacing(10)
@@ -260,19 +554,64 @@ class MoriceWindow(QWidget):
         self.precision_btn = precision_btn
         self.precision_btn.setProperty("active", "true")
 
-        attach_btn = QPushButton("Attach")
-        attach_btn.setObjectName("AttachButton")
-        attach_btn.clicked.connect(self.on_attach)
+        personalization_btn = QPushButton()
+        personalization_btn.setObjectName("PersonalizationStatus")
+        personalization_btn.clicked.connect(self.toggle_sidebar)
+        self.personalization_btn = personalization_btn
 
         send_btn = QPushButton("Send")
         send_btn.setObjectName("SendButton")
         send_btn.clicked.connect(self.on_send)
+        self.send_btn = send_btn
 
         input_layout.addWidget(self.input, stretch=1)
         input_layout.addWidget(precision_btn)
-        input_layout.addWidget(attach_btn)
+        input_layout.addWidget(personalization_btn)
         input_layout.addWidget(send_btn)
-        root.addWidget(input_frame)
+
+        self.composer_stage = ComposerStageFrame()
+        stage_layout = QVBoxLayout(self.composer_stage)
+        stage_layout.setContentsMargins(18, 20, 18, 42)
+        stage_layout.setSpacing(16)
+
+        self.hero_label = QLabel(f"{MORICE_NAME}, what shall we do, {USER_TITLE}?")
+        self.hero_label.setObjectName("HeroPrompt")
+        self.hero_label.setAlignment(Qt.AlignCenter)
+        self.hero_label.setWordWrap(True)
+
+        self.center_input_host = QWidget()
+        self.center_input_host.setObjectName("CenterInputHost")
+        self.center_input_host.setMaximumWidth(820)
+        self.center_input_layout = QVBoxLayout(self.center_input_host)
+        self.center_input_layout.setContentsMargins(0, 0, 0, 0)
+        self.center_input_layout.setSpacing(0)
+
+        stage_layout.addStretch(3)
+        stage_layout.addWidget(self.hero_label)
+        stage_layout.addWidget(self.center_input_host, alignment=Qt.AlignHCenter)
+        self.center_panel_host = QWidget()
+        self.center_panel_host.setObjectName("CenterPanelHost")
+        center_panel_layout = QHBoxLayout(self.center_panel_host)
+        center_panel_layout.setContentsMargins(0, 0, 0, 0)
+        center_panel_layout.setSpacing(0)
+        self.center_panel_layout = center_panel_layout
+        self.title_bar.layout().removeWidget(self.title_bar.sidebar_btn)
+        self.center_panel_layout.addWidget(self.title_bar.sidebar_btn, alignment=Qt.AlignHCenter)
+        self.title_bar.sidebar_btn.setProperty("centered", "true")
+        stage_layout.addWidget(self.center_panel_host, alignment=Qt.AlignHCenter)
+        stage_layout.addStretch(5)
+
+        self.bottom_input_host = QWidget()
+        self.bottom_input_host.setObjectName("BottomInputHost")
+        self.bottom_input_layout = QVBoxLayout(self.bottom_input_host)
+        self.bottom_input_layout.setContentsMargins(0, 0, 0, 0)
+        self.bottom_input_layout.setSpacing(0)
+        self.bottom_input_host.setVisible(False)
+
+        self.center_input_layout.addWidget(input_frame)
+        content_layout.addWidget(self.composer_stage, stretch=1)
+        content_layout.addWidget(self.bottom_input_host)
+        self._configure_input_bar(centered=True)
 
         self._anims = []
 
@@ -287,9 +626,45 @@ class MoriceWindow(QWidget):
                 border-radius: 12px;
                 border: 1px solid rgba(255,255,255,0.08);
             }
+            #TitleBar[personalized="true"] {
+                background: rgba(18,10,28,0.86);
+                border: 1px solid rgba(178,130,255,0.24);
+            }
             #TitleLabel {
                 font-size: 16px;
                 font-weight: 700;
+            }
+            #TitleLogo {
+                min-width: 22px;
+                min-height: 22px;
+            }
+            #SidebarButton {
+                background: rgba(50,80,70,0.78);
+                border-radius: 8px;
+                padding: 5px 12px;
+                border: 1px solid rgba(125,210,160,0.32);
+                font-weight: 700;
+            }
+            #SidebarButton[personalized="true"] {
+                background: rgba(78,48,128,0.86);
+                border: 1px solid rgba(202,170,255,0.5);
+            }
+            #SidebarButton[centered="true"] {
+                background: rgba(96,58,172,0.84);
+                border-radius: 14px;
+                padding: 9px 24px;
+                border: 1px solid rgba(222,196,255,0.5);
+                font-weight: 800;
+            }
+            #SidebarButton:hover {
+                background: rgba(62,105,88,0.9);
+            }
+            #SidebarButton[personalized="true"]:hover {
+                background: rgba(96,60,155,0.94);
+            }
+            #SidebarButton[centered="true"]:hover {
+                background: rgba(126,78,222,0.96);
+                border: 1px solid rgba(240,224,255,0.78);
             }
             #TitleButton {
                 background: rgba(40,40,40,0.7);
@@ -314,23 +689,27 @@ class MoriceWindow(QWidget):
                 border-radius: 14px;
                 border: 1px solid rgba(255,255,255,0.08);
             }
+            #ChatContainer[personalized="true"] {
+                background: rgba(12,8,20,0.93);
+                border: 1px solid rgba(178,130,255,0.18);
+            }
             QScrollArea {
                 background: transparent;
                 border: none;
             }
             QScrollBar:vertical {
-                background: rgba(255,255,255,0.035);
-                width: 12px;
-                margin: 8px 3px 8px 0;
-                border-radius: 6px;
-            }
-            QScrollBar::handle:vertical {
-                background: rgba(120,160,220,0.48);
-                min-height: 48px;
+                background: rgba(255,255,255,0.028);
+                width: 10px;
+                margin: 8px 2px 8px 0;
                 border-radius: 5px;
             }
+            QScrollBar::handle:vertical {
+                background: rgba(125,210,160,0.52);
+                min-height: 56px;
+                border-radius: 4px;
+            }
             QScrollBar::handle:vertical:hover {
-                background: rgba(140,185,255,0.68);
+                background: rgba(150,235,185,0.76);
             }
             QScrollBar::add-line:vertical,
             QScrollBar::sub-line:vertical {
@@ -342,67 +721,287 @@ class MoriceWindow(QWidget):
                 background: transparent;
             }
             #InputFrame {
-                background: rgba(20,20,20,0.7);
+                background: rgba(18,15,24,0.88);
+                border-radius: 16px;
+                border: 1px solid rgba(178,130,255,0.38);
+            }
+            #InputFrame[centered="true"] {
+                background: rgba(22,18,30,0.92);
+                border-radius: 24px;
+                border: 1px solid rgba(198,150,255,0.68);
+            }
+            #InputFrame[hovered="true"] {
+                border: 1px solid rgba(232,205,255,0.94);
+            }
+            #InputFrame[personalized="true"] {
+                background: rgba(23,15,36,0.9);
+                border: 1px solid rgba(196,145,255,0.58);
+            }
+            #InputFrame[centered="true"][personalized="true"] {
+                background: rgba(24,18,34,0.94);
+                border: 1px solid rgba(206,165,255,0.72);
+            }
+            #InputFrame[hovered="true"],
+            #InputFrame[personalized="true"][hovered="true"],
+            #InputFrame[centered="true"][hovered="true"] {
+                border: 1px solid rgba(238,216,255,0.98);
+            }
+            #ComposerStage {
+                background: transparent;
+                border: none;
+            }
+            #CenterInputHost {
+                background: transparent;
+            }
+            #CenterPanelHost {
+                background: transparent;
+            }
+            #BottomInputHost {
+                background: transparent;
+            }
+            #HeroPrompt {
+                color: rgba(245,239,255,0.92);
+                font-size: 30px;
+                font-weight: 500;
+            }
+            #SidebarPanel {
+                background: rgba(12,14,16,0.94);
                 border-radius: 14px;
+                border: 1px solid rgba(125,210,160,0.18);
+            }
+            #SidebarPanel[personalized="true"] {
+                background: rgba(15,10,26,0.96);
+                border: 1px solid rgba(178,130,255,0.28);
+            }
+            #SidebarTitle {
+                color: #ffffff;
+                font-size: 18px;
+                font-weight: 800;
+            }
+            #SidebarSectionLabel {
+                color: rgba(165,225,195,0.86);
+                font-size: 12px;
+                font-weight: 800;
+            }
+            #CurrentStyleValue {
+                background: rgba(0,0,0,0.32);
+                border-radius: 10px;
+                padding: 10px 11px;
                 border: 1px solid rgba(255,255,255,0.08);
+                color: rgba(245,245,245,0.9);
+            }
+            #CurrentStyleValue[empty="true"] {
+                color: rgba(255,255,255,0.42);
+            }
+            #StyleLabel {
+                color: rgba(255,255,255,0.72);
+                font-size: 12px;
+                font-weight: 700;
             }
             #InputBox {
-                background: rgba(0,0,0,0.65);
-                border-radius: 10px;
+                background: rgba(0,0,0,0.28);
+                border-radius: 12px;
                 padding: 10px 12px;
+                border: 1px solid rgba(255,255,255,0.05);
+            }
+            #InputFrame[centered="true"] #InputBox {
+                background: transparent;
+                border: none;
+                padding: 11px 12px;
+                font-size: 14px;
+            }
+            #StyleInput {
+                background: rgba(0,0,0,0.52);
+                border-radius: 10px;
+                padding: 9px 11px;
                 border: 1px solid rgba(255,255,255,0.08);
+                selection-background-color: rgba(178,96,255,0.45);
+            }
+            #WakeInput {
+                background: rgba(0,0,0,0.52);
+                border-radius: 10px;
+                padding: 9px 11px;
+                border: 1px solid rgba(255,255,255,0.08);
+                selection-background-color: rgba(178,96,255,0.45);
+            }
+            #StyleStatus {
+                color: rgba(165,225,195,0.82);
+                font-size: 12px;
+                min-height: 18px;
+            }
+            #QueueList {
+                background: rgba(0,0,0,0.42);
+                border-radius: 10px;
+                padding: 6px;
+                border: 1px solid rgba(178,130,255,0.18);
+                color: rgba(245,239,255,0.9);
+                selection-background-color: rgba(118,72,220,0.62);
+            }
+            #QueueButton {
+                background: rgba(58,42,100,0.72);
+                color: rgba(246,239,255,0.94);
+                border-radius: 9px;
+                padding: 7px 9px;
+                border: 1px solid rgba(180,135,255,0.26);
+            }
+            #QueueButton:hover {
+                background: rgba(92,58,154,0.9);
+            }
+            #InputBox {
+                selection-background-color: rgba(178,96,255,0.45);
+            }
+            #StyleInput:focus,
+            #WakeInput:focus,
+            #InputBox:focus {
+                border: 1px solid rgba(208,165,255,0.6);
             }
             #SendButton {
-                background: rgba(60,120,255,0.9);
+                background: rgba(120,74,220,0.9);
                 color: #fff;
-                border-radius: 10px;
+                border-radius: 12px;
                 padding: 10px 18px;
                 border: none;
             }
             #SendButton:hover {
-                background: rgba(80,140,255,0.95);
+                background: rgba(148,94,255,0.98);
             }
-            #AttachButton {
-                background: rgba(40,40,40,0.7);
-                border-radius: 10px;
+            #SendButton[personalized="true"] {
+                background: rgba(126,76,220,0.94);
+                border: 1px solid rgba(202,170,255,0.36);
+            }
+            #SendButton[personalized="true"]:hover {
+                background: rgba(158,102,255,1);
+            }
+            #SendButton:disabled,
+            #PersonalizationStatus:disabled,
+            #PrecisionButton:disabled,
+            #StyleSaveButton:disabled,
+            #StyleClearButton:disabled,
+            #QueueButton:disabled,
+            #InputBox:disabled,
+            #StyleInput:disabled,
+            #WakeInput:disabled {
+                color: rgba(255,255,255,0.38);
+                background: rgba(45,45,45,0.55);
+                border: 1px solid rgba(255,255,255,0.05);
+            }
+            #PersonalizationStatus {
+                background: rgba(70,44,118,0.78);
+                color: rgba(246,239,255,0.94);
+                border-radius: 12px;
                 padding: 10px 16px;
+                border: 1px solid rgba(190,145,255,0.32);
+                font-weight: 800;
+            }
+            #PersonalizationStatus:hover {
+                background: rgba(92,58,154,0.9);
+            }
+            #PersonalizationStatus[personalized="true"] {
+                background: rgba(88,54,150,0.92);
+                color: #f2eaff;
+                border: 1px solid rgba(202,170,255,0.5);
+            }
+            #PersonalizationStatus[personalized="true"]:hover {
+                background: rgba(106,68,178,0.96);
+            }
+            #StyleSaveButton {
+                background: rgba(60,130,95,0.82);
+                color: #f2fff7;
+                border-radius: 10px;
+                padding: 8px 14px;
+                border: 1px solid rgba(130,230,170,0.26);
+            }
+            #StyleSaveButton:hover {
+                background: rgba(74,155,112,0.9);
+            }
+            #StyleSaveButton[personalized="true"] {
+                background: rgba(98,58,160,0.9);
+                border: 1px solid rgba(202,170,255,0.34);
+            }
+            #StyleClearButton {
+                background: rgba(70,70,78,0.72);
+                color: #f0f0f0;
+                border-radius: 10px;
+                padding: 8px 12px;
                 border: 1px solid rgba(255,255,255,0.1);
             }
-            #AttachButton:hover {
-                background: rgba(60,60,60,0.85);
+            #StyleClearButton:hover {
+                background: rgba(88,88,96,0.82);
             }
             #PrecisionButton {
-                background: rgba(30,70,120,0.65);
-                border-radius: 10px;
+                background: rgba(58,42,100,0.72);
+                border-radius: 12px;
                 padding: 10px 16px;
-                border: 1px solid rgba(120,180,255,0.25);
+                border: 1px solid rgba(180,135,255,0.28);
             }
             #PrecisionButton[active="true"] {
-                background: rgba(60,140,255,0.85);
-                border: 1px solid rgba(120,200,255,0.6);
+                background: rgba(118,72,220,0.9);
+                border: 1px solid rgba(215,180,255,0.62);
+            }
+            #PrecisionButton[personalized="true"] {
+                background: rgba(72,46,126,0.78);
+                border: 1px solid rgba(178,130,255,0.34);
+            }
+            #PrecisionButton[active="true"][personalized="true"] {
+                background: rgba(102,64,190,0.9);
+                border: 1px solid rgba(202,170,255,0.55);
             }
             #PrecisionButton:hover {
-                background: rgba(60,120,200,0.8);
+                background: rgba(92,58,154,0.9);
             }
             #ChatBubble[user="true"] {
-                background: rgba(40,40,40,0.65);
+                background: rgba(42,74,108,0.72);
                 border-radius: 12px;
-                border: 1px solid rgba(255,255,255,0.08);
+                border: 1px solid rgba(120,180,255,0.18);
             }
             #ChatBubble[user="false"] {
-                background: rgba(25,25,25,0.8);
+                background: rgba(25,28,33,0.86);
                 border-radius: 12px;
-                border: 1px solid rgba(255,255,255,0.08);
+                border: 1px solid rgba(125,210,160,0.12);
             }
             #AuthorLabel {
                 font-size: 12px;
-                color: rgba(255,255,255,0.6);
+                color: rgba(165,225,195,0.78);
+                selection-background-color: rgba(125,210,160,0.45);
             }
             #MessageLabel {
                 font-size: 13px;
+                selection-background-color: rgba(125,210,160,0.45);
+            }
+            #ThinkingBubble {
+                background: rgba(28,26,38,0.88);
+                border-radius: 12px;
+                border: 1px solid rgba(190,160,255,0.25);
+            }
+            #ThinkingDot {
+                background: rgba(160,125,255,0.95);
+                border-radius: 5px;
+                border: 1px solid rgba(220,205,255,0.55);
+            }
+            #ThinkingDot[done="true"] {
+                background: rgba(125,210,160,0.95);
+                border: 1px solid rgba(190,255,215,0.55);
+            }
+            #ThinkingButton {
+                background: rgba(92,64,160,0.74);
+                color: #e9e9e9;
+                border-radius: 10px;
+                padding: 8px 12px;
+                border: 1px solid rgba(120,180,255,0.3);
+                text-align: left;
+            }
+            #ThinkingButton:hover {
+                background: rgba(112,82,190,0.86);
+            }
+            #ThinkingDetail {
+                color: rgba(255,255,255,0.68);
+                font-size: 12px;
+                selection-background-color: rgba(125,210,160,0.45);
             }
             """
         )
+        self._update_style_badge()
+        self._refresh_queue_list()
 
         if should_preload():
             try:
@@ -415,8 +1014,18 @@ class MoriceWindow(QWidget):
                 self.append_message(MORICE_NAME, f"No knowledge files loaded from {KB_DIR}.")
         else:
             self.append_message(MORICE_NAME, "Knowledge is on-demand. Use @notes to include your files.")
+        if self.awake:
+            self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {USER_TITLE}.")
+        else:
+            self.append_message(
+                MORICE_NAME,
+                f"{MORICE_NAME} is asleep, {USER_TITLE}. Type '{self.wake_phrase}' to wake me.",
+            )
 
         QTimer.singleShot(200, self._post_init)
+        self.wake_signal_timer = QTimer(self)
+        self.wake_signal_timer.timeout.connect(self._check_external_wake_signal)
+        self.wake_signal_timer.start(1000)
 
     def _post_init(self):
         hwnd = int(self.winId())
@@ -424,6 +1033,29 @@ class MoriceWindow(QWidget):
             _enable_acrylic(hwnd)
         except Exception:
             pass
+
+    def _check_external_wake_signal(self):
+        if not os.path.exists(self.wake_signal_path):
+            return
+        try:
+            os.remove(self.wake_signal_path)
+        except Exception:
+            pass
+        self._wake_from_external()
+
+    def _wake_from_external(self):
+        if self.awake:
+            self.append_message(MORICE_NAME, enforce_father("I heard the wake signal. I am already awake."))
+            return
+        self.awake = True
+        self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {USER_TITLE}.")
+
+    def toggle_sidebar(self):
+        is_visible = not self.sidebar.isVisible()
+        self.sidebar.setVisible(is_visible)
+        self.title_bar.sidebar_btn.setText("Close" if is_visible else "Panel")
+        if is_visible:
+            self.style_input.setFocus()
 
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
         should_follow = self.follow_latest or self._is_at_bottom()
@@ -451,6 +1083,378 @@ class MoriceWindow(QWidget):
         anim.start()
 
         self._schedule_latest_scroll(force=force_scroll)
+
+    def _set_busy(self, is_busy: bool):
+        self.is_busy = is_busy
+        self.input.setEnabled(True)
+        self.send_btn.setEnabled(True)
+        self.personalization_btn.setEnabled(not is_busy)
+        self.precision_btn.setEnabled(not is_busy)
+        self.style_input.setEnabled(not is_busy)
+        self.wake_input.setEnabled(not is_busy)
+        self.save_style_btn.setEnabled(not is_busy)
+        self.clear_style_btn.setEnabled(not is_busy)
+        self._refresh_send_button_state()
+        if not is_busy:
+            self.input.setFocus()
+
+    def _refresh_send_button_state(self):
+        queued_count = len(self.message_queue)
+        if self.is_busy:
+            self.send_btn.setText(f"Queued {queued_count}" if queued_count else "Steer")
+            if queued_count:
+                self.input.setPlaceholderText("Queued. Add another steer message or reorder in Panel.")
+            else:
+                self.input.setPlaceholderText("Steer next message while MORICE replies...")
+        else:
+            self.send_btn.setText("Send")
+            self.input.setPlaceholderText("All Father: type here...")
+        self._refresh_queue_controls()
+
+    def _refresh_queue_list(self, preferred_row: int | None = None):
+        if not hasattr(self, "queue_list"):
+            return
+        current_row = self.queue_list.currentRow() if preferred_row is None else preferred_row
+        self.queue_list.clear()
+        for index, message in enumerate(self.message_queue, start=1):
+            preview = message.replace("\n", " ").strip()
+            if len(preview) > 70:
+                preview = preview[:67] + "..."
+            self.queue_list.addItem(f"{index}. {preview}")
+        if self.message_queue:
+            self.queue_list.setCurrentRow(max(0, min(current_row, len(self.message_queue) - 1)))
+        self._refresh_queue_controls()
+
+    def _refresh_queue_controls(self):
+        if not hasattr(self, "queue_list"):
+            return
+        row = self.queue_list.currentRow()
+        has_items = bool(self.message_queue)
+        self.queue_up_btn.setEnabled(has_items and row > 0)
+        self.queue_down_btn.setEnabled(has_items and 0 <= row < len(self.message_queue) - 1)
+        self.queue_remove_btn.setEnabled(has_items and row >= 0)
+        self.queue_clear_btn.setEnabled(has_items)
+
+    def _queue_steer_message(self):
+        steer_message = self.input.text().strip()
+        if not steer_message:
+            return
+        self.message_queue.append(steer_message)
+        self.input.clear()
+        self._refresh_queue_list(preferred_row=len(self.message_queue) - 1)
+        self._refresh_send_button_state()
+
+    def _send_queued_message_if_ready(self):
+        if self.is_busy or not self.message_queue:
+            return
+        next_message = self.message_queue.pop(0)
+        self._refresh_queue_list(preferred_row=0)
+        self._refresh_send_button_state()
+        self.input.setText(next_message)
+        QTimer.singleShot(80, self.on_send)
+
+    def on_queue_up(self):
+        row = self.queue_list.currentRow()
+        if row <= 0:
+            return
+        self.message_queue[row - 1], self.message_queue[row] = self.message_queue[row], self.message_queue[row - 1]
+        self._refresh_queue_list(preferred_row=row - 1)
+        self._refresh_send_button_state()
+
+    def on_queue_down(self):
+        row = self.queue_list.currentRow()
+        if row < 0 or row >= len(self.message_queue) - 1:
+            return
+        self.message_queue[row + 1], self.message_queue[row] = self.message_queue[row], self.message_queue[row + 1]
+        self._refresh_queue_list(preferred_row=row + 1)
+        self._refresh_send_button_state()
+
+    def on_queue_remove(self):
+        row = self.queue_list.currentRow()
+        if row < 0 or row >= len(self.message_queue):
+            return
+        self.message_queue.pop(row)
+        self._refresh_queue_list(preferred_row=min(row, len(self.message_queue) - 1))
+        self._refresh_send_button_state()
+
+    def on_queue_clear(self):
+        if not self.message_queue:
+            return
+        self.message_queue.clear()
+        self._refresh_queue_list(preferred_row=0)
+        self._refresh_send_button_state()
+
+    def _show_thinking(self, detail: str):
+        self._remove_thinking()
+        self._thinking_token += 1
+        token = self._thinking_token
+        self.thinking_bubble = ThinkingBubble(detail)
+        insert_index = max(0, self.chat_list_layout.count() - 1)
+        self.chat_list_layout.insertWidget(insert_index, self.thinking_bubble)
+        self._schedule_latest_scroll(force=True)
+        QTimer.singleShot(
+            12000,
+            lambda: self._thinking_delayed_update(
+                token,
+                "Hermes is still generating. Local CPU replies can take a bit.",
+            ),
+        )
+        QTimer.singleShot(
+            35000,
+            lambda: self._thinking_delayed_update(
+                token,
+                "Still working locally. If the engine fails, I will show the error here.",
+            ),
+        )
+
+    def _thinking_delayed_update(self, token: int, detail: str):
+        if token == self._thinking_token and self.thinking_bubble:
+            self.thinking_update.emit(detail)
+
+    def _remove_thinking(self):
+        if not self.thinking_bubble:
+            return
+        self.chat_list_layout.removeWidget(self.thinking_bubble)
+        self.thinking_bubble.deleteLater()
+        self.thinking_bubble = None
+
+    def _finish_thinking(self):
+        self._remove_thinking()
+
+    def _on_message_ready(self, author: str, message: str, is_user: bool = False):
+        self._remove_thinking()
+        self.append_message(author, message, is_user=is_user, force_scroll=True)
+        self._set_busy(False)
+        QTimer.singleShot(120, self._send_queued_message_if_ready)
+
+    def _on_thinking_update(self, detail: str):
+        if self.thinking_bubble:
+            self.thinking_bubble.set_detail(detail)
+
+    def _update_style_badge(self):
+        if not hasattr(self, "current_style_value"):
+            return
+        has_personalization = self._has_personalization()
+        current_lines = []
+        if self.response_style:
+            current_lines.append(self.response_style)
+        if self._has_custom_wake_phrase():
+            current_lines.append(f"Wake line: {self.wake_phrase}")
+        if current_lines:
+            self.current_style_value.setText("\n".join(current_lines))
+        else:
+            self.current_style_value.setText("None")
+        self.current_style_value.setProperty("empty", "false" if has_personalization else "true")
+        self.personalization_btn.setText("Personalised" if has_personalization else "None")
+        self.personalization_btn.setProperty("personalized", "true" if has_personalization else "false")
+        self._apply_personalization_theme(has_personalization)
+
+    def _has_custom_wake_phrase(self) -> bool:
+        return normalize_wake_phrase(self.wake_phrase).lower() != DEFAULT_SETTINGS["wake_phrase"].lower()
+
+    def _has_personalization(self) -> bool:
+        return bool(self.response_style.strip()) or self._has_custom_wake_phrase()
+
+    def _apply_personalization_theme(self, has_personalization: bool):
+        state = "true" if has_personalization else "false"
+        widgets = [
+            self.current_style_value,
+            self.personalization_btn,
+            self.title_bar,
+            self.title_bar.sidebar_btn,
+            self.chat_container,
+            self.input_frame,
+            self.sidebar,
+            self.precision_btn,
+            self.save_style_btn,
+            self.send_btn,
+        ]
+        for widget in widgets:
+            widget.setProperty("personalized", state)
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+        if hasattr(self, "input_frame"):
+            self._configure_input_bar(centered=self.composer_centered)
+
+    def _composer_widgets(self):
+        return (
+            self.input_frame,
+            self.input,
+            self.precision_btn,
+            self.personalization_btn,
+            self.send_btn,
+        )
+
+    def _configure_input_bar(self, centered: bool):
+        if not hasattr(self, "input_frame"):
+            return
+
+        self.composer_centered = centered
+        is_active = self.input.hasFocus()
+        self.input_frame.setProperty("centered", "true" if centered else "false")
+        self.input_frame.setProperty("hovered", "true" if is_active else "false")
+        self.input_frame.setMaximumWidth(820 if centered else 16777215)
+
+        if self.input_glow is None:
+            self.input_glow = QGraphicsDropShadowEffect(self.input_frame)
+            self.input_glow.setOffset(0, 0)
+            self.input_frame.setGraphicsEffect(self.input_glow)
+
+        if centered:
+            blur_radius = 124
+            alpha = 238
+        else:
+            blur_radius = 66 if is_active else 46
+            alpha = 190 if is_active else 126
+        self.input_glow.setBlurRadius(blur_radius)
+        self.input_glow.setColor(QColor(178, 96, 255, alpha))
+
+        for widget in self._composer_widgets():
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
+
+        if not getattr(self, "_composer_filters_installed", False):
+            for widget in self._composer_widgets():
+                widget.installEventFilter(self)
+            self._composer_filters_installed = True
+
+    def _refresh_input_hover_from_cursor(self):
+        if not hasattr(self, "input_frame"):
+            return
+        local_pos = self.input_frame.mapFromGlobal(QCursor.pos())
+        self._input_hovered = self.input_frame.rect().contains(local_pos)
+        self._configure_input_bar(centered=self.composer_centered)
+
+    def _return_panel_button_to_titlebar(self):
+        button = self.title_bar.sidebar_btn
+        if self.center_panel_layout.indexOf(button) != -1:
+            self.center_panel_layout.removeWidget(button)
+        if self.title_bar.layout().indexOf(button) == -1:
+            self.title_bar.layout().insertWidget(0, button)
+        button.setProperty("centered", "false")
+        button.style().unpolish(button)
+        button.style().polish(button)
+
+    def _dock_composer(self):
+        if not self.composer_centered:
+            return
+
+        if not self.isVisible() or self.input_frame.width() <= 0 or self.input_frame.height() <= 0:
+            self._dock_composer_immediate()
+            return
+
+        self._dock_composer_animated()
+
+    def _dock_composer_immediate(self):
+        self._return_panel_button_to_titlebar()
+        self.center_input_layout.removeWidget(self.input_frame)
+        self.bottom_input_layout.addWidget(self.input_frame)
+        self.composer_stage.setVisible(False)
+        self.bottom_input_host.setVisible(True)
+        self.chat_container.setVisible(True)
+        self._input_hovered = False
+        self._configure_input_bar(centered=False)
+        self.follow_latest = True
+        self._schedule_latest_scroll(force=True)
+
+    def _dock_composer_animated(self):
+        start_rect = QRect(self.input_frame.mapTo(self, QPoint(0, 0)), self.input_frame.size())
+        self._return_panel_button_to_titlebar()
+        self.center_input_layout.removeWidget(self.input_frame)
+
+        placeholder = QWidget()
+        placeholder.setObjectName("ComposerDockPlaceholder")
+        placeholder.setFixedHeight(max(1, start_rect.height()))
+        placeholder.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._dock_placeholder = placeholder
+
+        self.composer_stage.setVisible(False)
+        self.chat_container.setVisible(True)
+        self.bottom_input_host.setVisible(True)
+        self.bottom_input_layout.addWidget(placeholder)
+        QApplication.processEvents()
+
+        target_rect = QRect(placeholder.mapTo(self, QPoint(0, 0)), placeholder.size())
+        if target_rect.width() <= 0 or target_rect.height() <= 0:
+            self._finish_composer_dock(placeholder)
+            return
+
+        self.input_frame.setParent(self)
+        self.input_frame.setGeometry(start_rect)
+        self.input_frame.show()
+        self.input_frame.raise_()
+        self._input_hovered = False
+        self._configure_input_bar(centered=False)
+
+        fall_anim = QPropertyAnimation(self.input_frame, b"geometry", self)
+        fall_anim.setDuration(820)
+        fall_anim.setEasingCurve(QEasingCurve.InOutCubic)
+        fall_anim.setStartValue(start_rect)
+
+        distance_y = target_rect.y() - start_rect.y()
+        early_y = start_rect.y() + int(distance_y * 0.28)
+        early_width = start_rect.width() + int((target_rect.width() - start_rect.width()) * 0.25)
+        early_x = start_rect.x() + int((target_rect.x() - start_rect.x()) * 0.2)
+        fall_anim.setKeyValueAt(
+            0.38,
+            QRect(early_x, early_y, early_width, target_rect.height()),
+        )
+        fall_anim.setKeyValueAt(
+            0.68,
+            QRect(target_rect.x() - 16, target_rect.y() + 22, target_rect.width(), target_rect.height()),
+        )
+        fall_anim.setKeyValueAt(
+            0.82,
+            QRect(target_rect.x() + 12, target_rect.y() - 10, target_rect.width(), target_rect.height()),
+        )
+        fall_anim.setKeyValueAt(
+            0.92,
+            QRect(target_rect.x() - 5, target_rect.y() + 4, target_rect.width(), target_rect.height()),
+        )
+        fall_anim.setEndValue(target_rect)
+        fall_anim.finished.connect(lambda: self._finish_composer_dock(placeholder))
+        self._composer_anim = fall_anim
+        self._anims.append(fall_anim)
+        fall_anim.start()
+
+    def _finish_composer_dock(self, placeholder: QWidget | None):
+        if placeholder is not None:
+            self.bottom_input_layout.removeWidget(placeholder)
+            placeholder.deleteLater()
+        self._dock_placeholder = None
+        if self.bottom_input_layout.indexOf(self.input_frame) == -1:
+            self.bottom_input_layout.addWidget(self.input_frame)
+        self.input_frame.show()
+        self._configure_input_bar(centered=False)
+        if self._composer_anim in self._anims:
+            self._anims.remove(self._composer_anim)
+        self._composer_anim = None
+        self.follow_latest = True
+        self._schedule_latest_scroll(force=True)
+
+    def on_save_response_style(self):
+        raw_style = self.style_input.toPlainText().strip()
+        clean_style = normalize_response_style(raw_style)
+        self.response_style = clean_style
+        self.wake_phrase = normalize_wake_phrase(self.wake_input.text())
+        self.style_input.setPlainText(self.response_style)
+        self.wake_input.setText(self.wake_phrase)
+        self.settings["response_style"] = self.response_style
+        self.settings["wake_phrase"] = self.wake_phrase
+        save_settings(self.settings)
+        self._update_style_badge()
+        self.style_status.setText("Saved. Morice will use this on the next reply.")
+
+    def on_clear_response_style(self):
+        self.response_style = ""
+        self.wake_phrase = DEFAULT_SETTINGS["wake_phrase"]
+        self.style_input.clear()
+        self.wake_input.setText(self.wake_phrase)
+        self.settings["response_style"] = ""
+        self.settings["wake_phrase"] = self.wake_phrase
+        save_settings(self.settings)
+        self._update_style_badge()
+        self.style_status.setText("Cleared. Personalization is None.")
 
     def _on_scroll_change(self, value: int):
         if self._auto_scrolling:
@@ -510,6 +1514,12 @@ class MoriceWindow(QWidget):
     def eventFilter(self, source, event):
         if event.type() == QEvent.Wheel:
             return False
+        if hasattr(self, "input_frame") and source in self._composer_widgets():
+            if event.type() in (QEvent.Enter, QEvent.FocusIn):
+                self._input_hovered = True
+                self._configure_input_bar(centered=self.composer_centered)
+            elif event.type() in (QEvent.Leave, QEvent.FocusOut):
+                QTimer.singleShot(0, self._refresh_input_hover_from_cursor)
         return super().eventFilter(source, event)
 
     def resizeEvent(self, event):
@@ -517,11 +1527,15 @@ class MoriceWindow(QWidget):
         self._schedule_latest_scroll()
 
     def on_send(self):
+        if self.is_busy:
+            self._queue_steer_message()
+            return
         user_input = self.input.text().strip()
         if not user_input:
             return
         self.follow_latest = True
         self.input.clear()
+        self._dock_composer()
         self.append_message("All Father", user_input, is_user=True, force_scroll=True)
         self.user_messages.append(user_input)
         if not self.first_user_message:
@@ -532,14 +1546,14 @@ class MoriceWindow(QWidget):
             self.pending_image_path = ""
             self.append_message("All Father", f"Attached image: {os.path.basename(image_path)}", is_user=True)
 
-        wake_message = wake_up_response(user_input)
+        wake_message = wake_up_response(user_input, self.wake_phrase)
         if wake_message:
             self.append_message(MORICE_NAME, wake_message)
             self.awake = True
             return
 
         if not self.awake:
-            self.append_message(MORICE_NAME, "I am asleep. Say 'wake up son'.")
+            self.append_message(MORICE_NAME, f"I am asleep. Say '{self.wake_phrase}'.")
             return
 
         summon_message = summon_response(user_input)
@@ -560,6 +1574,11 @@ class MoriceWindow(QWidget):
         father_reply = father_identity_response(user_input)
         if father_reply:
             self.append_message(MORICE_NAME, enforce_father(father_reply))
+            return
+
+        datetime_reply = current_datetime_response(user_input)
+        if datetime_reply:
+            self.append_message(MORICE_NAME, enforce_father(datetime_reply))
             return
 
         if wants_first_message(user_input) and self.first_user_message:
@@ -621,11 +1640,11 @@ class MoriceWindow(QWidget):
                 script = unity_3d_movement_script()
             else:
                 script = unity_2d_movement_script()
-            self.append_message(MORICE_NAME, f"Father, here is the script.\n{script}")
+            self.append_message(MORICE_NAME, f"{USER_TITLE}, here is the script.\n{script}")
             return
 
         if wants_html_cube_movement(user_input):
-            self.append_message(MORICE_NAME, f"Father, here is the script.\n{html_cube_movement_script()}")
+            self.append_message(MORICE_NAME, f"{USER_TITLE}, here is the script.\n{html_cube_movement_script()}")
             return
 
         if not self.math_steps_mode and not wants_steps_detail(user_input):
@@ -653,55 +1672,85 @@ class MoriceWindow(QWidget):
             self.append_message(MORICE_NAME, enforce_father(summary))
             return
 
+        if wants_web_capability(user_input) and not extract_web_query(user_input):
+            self.append_message(
+                MORICE_NAME,
+                enforce_father("Offline mode is active. Start the message with @web <query> when you want web search."),
+            )
+            return
+
+        web_query_for_status = extract_web_query(user_input)
+        self._set_busy(True)
+        self._show_thinking(
+            "Received your message and started the reply pipeline."
+        )
+        self.thinking_update.emit(
+            "Using @web, collecting search results, then asking the Hermes engine."
+            if web_query_for_status
+            else "Full offline mode: asking the local Hermes engine only."
+        )
+
         def worker():
-            context = retrieve_context(user_input) if should_use_context(user_input) else ""
-            web_context = ""
-            if os.getenv("MORICE_WEB", "1") == "1":
-                web_query = extract_web_query(user_input) or (user_input if needs_web(user_input) else None)
-                if web_query:
+            try:
+                self.thinking_update.emit("Checking saved response style and local context.")
+                context = retrieve_context(user_input) if should_use_context(user_input) else ""
+                web_context = ""
+                web_query = extract_web_query(user_input)
+                if os.getenv("MORICE_WEB", "1") == "1" and web_query:
+                    self.thinking_update.emit("Searching the web because the message used @web.")
                     web_context = search_web(web_query)
                     if not web_context:
                         web_context = "Web lookup returned no results."
 
-            extra_system = ""
-            if image_path:
-                image_context = describe_image(image_path)
-                lowered = image_context.lower()
-                if any(key in lowered for key in {"not available", "not found", "could not open"}):
-                    self.message_ready.emit(MORICE_NAME, enforce_father(image_context), False)
-                    return
-                extra_system = (
-                    "Image context (best effort, may be incomplete):\n"
-                    f"{image_context}"
-                )
-                if "no readable text detected" in lowered:
-                    extra_system += "\nDo not invent text. Ask the user to paste the question."
-            if context:
-                extra_system = (
-                    (extra_system + "\n\n" if extra_system else "")
-                    + "Use the following local notes when relevant. "
-                    "If they don't apply, ignore them.\n\n"
-                    f"{context}"
-                )
-            if self.first_user_message:
-                extra_system = (extra_system + "\n\n" if extra_system else "") + (
-                    f"Conversation memory: The user's first message was: {self.first_user_message}"
-                )
-            if web_context:
-                extra_system = (extra_system + "\n\n" if extra_system else "") + (
-                    "Web results (may be incomplete):\n" + web_context
-                )
+                extra_system = ""
+                response_style = self.response_style.strip()
+                if response_style:
+                    extra_system = (
+                        "Saved response style from the user. Follow it directly for this reply:\n"
+                        f"{response_style}"
+                    )
+                if image_path:
+                    self.thinking_update.emit("Reading attached image context.")
+                    image_context = describe_image(image_path)
+                    lowered = image_context.lower()
+                    if any(key in lowered for key in {"not available", "not found", "could not open"}):
+                        self.message_ready.emit(MORICE_NAME, enforce_father(image_context), False)
+                        return
+                    extra_system = (
+                        (extra_system + "\n\n" if extra_system else "")
+                        + "Image context (best effort, may be incomplete):\n"
+                        f"{image_context}"
+                    )
+                if context:
+                    extra_system = (
+                        (extra_system + "\n\n" if extra_system else "")
+                        + "Use the following local notes when relevant. "
+                        "If they don't apply, ignore them.\n\n"
+                        f"{context}"
+                    )
+                if self.first_user_message:
+                    extra_system = (extra_system + "\n\n" if extra_system else "") + (
+                        f"Conversation memory: The user's first message was: {self.first_user_message}"
+                    )
+                if web_context:
+                    extra_system = (extra_system + "\n\n" if extra_system else "") + (
+                        "Web results (may be incomplete):\n" + web_context
+                    )
 
-            reply = chat(
-                self.history,
-                user_input,
-                extra_system=extra_system,
-                precision_mode=self.precision_mode,
-                math_steps_mode=self.math_steps_mode or wants_steps_detail(user_input),
-            )
-            self.history.append({"role": "user", "content": user_input})
-            self.history.append({"role": "assistant", "content": reply})
-            self.message_ready.emit(MORICE_NAME, enforce_father(shorten_reply(reply)), False)
+                self.thinking_update.emit("Asking Hermes to compose the final answer.")
+                reply = chat(
+                    self.history,
+                    user_input,
+                    extra_system=extra_system,
+                    timeout=180,
+                    precision_mode=self.precision_mode,
+                    math_steps_mode=self.math_steps_mode or wants_steps_detail(user_input),
+                )
+                self.history.append({"role": "user", "content": user_input})
+                self.history.append({"role": "assistant", "content": reply})
+                self.message_ready.emit(MORICE_NAME, enforce_father(shorten_reply(reply)), False)
+            except Exception as exc:  # noqa: BLE001
+                self.message_ready.emit(MORICE_NAME, enforce_father(f"I hit an app error: {exc}"), False)
 
         threading.Thread(target=worker, daemon=True).start()
 

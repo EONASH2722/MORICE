@@ -10,16 +10,37 @@ def _asset_path(*parts: str) -> str:
     return os.path.join(base, "morice", "assets", *parts)
 
 
+def _project_path(*parts: str) -> str:
+    if getattr(sys, "frozen", False):
+        base = os.path.dirname(sys.executable)
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, *parts)
+
+
 def _configure_local_model_defaults():
-    if os.getenv("MORICE_MODEL", "").strip() or os.getenv("MORICE_GGUF_PATH", "").strip():
+    configured_model = os.getenv("MORICE_MODEL", "").strip()
+    configured_gguf = os.getenv("MORICE_GGUF_PATH", "").strip()
+    if configured_gguf:
         return
 
-    gguf_path = _asset_path("Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf")
+    gguf_candidates = [
+        _project_path("Hermes-3-Llama-3.1-8B.Q4_K_M.gguf"),
+        _asset_path("Hermes-3-Llama-3.1-8B.Q4_K_M.gguf"),
+    ]
     server_path = _asset_path("llama-bin", "llama-server.exe")
 
-    if os.path.exists(gguf_path):
-        os.environ.setdefault("MORICE_GGUF_PATH", gguf_path)
-        os.environ.setdefault("MORICE_MODEL", "local-gguf")
+    gguf_path = next((path for path in gguf_candidates if os.path.exists(path)), "")
+    stale_llama_model = any(
+        marker in configured_model.lower()
+        for marker in ("llama3", "llama-3", "meta-llama")
+    )
+    if configured_model and not stale_llama_model and not gguf_path:
+        return
+    if gguf_path:
+        os.environ["MORICE_GGUF_PATH"] = gguf_path
+        if not configured_model or stale_llama_model:
+            os.environ["MORICE_MODEL"] = "local-gguf"
     if os.path.exists(server_path):
         os.environ.setdefault("MORICE_LLAMA_SERVER_PATH", server_path)
         os.environ.setdefault("MORICE_LLAMA_SERVER", "1")

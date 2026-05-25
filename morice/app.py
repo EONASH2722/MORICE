@@ -24,6 +24,8 @@ from .core import (
     html_cube_movement_script,
     wake_up_response,
     emotional_checkin_response,
+    father_identity_response,
+    current_datetime_response,
 )
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload, search_notes
 from .llm_client import chat
@@ -141,13 +143,26 @@ class MoriceApp(tk.Tk):
             self.append_message(MORICE_NAME, enforce_father(emotional_reply))
             return
 
+        father_reply = father_identity_response(user_input)
+        if father_reply:
+            self.append_message(MORICE_NAME, enforce_father(father_reply))
+            return
+
+        datetime_reply = current_datetime_response(user_input)
+        if datetime_reply:
+            self.append_message(MORICE_NAME, enforce_father(datetime_reply))
+            return
+
         if is_acknowledgement(user_input):
             self.append_message(MORICE_NAME, enforce_father("Understood."))
             return
 
         if wants_web_capability(user_input):
-            if os.getenv("MORICE_WEB", "0") == "1":
-                self.append_message(MORICE_NAME, enforce_father("Yes. Use @web <query> or ask a time-sensitive question."))
+            if os.getenv("MORICE_WEB", "1") == "1":
+                self.append_message(
+                    MORICE_NAME,
+                    enforce_father("Offline mode is active. Start the message with @web <query> when you want web search."),
+                )
             else:
                 self.append_message(MORICE_NAME, enforce_father("Web is disabled. Set MORICE_WEB=1 to enable it."))
             return
@@ -187,11 +202,11 @@ class MoriceApp(tk.Tk):
                 script = unity_3d_movement_script()
             else:
                 script = unity_2d_movement_script()
-            self.append_message(MORICE_NAME, f"Father, here is the script.\n{script}")
+            self.append_message(MORICE_NAME, f"All Father, here is the script.\n{script}")
             return
 
         if wants_html_cube_movement(user_input):
-            self.append_message(MORICE_NAME, f"Father, here is the script.\n{html_cube_movement_script()}")
+            self.append_message(MORICE_NAME, f"All Father, here is the script.\n{html_cube_movement_script()}")
             return
 
         math_result = compute_math(user_input)
@@ -201,8 +216,8 @@ class MoriceApp(tk.Tk):
 
         context = retrieve_context(user_input) if should_use_context(user_input) else ""
         web_context = ""
-        if os.getenv("MORICE_WEB", "0") == "1":
-            web_query = extract_web_query(user_input) or (user_input if needs_web(user_input) else None)
+        if os.getenv("MORICE_WEB", "1") == "1":
+            web_query = extract_web_query(user_input)
             if web_query:
                 web_context = search_web(web_query)
         extra_system = ""
