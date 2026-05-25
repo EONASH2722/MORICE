@@ -2,11 +2,13 @@ import os
 import sys
 import threading
 import ctypes
+import html
 import math
+import re
 from ctypes import wintypes
 
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QTimer, Signal, QEvent
-from PySide6.QtGui import QFont, QColor, QIcon, QCursor, QPainter
+from PySide6.QtGui import QFont, QFontDatabase, QColor, QIcon, QCursor, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -110,6 +112,122 @@ def _icon_path() -> str:
     return os.path.join(os.path.dirname(__file__), "assets", "morice_logo.ico")
 
 
+_UI_FONTS_LOADED = False
+
+
+def _load_ui_fonts():
+    global _UI_FONTS_LOADED
+    if _UI_FONTS_LOADED:
+        return
+    app = QApplication.instance()
+    if app is None:
+        return
+
+    font_dir = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+    font_paths = [
+        os.path.join(font_dir, "segoeui.ttf"),
+        os.path.join(font_dir, "segoeuib.ttf"),
+        os.path.join(font_dir, "segoeuii.ttf"),
+    ]
+    loaded_family = ""
+    for font_path in font_paths:
+        if not os.path.exists(font_path):
+            continue
+        font_id = QFontDatabase.addApplicationFont(font_path)
+        if font_id < 0:
+            continue
+        families = QFontDatabase.applicationFontFamilies(font_id)
+        if families and not loaded_family:
+            loaded_family = families[0]
+
+    if loaded_family:
+        app.setFont(QFont(loaded_family, 10))
+    _UI_FONTS_LOADED = True
+
+
+def _inline_markdown_to_rich_text(text: str) -> str:
+    safe = html.escape(text, quote=False)
+    safe = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", safe)
+    safe = re.sub(r"\*\*([^*\n][\s\S]*?[^*\n])\*\*", r"<b>\1</b>", safe)
+    safe = re.sub(r"__([^_\n][\s\S]*?[^_\n])__", r"<b>\1</b>", safe)
+    return safe
+
+
+def _message_to_rich_text(message: str) -> str:
+    text = (message or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return ""
+
+    parts: list[str] = []
+    in_code = False
+    code_lines: list[str] = []
+    list_open = False
+
+    def close_list():
+        nonlocal list_open
+        if list_open:
+            parts.append("</ul>")
+            list_open = False
+
+    def flush_code():
+        if not code_lines:
+            return
+        code = html.escape("\n".join(code_lines), quote=False)
+        parts.append(f"<pre><code>{code}</code></pre>")
+        code_lines.clear()
+
+    for raw_line in text.split("\n"):
+        line = raw_line.rstrip()
+        stripped = line.strip()
+
+        if stripped.startswith("```"):
+            if in_code:
+                flush_code()
+                in_code = False
+            else:
+                close_list()
+                in_code = True
+            continue
+
+        if in_code:
+            code_lines.append(line)
+            continue
+
+        if not stripped:
+            close_list()
+            parts.append("<br>")
+            continue
+
+        heading_match = re.match(r"^#{1,6}\s+(.+)$", stripped)
+        if heading_match:
+            close_list()
+            parts.append(f"<p><b>{_inline_markdown_to_rich_text(heading_match.group(1))}</b></p>")
+            continue
+
+        bullet_match = re.match(r"^[-*]\s+(.+)$", stripped)
+        if bullet_match:
+            if not list_open:
+                parts.append("<ul>")
+                list_open = True
+            parts.append(f"<li>{_inline_markdown_to_rich_text(bullet_match.group(1))}</li>")
+            continue
+
+        numbered_match = re.match(r"^(\d+)[.)]\s+(.+)$", stripped)
+        if numbered_match:
+            close_list()
+            number, body = numbered_match.groups()
+            parts.append(f"<p>{number}. {_inline_markdown_to_rich_text(body)}</p>")
+            continue
+
+        close_list()
+        parts.append(f"<p>{_inline_markdown_to_rich_text(stripped)}</p>")
+
+    close_list()
+    if in_code:
+        flush_code()
+    return "".join(parts)
+
+
 
 class ComposerStageFrame(QFrame):
     def __init__(self):
@@ -133,12 +251,8 @@ class ComposerStageFrame(QFrame):
 
         painter.fillRect(rect, QColor(7, 7, 12, 118))
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(34, 36, 82, 38))
-        painter.drawEllipse(int(width * 0.05), int(height * 0.28), int(width * 0.9), int(height * 0.58))
-        painter.setBrush(QColor(124, 72, 255, 30))
-        painter.drawEllipse(int(width * 0.12), int(height * 0.44), int(width * 0.76), int(height * 0.38))
 
-        start_y = int(height * 0.40)
+        start_y = int(height * 0.34)
         end_y = int(height * 0.86)
         if end_y <= start_y:
             return
@@ -184,7 +298,8 @@ class ChatBubble(QFrame):
         message_label = QLabel(message)
         message_label.setWordWrap(True)
         message_label.setObjectName("MessageLabel")
-        message_label.setTextFormat(Qt.PlainText)
+        message_label.setText(_message_to_rich_text(message))
+        message_label.setTextFormat(Qt.RichText)
         message_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         message_label.setFocusPolicy(Qt.StrongFocus)
 
@@ -334,6 +449,7 @@ class MoriceWindow(QWidget):
 
     def __init__(self):
         super().__init__()
+        _load_ui_fonts()
         self.setWindowTitle(f"{MORICE_NAME} Glass Chat")
         self.resize(980, 640)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -400,12 +516,17 @@ class MoriceWindow(QWidget):
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.NoFrame)
         self.scroll.setFocusPolicy(Qt.StrongFocus)
+        self.scroll.viewport().setAutoFillBackground(False)
+        self.scroll.viewport().setAttribute(Qt.WA_TranslucentBackground, True)
         self.scroll.viewport().installEventFilter(self)
         self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         chat_layout.addWidget(self.scroll)
 
         self.chat_list = QWidget()
+        self.chat_list.setObjectName("ChatList")
+        self.chat_list.setAutoFillBackground(False)
+        self.chat_list.setAttribute(Qt.WA_TranslucentBackground, True)
         self.chat_list_layout = QVBoxLayout(self.chat_list)
         self.chat_list_layout.setContentsMargins(12, 16, 12, 24)
         self.chat_list_layout.setSpacing(10)
@@ -696,6 +817,10 @@ class MoriceWindow(QWidget):
             QScrollArea {
                 background: transparent;
                 border: none;
+            }
+            QScrollArea > QWidget,
+            #ChatList {
+                background: transparent;
             }
             QScrollBar:vertical {
                 background: rgba(255,255,255,0.028);
@@ -1780,6 +1905,7 @@ class MoriceWindow(QWidget):
 
 def run_app():
     app = QApplication(sys.argv)
+    _load_ui_fonts()
     app.setApplicationName("MORICE")
     icon_path = _icon_path()
     if os.path.exists(icon_path):

@@ -8,7 +8,12 @@ MORICE is a local desktop AI assistant with a PySide6 tinted-glass interface, of
 
 <p align="center">
   <img src="docs/screenshots/morice-home.png" alt="MORICE centered launch screen" width="48%">
-  <img src="docs/screenshots/morice-queue.png" alt="MORICE message queue panel" width="48%">
+  <img src="docs/screenshots/morice-panel.png" alt="MORICE personalization panel" width="48%">
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/morice-queue.png" alt="MORICE chat with message queue panel" width="48%">
+  <img src="docs/screenshots/morice-chat.png" alt="MORICE chat screen" width="48%">
 </p>
 
 ## Highlights
