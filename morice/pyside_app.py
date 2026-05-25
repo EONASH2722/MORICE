@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
 
 from .core import (
     MORICE_NAME,
-    USER_TITLE,
     compute_math,
     enforce_father,
     shorten_reply,
@@ -71,6 +70,7 @@ from .llm_client import chat
 from .settings import (
     DEFAULT_SETTINGS,
     load_settings,
+    normalize_user_title,
     normalize_wake_phrase,
     normalize_response_style,
     save_settings,
@@ -249,7 +249,7 @@ class ComposerStageFrame(QFrame):
         width = max(1, rect.width())
         height = max(1, rect.height())
 
-        painter.fillRect(rect, QColor(7, 7, 12, 118))
+        painter.fillRect(rect, QColor(7, 7, 12, 232))
         painter.setPen(Qt.NoPen)
 
         start_y = int(height * 0.34)
@@ -482,6 +482,7 @@ class MoriceWindow(QWidget):
         self.settings = load_settings()
         self.response_style = self.settings.get("response_style", "").strip()
         self.wake_phrase = normalize_wake_phrase(self.settings.get("wake_phrase", ""))
+        self.user_title = normalize_user_title(self.settings.get("user_title", ""))
 
         self.wake_signal_path = wake_signal_path()
         self.message_ready.connect(self._on_message_ready)
@@ -572,7 +573,15 @@ class MoriceWindow(QWidget):
         self.style_input.setObjectName("StyleInput")
         self.style_input.setPlaceholderText("Example: mid-length, funny, direct, teacher-like, Hinglish...")
         self.style_input.setPlainText(self.response_style)
-        self.style_input.setFixedHeight(120)
+        self.style_input.setFixedHeight(92)
+
+        title_label = QLabel("What MORICE calls you")
+        title_label.setObjectName("StyleLabel")
+
+        self.title_input = QLineEdit()
+        self.title_input.setObjectName("TitleInput")
+        self.title_input.setPlaceholderText("Example: Boss, Captain, Janmesh...")
+        self.title_input.setText(self.user_title)
 
         wake_label = QLabel("Wake line")
         wake_label.setObjectName("StyleLabel")
@@ -644,6 +653,8 @@ class MoriceWindow(QWidget):
         sidebar_layout.addSpacing(8)
         sidebar_layout.addWidget(style_label)
         sidebar_layout.addWidget(self.style_input)
+        sidebar_layout.addWidget(title_label)
+        sidebar_layout.addWidget(self.title_input)
         sidebar_layout.addWidget(wake_label)
         sidebar_layout.addWidget(self.wake_input)
         sidebar_layout.addLayout(style_buttons)
@@ -665,7 +676,7 @@ class MoriceWindow(QWidget):
         input_layout.setSpacing(10)
 
         self.input = QLineEdit()
-        self.input.setPlaceholderText("All Father: type here...")
+        self.input.setPlaceholderText(f"{self.user_title}: type here...")
         self.input.setObjectName("InputBox")
         self.input.returnPressed.connect(self.on_send)
 
@@ -695,7 +706,7 @@ class MoriceWindow(QWidget):
         stage_layout.setContentsMargins(18, 20, 18, 42)
         stage_layout.setSpacing(16)
 
-        self.hero_label = QLabel(f"{MORICE_NAME}, what shall we do, {USER_TITLE}?")
+        self.hero_label = QLabel(f"{MORICE_NAME}, what shall we do, {self.user_title}?")
         self.hero_label.setObjectName("HeroPrompt")
         self.hero_label.setAlignment(Qt.AlignCenter)
         self.hero_label.setWordWrap(True)
@@ -949,6 +960,13 @@ class MoriceWindow(QWidget):
                 border: 1px solid rgba(255,255,255,0.08);
                 selection-background-color: rgba(178,96,255,0.45);
             }
+            #TitleInput {
+                background: rgba(0,0,0,0.52);
+                border-radius: 10px;
+                padding: 9px 11px;
+                border: 1px solid rgba(255,255,255,0.08);
+                selection-background-color: rgba(178,96,255,0.45);
+            }
             #StyleStatus {
                 color: rgba(165,225,195,0.82);
                 font-size: 12px;
@@ -976,6 +994,7 @@ class MoriceWindow(QWidget):
                 selection-background-color: rgba(178,96,255,0.45);
             }
             #StyleInput:focus,
+            #TitleInput:focus,
             #WakeInput:focus,
             #InputBox:focus {
                 border: 1px solid rgba(208,165,255,0.6);
@@ -1005,6 +1024,7 @@ class MoriceWindow(QWidget):
             #QueueButton:disabled,
             #InputBox:disabled,
             #StyleInput:disabled,
+            #TitleInput:disabled,
             #WakeInput:disabled {
                 color: rgba(255,255,255,0.38);
                 background: rgba(45,45,45,0.55);
@@ -1140,11 +1160,11 @@ class MoriceWindow(QWidget):
         else:
             self.append_message(MORICE_NAME, "Knowledge is on-demand. Use @notes to include your files.")
         if self.awake:
-            self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {USER_TITLE}.")
+            self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {self.user_title}.")
         else:
             self.append_message(
                 MORICE_NAME,
-                f"{MORICE_NAME} is asleep, {USER_TITLE}. Type '{self.wake_phrase}' to wake me.",
+                f"{MORICE_NAME} is asleep, {self.user_title}. Type '{self.wake_phrase}' to wake me.",
             )
 
         QTimer.singleShot(200, self._post_init)
@@ -1170,10 +1190,22 @@ class MoriceWindow(QWidget):
 
     def _wake_from_external(self):
         if self.awake:
-            self.append_message(MORICE_NAME, enforce_father("I heard the wake signal. I am already awake."))
+            self.append_message(MORICE_NAME, self._address("I heard the wake signal. I am already awake."))
             return
         self.awake = True
-        self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {USER_TITLE}.")
+        self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {self.user_title}.")
+
+    def _address(self, reply: str) -> str:
+        return enforce_father(reply, self.user_title)
+
+    def _input_placeholder(self) -> str:
+        return f"{self.user_title}: type here..."
+
+    def _refresh_name_dependent_text(self):
+        if hasattr(self, "hero_label"):
+            self.hero_label.setText(f"{MORICE_NAME}, what shall we do, {self.user_title}?")
+        if hasattr(self, "input") and not self.is_busy:
+            self.input.setPlaceholderText(self._input_placeholder())
 
     def toggle_sidebar(self):
         is_visible = not self.sidebar.isVisible()
@@ -1216,6 +1248,7 @@ class MoriceWindow(QWidget):
         self.personalization_btn.setEnabled(not is_busy)
         self.precision_btn.setEnabled(not is_busy)
         self.style_input.setEnabled(not is_busy)
+        self.title_input.setEnabled(not is_busy)
         self.wake_input.setEnabled(not is_busy)
         self.save_style_btn.setEnabled(not is_busy)
         self.clear_style_btn.setEnabled(not is_busy)
@@ -1233,7 +1266,7 @@ class MoriceWindow(QWidget):
                 self.input.setPlaceholderText("Steer next message while MORICE replies...")
         else:
             self.send_btn.setText("Send")
-            self.input.setPlaceholderText("All Father: type here...")
+            self.input.setPlaceholderText(self._input_placeholder())
         self._refresh_queue_controls()
 
     def _refresh_queue_list(self, preferred_row: int | None = None):
@@ -1361,6 +1394,8 @@ class MoriceWindow(QWidget):
             return
         has_personalization = self._has_personalization()
         current_lines = []
+        if self._has_custom_user_title():
+            current_lines.append(f"Calls you: {self.user_title}")
         if self.response_style:
             current_lines.append(self.response_style)
         if self._has_custom_wake_phrase():
@@ -1377,8 +1412,11 @@ class MoriceWindow(QWidget):
     def _has_custom_wake_phrase(self) -> bool:
         return normalize_wake_phrase(self.wake_phrase).lower() != DEFAULT_SETTINGS["wake_phrase"].lower()
 
+    def _has_custom_user_title(self) -> bool:
+        return normalize_user_title(self.user_title).lower() != DEFAULT_SETTINGS["user_title"].lower()
+
     def _has_personalization(self) -> bool:
-        return bool(self.response_style.strip()) or self._has_custom_wake_phrase()
+        return bool(self.response_style.strip()) or self._has_custom_wake_phrase() or self._has_custom_user_title()
 
     def _apply_personalization_theme(self, has_personalization: bool):
         state = "true" if has_personalization else "false"
@@ -1561,23 +1599,31 @@ class MoriceWindow(QWidget):
         raw_style = self.style_input.toPlainText().strip()
         clean_style = normalize_response_style(raw_style)
         self.response_style = clean_style
+        self.user_title = normalize_user_title(self.title_input.text())
         self.wake_phrase = normalize_wake_phrase(self.wake_input.text())
         self.style_input.setPlainText(self.response_style)
+        self.title_input.setText(self.user_title)
         self.wake_input.setText(self.wake_phrase)
         self.settings["response_style"] = self.response_style
+        self.settings["user_title"] = self.user_title
         self.settings["wake_phrase"] = self.wake_phrase
         save_settings(self.settings)
+        self._refresh_name_dependent_text()
         self._update_style_badge()
         self.style_status.setText("Saved. Morice will use this on the next reply.")
 
     def on_clear_response_style(self):
         self.response_style = ""
+        self.user_title = DEFAULT_SETTINGS["user_title"]
         self.wake_phrase = DEFAULT_SETTINGS["wake_phrase"]
         self.style_input.clear()
+        self.title_input.setText(self.user_title)
         self.wake_input.setText(self.wake_phrase)
         self.settings["response_style"] = ""
+        self.settings["user_title"] = self.user_title
         self.settings["wake_phrase"] = self.wake_phrase
         save_settings(self.settings)
+        self._refresh_name_dependent_text()
         self._update_style_badge()
         self.style_status.setText("Cleared. Personalization is None.")
 
@@ -1661,7 +1707,7 @@ class MoriceWindow(QWidget):
         self.follow_latest = True
         self.input.clear()
         self._dock_composer()
-        self.append_message("All Father", user_input, is_user=True, force_scroll=True)
+        self.append_message(self.user_title, user_input, is_user=True, force_scroll=True)
         self.user_messages.append(user_input)
         if not self.first_user_message:
             self.first_user_message = user_input
@@ -1669,53 +1715,53 @@ class MoriceWindow(QWidget):
         image_path = self.pending_image_path
         if image_path:
             self.pending_image_path = ""
-            self.append_message("All Father", f"Attached image: {os.path.basename(image_path)}", is_user=True)
+            self.append_message(self.user_title, f"Attached image: {os.path.basename(image_path)}", is_user=True)
 
-        wake_message = wake_up_response(user_input, self.wake_phrase)
+        wake_message = wake_up_response(user_input, self.wake_phrase, self.user_title)
         if wake_message:
             self.append_message(MORICE_NAME, wake_message)
             self.awake = True
             return
 
         if not self.awake:
-            self.append_message(MORICE_NAME, f"I am asleep. Say '{self.wake_phrase}'.")
+            self.append_message(MORICE_NAME, f"I am asleep, {self.user_title}. Say '{self.wake_phrase}'.")
             return
 
-        summon_message = summon_response(user_input)
+        summon_message = summon_response(user_input, self.user_title)
         if summon_message:
             self.append_message(MORICE_NAME, summon_message)
             return
 
         riddle_reply = riddle_response(user_input)
         if riddle_reply:
-            self.append_message(MORICE_NAME, enforce_father(riddle_reply))
+            self.append_message(MORICE_NAME, self._address(riddle_reply))
             return
 
-        emotional_reply = emotional_checkin_response(user_input)
+        emotional_reply = emotional_checkin_response(user_input, self.user_title)
         if emotional_reply:
-            self.append_message(MORICE_NAME, enforce_father(emotional_reply))
+            self.append_message(MORICE_NAME, self._address(emotional_reply))
             return
 
-        father_reply = father_identity_response(user_input)
+        father_reply = father_identity_response(user_input, self.user_title)
         if father_reply:
-            self.append_message(MORICE_NAME, enforce_father(father_reply))
+            self.append_message(MORICE_NAME, self._address(father_reply))
             return
 
         datetime_reply = current_datetime_response(user_input)
         if datetime_reply:
-            self.append_message(MORICE_NAME, enforce_father(datetime_reply))
+            self.append_message(MORICE_NAME, self._address(datetime_reply))
             return
 
         if wants_first_message(user_input) and self.first_user_message:
-            self.append_message(MORICE_NAME, enforce_father(self.first_user_message))
+            self.append_message(MORICE_NAME, self._address(self.first_user_message))
             return
 
         if wants_memory_list(user_input):
             recent = self.user_messages[-5:]
             if recent:
-                self.append_message(MORICE_NAME, enforce_father(" | ".join(recent)))
+                self.append_message(MORICE_NAME, self._address(" | ".join(recent)))
             else:
-                self.append_message(MORICE_NAME, enforce_father("No messages yet."))
+                self.append_message(MORICE_NAME, self._address("No messages yet."))
             return
 
         if wants_memory_search(user_input):
@@ -1727,37 +1773,37 @@ class MoriceWindow(QWidget):
                 if len(matches) >= 3:
                     break
             if matches:
-                self.append_message(MORICE_NAME, enforce_father(" | ".join(matches)))
+                self.append_message(MORICE_NAME, self._address(" | ".join(matches)))
             else:
-                self.append_message(MORICE_NAME, enforce_father("I do not see that in your messages."))
+                self.append_message(MORICE_NAME, self._address("I do not see that in your messages."))
             return
 
         if is_acknowledgement(user_input):
-            self.append_message(MORICE_NAME, enforce_father("Understood."))
+            self.append_message(MORICE_NAME, self._address("Understood."))
             return
 
         if wants_help(user_input):
-            self.append_message(MORICE_NAME, enforce_father(help_text()))
+            self.append_message(MORICE_NAME, self._address(help_text()))
             return
 
         if wants_precision_on(user_input):
             self._set_precision_state(True)
-            self.append_message(MORICE_NAME, enforce_father("Precision mode enabled."))
+            self.append_message(MORICE_NAME, self._address("Precision mode enabled."))
             return
 
         if wants_precision_off(user_input):
             self._set_precision_state(False)
-            self.append_message(MORICE_NAME, enforce_father("Precision mode disabled."))
+            self.append_message(MORICE_NAME, self._address("Precision mode disabled."))
             return
 
         if wants_math_steps_on(user_input):
             self.math_steps_mode = True
-            self.append_message(MORICE_NAME, enforce_father("Math steps mode enabled."))
+            self.append_message(MORICE_NAME, self._address("Math steps mode enabled."))
             return
 
         if wants_math_steps_off(user_input):
             self.math_steps_mode = False
-            self.append_message(MORICE_NAME, enforce_father("Math steps mode disabled."))
+            self.append_message(MORICE_NAME, self._address("Math steps mode disabled."))
             return
 
         if wants_unity_movement(user_input):
@@ -1765,17 +1811,17 @@ class MoriceWindow(QWidget):
                 script = unity_3d_movement_script()
             else:
                 script = unity_2d_movement_script()
-            self.append_message(MORICE_NAME, f"{USER_TITLE}, here is the script.\n{script}")
+            self.append_message(MORICE_NAME, f"{self.user_title}, here is the script.\n{script}")
             return
 
         if wants_html_cube_movement(user_input):
-            self.append_message(MORICE_NAME, f"{USER_TITLE}, here is the script.\n{html_cube_movement_script()}")
+            self.append_message(MORICE_NAME, f"{self.user_title}, here is the script.\n{html_cube_movement_script()}")
             return
 
         if not self.math_steps_mode and not wants_steps_detail(user_input):
             math_result = compute_math(user_input)
             if math_result is not None:
-                self.append_message(MORICE_NAME, enforce_father(shorten_reply(math_result)))
+                self.append_message(MORICE_NAME, self._address(shorten_reply(math_result)))
                 return
 
         if wants_notes_search(user_input):
@@ -1785,22 +1831,22 @@ class MoriceWindow(QWidget):
                 self.last_notes_hits = hits
                 self.last_notes_term = term
                 if hits:
-                    self.append_message(MORICE_NAME, enforce_father(f"Found {len(hits)} match(es) for {term}."))
+                    self.append_message(MORICE_NAME, self._address(f"Found {len(hits)} match(es) for {term}."))
                     for hit in hits:
                         self.append_message(MORICE_NAME, f"{hit['source']}: {hit['text']}")
                 else:
-                    self.append_message(MORICE_NAME, enforce_father(f"No matches for {term} in notes."))
+                    self.append_message(MORICE_NAME, self._address(f"No matches for {term} in notes."))
                 return
 
         if wants_notes_summary(user_input) and self.last_notes_hits:
             summary = summarize_notes_hits(self.last_notes_hits)
-            self.append_message(MORICE_NAME, enforce_father(summary))
+            self.append_message(MORICE_NAME, self._address(summary))
             return
 
         if wants_web_capability(user_input) and not extract_web_query(user_input):
             self.append_message(
                 MORICE_NAME,
-                enforce_father("Offline mode is active. Start the message with @web <query> when you want web search."),
+                self._address("Offline mode is active. Start the message with @web <query> when you want web search."),
             )
             return
 
@@ -1827,10 +1873,14 @@ class MoriceWindow(QWidget):
                     if not web_context:
                         web_context = "Web lookup returned no results."
 
-                extra_system = ""
+                extra_system = (
+                    f"Saved name preference from the user: address the user as '{self.user_title}'. "
+                    "Do not call the user 'All Father' unless that is the saved name preference."
+                )
                 response_style = self.response_style.strip()
                 if response_style:
-                    extra_system = (
+                    extra_system += (
+                        "\n\n"
                         "Saved response style from the user. Follow it directly for this reply:\n"
                         f"{response_style}"
                     )
@@ -1839,7 +1889,7 @@ class MoriceWindow(QWidget):
                     image_context = describe_image(image_path)
                     lowered = image_context.lower()
                     if any(key in lowered for key in {"not available", "not found", "could not open"}):
-                        self.message_ready.emit(MORICE_NAME, enforce_father(image_context), False)
+                        self.message_ready.emit(MORICE_NAME, self._address(image_context), False)
                         return
                     extra_system = (
                         (extra_system + "\n\n" if extra_system else "")
@@ -1873,9 +1923,9 @@ class MoriceWindow(QWidget):
                 )
                 self.history.append({"role": "user", "content": user_input})
                 self.history.append({"role": "assistant", "content": reply})
-                self.message_ready.emit(MORICE_NAME, enforce_father(shorten_reply(reply)), False)
+                self.message_ready.emit(MORICE_NAME, self._address(shorten_reply(reply)), False)
             except Exception as exc:  # noqa: BLE001
-                self.message_ready.emit(MORICE_NAME, enforce_father(f"I hit an app error: {exc}"), False)
+                self.message_ready.emit(MORICE_NAME, self._address(f"I hit an app error: {exc}"), False)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1888,12 +1938,12 @@ class MoriceWindow(QWidget):
         )
         if file_path:
             self.pending_image_path = file_path
-            self.append_message(MORICE_NAME, enforce_father("Image attached. Ask your question."))
+            self.append_message(MORICE_NAME, self._address("Image attached. Ask your question."))
 
     def on_toggle_precision(self):
         self._set_precision_state(not self.precision_mode)
         is_on = self.precision_mode
-        self.append_message(MORICE_NAME, enforce_father("Precision mode enabled." if is_on else "Precision mode disabled."))
+        self.append_message(MORICE_NAME, self._address("Precision mode enabled." if is_on else "Precision mode disabled."))
 
     def _set_precision_state(self, is_on: bool):
         self.precision_mode = is_on

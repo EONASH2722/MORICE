@@ -125,6 +125,16 @@ If you want shorter answers, add a style in the panel such as:
 short, direct, no extra explanation
 ```
 
+## Personalization
+
+Open `Panel` to change:
+
+- What MORICE calls you. Default: `All Father`.
+- The wake line.
+- The reply style.
+
+The chosen name updates the launch prompt, input placeholder, start/wake messages, and how MORICE addresses you in replies.
+
 ## Message Queue
 
 When MORICE is generating, the send button becomes `Steer`.

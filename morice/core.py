@@ -33,26 +33,33 @@ SYSTEM_PROMPT = (
 )
 
 
-def wake_up_response(text: str, wake_phrase: str | None = None) -> str | None:
+def _clean_user_title(user_title: str | None = None) -> str:
+    return " ".join((user_title or USER_TITLE).strip().split()) or USER_TITLE
+
+
+def wake_up_response(text: str, wake_phrase: str | None = None, user_title: str | None = None) -> str | None:
     cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
     configured = re.sub(r"[!?.]+", "", (wake_phrase or "").strip().lower())
     wake_phrases = {"wake up son", "wake up boy"}
     if configured:
         wake_phrases.add(configured)
     if cleaned in wake_phrases:
-        return f"{MORICE_NAME} is awake, {USER_TITLE}."
+        return f"{MORICE_NAME} is awake, {_clean_user_title(user_title)}."
     return None
 
 
-def enforce_father(reply: str) -> str:
+def enforce_father(reply: str, user_title: str | None = None) -> str:
     if not reply:
         return reply
-    text = re.sub(r"^\s*Father\b", USER_TITLE, reply.strip())
-    text = re.sub(r",\s*Father\b", f", {USER_TITLE}", text)
+    title = _clean_user_title(user_title)
+    text = reply.strip()
+    text = re.sub(r"^\s*(?:All\s+Father|Father)\b", title, text, flags=re.IGNORECASE)
+    text = re.sub(r",\s*(?:All\s+Father|Father)\b", f", {title}", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bAll\s+Father\b", title, text, flags=re.IGNORECASE)
     lowered = text.lower()
-    if USER_TITLE.lower() in lowered:
+    if title.lower() in lowered:
         return text
-    return f"{USER_TITLE}, {text}"
+    return f"{title}, {text}"
 
 
 def shorten_reply(reply: str) -> str:
@@ -73,10 +80,10 @@ def shorten_reply(reply: str) -> str:
     return text
 
 
-def summon_response(text: str) -> str | None:
+def summon_response(text: str, user_title: str | None = None) -> str | None:
     cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
     if cleaned == "boy":
-        return f"Yes, {USER_TITLE}."
+        return f"Yes, {_clean_user_title(user_title)}."
     return None
 
 
@@ -87,8 +94,9 @@ def riddle_response(text: str) -> str | None:
     return None
 
 
-def emotional_checkin_response(text: str) -> str | None:
+def emotional_checkin_response(text: str, user_title: str | None = None) -> str | None:
     lowered = text.strip().lower()
+    title = _clean_user_title(user_title)
 
     score_match = re.search(r"\b(\d{1,3})\s*%", lowered)
     if score_match and any(word in lowered for word in {"cbse", "board", "boards", "exam", "result", "marks"}):
@@ -96,12 +104,12 @@ def emotional_checkin_response(text: str) -> str | None:
         if score >= 75:
             return (
                 f"{score}% is not bad at all. It is okay if you wanted more and feel disappointed, "
-                f"but that score does not make you a failure. You still cleared something hard, {USER_TITLE}. "
+                f"but that score does not make you a failure. You still cleared something hard, {title}. "
                 "If you want, I can help you think about the next step."
             )
         return (
             f"{score}% hurts if you hoped for more, and I get why it stings. "
-            f"But one result does not decide your worth or your future, {USER_TITLE}. "
+            f"But one result does not decide your worth or your future, {title}. "
             "Take one breath, then we can figure out what to do next."
         )
 
@@ -131,7 +139,7 @@ def emotional_checkin_response(text: str) -> str | None:
     }
     if any(marker in lowered for marker in feeling_markers):
         return (
-            f"That sounds heavy, {USER_TITLE}. I am with you. This moment can hurt without defining your whole life. "
+            f"That sounds heavy, {title}. I am with you. This moment can hurt without defining your whole life. "
             "Tell me what happened, and we will sort through it together."
         )
 
@@ -189,8 +197,9 @@ def current_datetime_response(text: str) -> str | None:
     return None
 
 
-def father_identity_response(text: str) -> str | None:
+def father_identity_response(text: str, user_title: str | None = None) -> str | None:
     cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
+    title = _clean_user_title(user_title)
     identity_targets = {
         "who is your father",
         "whos your father",
@@ -245,6 +254,7 @@ def father_identity_response(text: str) -> str | None:
         "what do you call me",
         "who am i to you",
         "what is my title",
+        "what name do you call me",
     }
     thanks_creator = re.search(r"\b(?:say|tell)\s+thanks\s+to\s+your\s+(?:creator|maker)\b", cleaned)
     asks_about_morice = "your" in cleaned or MORICE_NAME.lower() in cleaned
@@ -270,10 +280,10 @@ def father_identity_response(text: str) -> str | None:
     if asks_identity_role:
         return (
             f"{OWNER_FULL_NAME}. He is a man and uses he/him pronouns. "
-            f"I address him as {USER_TITLE}."
+            f"I address him as {title}."
         )
     if cleaned in all_father_targets:
-        return f"You are {USER_TITLE}, {OWNER_FULL_NAME}. That is the title I should use for you."
+        return f"You are {title}, {OWNER_FULL_NAME}. That is the title I should use for you."
     return None
 
 

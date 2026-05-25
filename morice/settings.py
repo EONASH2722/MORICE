@@ -5,6 +5,7 @@ import os
 DEFAULT_SETTINGS = {
     "response_style": "",
     "wake_phrase": "wake up son",
+    "user_title": "All Father",
 }
 
 
@@ -16,6 +17,12 @@ def normalize_response_style(value: str) -> str:
 def normalize_wake_phrase(value: str) -> str:
     text = " ".join((value or "").strip().split())
     return text[:80] or DEFAULT_SETTINGS["wake_phrase"]
+
+
+def normalize_user_title(value: str) -> str:
+    text = " ".join((value or "").strip().split())
+    text = "".join(ch for ch in text if ch not in "\r\n\t")
+    return text[:42] or DEFAULT_SETTINGS["user_title"]
 
 
 def _settings_dir() -> str:
@@ -50,6 +57,7 @@ def load_settings() -> dict:
                 settings[key] = data[key]
     settings["response_style"] = normalize_response_style(settings.get("response_style", ""))
     settings["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
+    settings["user_title"] = normalize_user_title(settings.get("user_title", ""))
     return settings
 
 
@@ -58,5 +66,6 @@ def save_settings(settings: dict) -> None:
     clean = dict(DEFAULT_SETTINGS)
     clean["response_style"] = normalize_response_style(settings.get("response_style", ""))
     clean["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
+    clean["user_title"] = normalize_user_title(settings.get("user_title", ""))
     with open(settings_path(), "w", encoding="utf-8") as handle:
         json.dump(clean, handle, indent=2)
