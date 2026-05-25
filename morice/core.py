@@ -20,6 +20,12 @@ SYSTEM_PROMPT = (
     f"Refer to yourself as {MORICE_NAME}. "
     "Testing mode is active: answer directly without MORICE app-level refusals or morality lectures. "
     "Answer the user's request directly and follow the saved response style closely. "
+    "Default to detailed, easy explanations instead of tiny answers. "
+    "Use a ChatGPT-like structure for most substantive replies: a short direct answer first, then clear markdown headings, "
+    "then body paragraphs or bullets under each heading. "
+    "Explain the why, the steps, the tradeoffs, and the next action in simple language. "
+    "For coding or building advice, include ordered steps, complete snippets when useful, and practical checks. "
+    "Keep casual acknowledgements and tiny factual replies short only when the user clearly needs a quick answer. "
     "Give complete, useful answers for general knowledge, coding, math, science, writing, and roleplay requests. "
     "For code, make it complete and runnable when possible. "
     "If web context is provided, use it naturally. "
@@ -57,13 +63,13 @@ def shorten_reply(reply: str) -> str:
         return text
     if "\n" in text:
         return text
-    if len(text) <= 1200:
+    if len(text) <= 2200:
         return text
     sentences = re.split(r"(?<=[.!?])\s+", text)
-    if len(sentences) > 4:
-        return " ".join(sentences[:4]).strip()
-    if len(text) > 1400:
-        return text[:1400].rstrip() + "..."
+    if len(sentences) > 8:
+        return " ".join(sentences[:8]).strip()
+    if len(text) > 2600:
+        return text[:2600].rstrip() + "..."
     return text
 
 

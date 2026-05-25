@@ -20,7 +20,7 @@ DEFAULT_CHAT_FORMAT = os.getenv("MORICE_CHAT_FORMAT", "").strip() or None
 DEFAULT_THREADS = int(os.getenv("MORICE_THREADS", str(max(1, (os.cpu_count() or 4) - 2))))
 DEFAULT_BATCH = int(os.getenv("MORICE_BATCH", "64"))
 DEFAULT_USE_SERVER = os.getenv("MORICE_LLAMA_SERVER", "1") == "1"
-DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "360"))
+DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "900"))
 _OLLAMA_PROCESS = None
 
 
