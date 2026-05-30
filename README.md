@@ -135,6 +135,13 @@ Open `Panel` to change:
 
 The chosen name updates the launch prompt, input placeholder, start/wake messages, and how MORICE addresses you in replies.
 
+## Modes
+
+Use the RGB three-line button on the left side of the title bar to open the mode panel:
+
+- `Normal chat` for everyday questions and casual use.
+- `Project` for organized build work, files, steps, decisions, and next actions.
+
 ## Message Queue
 
 When MORICE is generating, the send button becomes `Steer`.

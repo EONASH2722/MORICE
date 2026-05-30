@@ -6,6 +6,7 @@ DEFAULT_SETTINGS = {
     "response_style": "",
     "wake_phrase": "wake up son",
     "user_title": "All Father",
+    "chat_mode": "normal",
 }
 
 
@@ -23,6 +24,11 @@ def normalize_user_title(value: str) -> str:
     text = " ".join((value or "").strip().split())
     text = "".join(ch for ch in text if ch not in "\r\n\t")
     return text[:42] or DEFAULT_SETTINGS["user_title"]
+
+
+def normalize_chat_mode(value: str) -> str:
+    text = (value or "").strip().lower()
+    return text if text in {"normal", "project"} else DEFAULT_SETTINGS["chat_mode"]
 
 
 def _settings_dir() -> str:
@@ -58,6 +64,7 @@ def load_settings() -> dict:
     settings["response_style"] = normalize_response_style(settings.get("response_style", ""))
     settings["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
     settings["user_title"] = normalize_user_title(settings.get("user_title", ""))
+    settings["chat_mode"] = normalize_chat_mode(settings.get("chat_mode", ""))
     return settings
 
 
@@ -67,5 +74,6 @@ def save_settings(settings: dict) -> None:
     clean["response_style"] = normalize_response_style(settings.get("response_style", ""))
     clean["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
     clean["user_title"] = normalize_user_title(settings.get("user_title", ""))
+    clean["chat_mode"] = normalize_chat_mode(settings.get("chat_mode", ""))
     with open(settings_path(), "w", encoding="utf-8") as handle:
         json.dump(clean, handle, indent=2)

@@ -8,7 +8,7 @@ import re
 from ctypes import wintypes
 
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QTimer, Signal, QEvent
-from PySide6.QtGui import QFont, QFontDatabase, QColor, QIcon, QCursor, QPainter
+from PySide6.QtGui import QFont, QFontDatabase, QColor, QIcon, QCursor, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -70,6 +70,7 @@ from .llm_client import chat
 from .settings import (
     DEFAULT_SETTINGS,
     load_settings,
+    normalize_chat_mode,
     normalize_user_title,
     normalize_wake_phrase,
     normalize_response_style,
@@ -369,6 +370,43 @@ class ThinkingBubble(QFrame):
         self.dot.style().polish(self.dot)
 
 
+class RgbMenuButton(QPushButton):
+    def __init__(self):
+        super().__init__("")
+        self.setObjectName("RgbMenuButton")
+        self.setFixedSize(42, 32)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setToolTip("Open mode panel")
+        self._phase = 0.0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._advance)
+        self._timer.start(60)
+
+    def _advance(self):
+        self._phase = (self._phase + 0.10) % (math.pi * 2)
+        self.update()
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(18, 15, 27, 218))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 9, 9)
+
+        line_width = 18
+        left = (rect.width() - line_width) // 2
+        ys = (10, 16, 22)
+        for index, y in enumerate(ys):
+            red = int(135 + 90 * (0.5 + 0.5 * math.sin(self._phase + index * 2.1)))
+            green = int(135 + 90 * (0.5 + 0.5 * math.sin(self._phase + index * 2.1 + 2.0)))
+            blue = int(135 + 90 * (0.5 + 0.5 * math.sin(self._phase + index * 2.1 + 4.0)))
+            pen = QPen(QColor(red, green, blue, 238), 3)
+            pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(pen)
+            painter.drawLine(left, y, left + line_width, y)
+
+
 class TitleBar(QFrame):
     def __init__(self, parent: QWidget):
         super().__init__(parent)
@@ -380,6 +418,9 @@ class TitleBar(QFrame):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
+
+        self.mode_btn = RgbMenuButton()
+        self.mode_btn.clicked.connect(self._parent.toggle_mode_panel)
 
         self.sidebar_btn = QPushButton("Panel")
         self.sidebar_btn.setObjectName("SidebarButton")
@@ -395,6 +436,7 @@ class TitleBar(QFrame):
         title = QLabel(f"{MORICE_NAME}")
         title.setObjectName("TitleLabel")
 
+        layout.addWidget(self.mode_btn)
         layout.addWidget(self.sidebar_btn)
         layout.addWidget(logo)
         layout.addWidget(title)
@@ -483,6 +525,7 @@ class MoriceWindow(QWidget):
         self.response_style = self.settings.get("response_style", "").strip()
         self.wake_phrase = normalize_wake_phrase(self.settings.get("wake_phrase", ""))
         self.user_title = normalize_user_title(self.settings.get("user_title", ""))
+        self.chat_mode = normalize_chat_mode(self.settings.get("chat_mode", ""))
 
         self.wake_signal_path = wake_signal_path()
         self.message_ready.connect(self._on_message_ready)
@@ -499,6 +542,43 @@ class MoriceWindow(QWidget):
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(12)
         root.addLayout(body, stretch=1)
+
+        self.mode_panel = QFrame()
+        self.mode_panel.setObjectName("ModePanel")
+        self.mode_panel.setFixedWidth(230)
+        mode_layout = QVBoxLayout(self.mode_panel)
+        mode_layout.setContentsMargins(14, 16, 14, 16)
+        mode_layout.setSpacing(10)
+
+        mode_title = QLabel("Mode")
+        mode_title.setObjectName("ModeTitle")
+
+        mode_hint = QLabel("Choose how MORICE should handle the next work.")
+        mode_hint.setObjectName("ModeHint")
+        mode_hint.setWordWrap(True)
+
+        self.normal_mode_btn = QPushButton("Normal chat")
+        self.normal_mode_btn.setObjectName("ModeOption")
+        self.normal_mode_btn.clicked.connect(lambda: self._set_chat_mode("normal"))
+
+        self.project_mode_btn = QPushButton("Project")
+        self.project_mode_btn.setObjectName("ModeOption")
+        self.project_mode_btn.clicked.connect(lambda: self._set_chat_mode("project"))
+
+        self.mode_status = QLabel("")
+        self.mode_status.setObjectName("ModeStatus")
+        self.mode_status.setWordWrap(True)
+
+        mode_layout.addWidget(mode_title)
+        mode_layout.addWidget(mode_hint)
+        mode_layout.addSpacing(6)
+        mode_layout.addWidget(self.normal_mode_btn)
+        mode_layout.addWidget(self.project_mode_btn)
+        mode_layout.addWidget(self.mode_status)
+        mode_layout.addStretch(1)
+
+        body.addWidget(self.mode_panel)
+        self.mode_panel.setVisible(False)
 
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -770,6 +850,15 @@ class MoriceWindow(QWidget):
                 min-width: 22px;
                 min-height: 22px;
             }
+            #RgbMenuButton {
+                border-radius: 9px;
+                border: 1px solid rgba(160,120,255,0.32);
+                background: transparent;
+            }
+            #RgbMenuButton:hover {
+                border: 1px solid rgba(225,210,255,0.72);
+                background: rgba(80,48,142,0.18);
+            }
             #SidebarButton {
                 background: rgba(50,80,70,0.78);
                 border-radius: 8px;
@@ -908,6 +997,42 @@ class MoriceWindow(QWidget):
             #SidebarPanel[personalized="true"] {
                 background: rgba(15,10,26,0.96);
                 border: 1px solid rgba(178,130,255,0.28);
+            }
+            #ModePanel {
+                background: rgba(10,12,15,0.95);
+                border-radius: 14px;
+                border: 1px solid rgba(178,130,255,0.26);
+            }
+            #ModeTitle {
+                color: #ffffff;
+                font-size: 18px;
+                font-weight: 800;
+            }
+            #ModeHint {
+                color: rgba(226,220,238,0.62);
+                font-size: 12px;
+            }
+            #ModeOption {
+                text-align: left;
+                background: rgba(20,18,28,0.82);
+                color: rgba(246,242,255,0.92);
+                border-radius: 10px;
+                padding: 11px 12px;
+                border: 1px solid rgba(180,135,255,0.22);
+                font-weight: 800;
+            }
+            #ModeOption:hover {
+                background: rgba(64,40,112,0.86);
+                border: 1px solid rgba(205,172,255,0.44);
+            }
+            #ModeOption[active="true"] {
+                background: rgba(118,72,220,0.92);
+                border: 1px solid rgba(225,205,255,0.68);
+            }
+            #ModeStatus {
+                color: rgba(165,225,195,0.78);
+                font-size: 12px;
+                padding-top: 4px;
             }
             #SidebarTitle {
                 color: #ffffff;
@@ -1147,6 +1272,7 @@ class MoriceWindow(QWidget):
         )
         self._update_style_badge()
         self._refresh_queue_list()
+        self._refresh_mode_panel()
 
         if should_preload():
             try:
@@ -1207,12 +1333,49 @@ class MoriceWindow(QWidget):
         if hasattr(self, "input") and not self.is_busy:
             self.input.setPlaceholderText(self._input_placeholder())
 
+    def toggle_mode_panel(self):
+        is_visible = not self.mode_panel.isVisible()
+        self.mode_panel.setVisible(is_visible)
+        self.title_bar.mode_btn.setToolTip("Close mode panel" if is_visible else "Open mode panel")
+
     def toggle_sidebar(self):
         is_visible = not self.sidebar.isVisible()
         self.sidebar.setVisible(is_visible)
         self.title_bar.sidebar_btn.setText("Close" if is_visible else "Panel")
         if is_visible:
             self.style_input.setFocus()
+
+    def _set_chat_mode(self, mode: str):
+        clean_mode = normalize_chat_mode(mode)
+        if clean_mode == self.chat_mode:
+            self._refresh_mode_panel()
+            return
+        self.chat_mode = clean_mode
+        self.settings["chat_mode"] = self.chat_mode
+        save_settings(self.settings)
+        self._refresh_mode_panel()
+        mode_name = "Project" if self.chat_mode == "project" else "Normal chat"
+        if self.chat_container.isVisible():
+            self.append_message(MORICE_NAME, self._address(f"{mode_name} mode enabled."))
+        else:
+            self.mode_status.setText(f"{mode_name} mode is ready for the next message.")
+
+    def _refresh_mode_panel(self):
+        if not hasattr(self, "normal_mode_btn"):
+            return
+        is_project = self.chat_mode == "project"
+        for button, active in (
+            (self.normal_mode_btn, not is_project),
+            (self.project_mode_btn, is_project),
+        ):
+            button.setProperty("active", "true" if active else "false")
+            button.style().unpolish(button)
+            button.style().polish(button)
+        self.mode_status.setText(
+            "Project mode keeps answers organized around files, steps, decisions, and next actions."
+            if is_project
+            else "Normal chat is for everyday questions, quick replies, and casual work."
+        )
 
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
         should_follow = self.follow_latest or self._is_at_bottom()
@@ -1428,6 +1591,7 @@ class MoriceWindow(QWidget):
             self.chat_container,
             self.input_frame,
             self.sidebar,
+            self.mode_panel,
             self.precision_btn,
             self.save_style_btn,
             self.send_btn,
@@ -1877,6 +2041,12 @@ class MoriceWindow(QWidget):
                     f"Saved name preference from the user: address the user as '{self.user_title}'. "
                     "Do not call the user 'All Father' unless that is the saved name preference."
                 )
+                if self.chat_mode == "project":
+                    extra_system += (
+                        "\n\nProject mode is on. Keep replies execution-focused: identify the goal, "
+                        "organize work into clear steps, call out files or decisions when relevant, "
+                        "and end with the next concrete action."
+                    )
                 response_style = self.response_style.strip()
                 if response_style:
                     extra_system += (
