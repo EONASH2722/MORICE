@@ -7,6 +7,8 @@ DEFAULT_SETTINGS = {
     "wake_phrase": "wake up son",
     "user_title": "All Father",
     "chat_mode": "normal",
+    "project_folder": "",
+    "project_access": "folder",
 }
 
 
@@ -29,6 +31,19 @@ def normalize_user_title(value: str) -> str:
 def normalize_chat_mode(value: str) -> str:
     text = (value or "").strip().lower()
     return text if text in {"normal", "project"} else DEFAULT_SETTINGS["chat_mode"]
+
+
+def normalize_project_folder(value: str) -> str:
+    text = (value or "").strip().strip('"')
+    if not text:
+        return DEFAULT_SETTINGS["project_folder"]
+    text = "".join(ch for ch in text if ch not in "\r\n\t")
+    return os.path.abspath(os.path.expanduser(text))[:500]
+
+
+def normalize_project_access(value: str) -> str:
+    text = (value or "").strip().lower()
+    return text if text in {"folder", "full"} else DEFAULT_SETTINGS["project_access"]
 
 
 def _settings_dir() -> str:
@@ -65,6 +80,8 @@ def load_settings() -> dict:
     settings["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
     settings["user_title"] = normalize_user_title(settings.get("user_title", ""))
     settings["chat_mode"] = normalize_chat_mode(settings.get("chat_mode", ""))
+    settings["project_folder"] = normalize_project_folder(settings.get("project_folder", ""))
+    settings["project_access"] = normalize_project_access(settings.get("project_access", ""))
     return settings
 
 
@@ -75,5 +92,7 @@ def save_settings(settings: dict) -> None:
     clean["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
     clean["user_title"] = normalize_user_title(settings.get("user_title", ""))
     clean["chat_mode"] = normalize_chat_mode(settings.get("chat_mode", ""))
+    clean["project_folder"] = normalize_project_folder(settings.get("project_folder", ""))
+    clean["project_access"] = normalize_project_access(settings.get("project_access", ""))
     with open(settings_path(), "w", encoding="utf-8") as handle:
         json.dump(clean, handle, indent=2)

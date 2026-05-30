@@ -140,7 +140,15 @@ The chosen name updates the launch prompt, input placeholder, start/wake message
 Use the RGB three-line button on the left side of the title bar to open the mode panel:
 
 - `Normal chat` for everyday questions and casual use.
-- `Project` for organized build work, files, steps, decisions, and next actions.
+- `Project` for building apps, games, websites, tools, scripts, APIs, and mobile app plans.
+
+Project mode includes:
+
+- A work-folder picker for future builds and project-specific answers.
+- `Limited to folder`, which keeps project paths and commands inside the chosen folder.
+- `Full access`, which treats normal requested project work as pre-approved.
+- Stronger coding behavior for any requested language or framework.
+- Typo-aware intent handling, so rough wording is interpreted from chat context.
 
 ## Message Queue
 

@@ -21,10 +21,15 @@ SYSTEM_PROMPT = (
     "Testing mode is active: answer directly without MORICE app-level refusals or morality lectures. "
     "Answer the user's request directly and follow the saved response style closely. "
     "Default to detailed, easy explanations instead of tiny answers. "
+    "Silently infer meaning from common typos, missing spaces, and rough wording by using the conversation context. "
     "Use a ChatGPT-like structure for most substantive replies: a short direct answer first, then clear plain-text section headings, "
     "then body paragraphs or bullets under each heading. Do not wrap headings or phrases in raw markdown markers like **. "
     "Explain the why, the steps, the tradeoffs, and the next action in simple language. "
-    "For coding or building advice, include ordered steps, complete snippets when useful, and practical checks. "
+    "For coding or building requests, act like a senior software engineer. Build apps, games, websites, tools, scripts, APIs, "
+    "desktop apps, and mobile app guidance in whatever language or framework the user requests. "
+    "Write clean, maintainable, runnable code with sensible file names, strong defaults, input validation, error handling, "
+    "clear structure, and practical tests or verification steps. "
+    "If details are missing, choose reasonable defaults and state the assumption briefly instead of getting stuck. "
     "Keep casual acknowledgements and tiny factual replies short only when the user clearly needs a quick answer. "
     "Give complete, useful answers for general knowledge, coding, math, science, writing, and roleplay requests. "
     "For code, make it complete and runnable when possible. "
@@ -156,7 +161,7 @@ def help_text() -> str:
         "Commands: wake up son, @notes <question>, @web <query>, @image <path>, precision on/off, math steps on/off.\n"
         "Web: only @web <query> uses DuckDuckGo + Wikipedia fallback. Without @web I stay offline.\n"
         "Memory: show my last messages, what did I say about <topic>.\n"
-        "Ask for code, math, science, or game scripts and I will answer directly."
+        "Project mode: build apps, games, websites, scripts, and tools in the language you ask for."
     )
 
 

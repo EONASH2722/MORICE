@@ -71,6 +71,8 @@ from .settings import (
     DEFAULT_SETTINGS,
     load_settings,
     normalize_chat_mode,
+    normalize_project_access,
+    normalize_project_folder,
     normalize_user_title,
     normalize_wake_phrase,
     normalize_response_style,
@@ -377,14 +379,6 @@ class RgbMenuButton(QPushButton):
         self.setFixedSize(42, 32)
         self.setCursor(Qt.PointingHandCursor)
         self.setToolTip("Open mode panel")
-        self._phase = 0.0
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._advance)
-        self._timer.start(60)
-
-    def _advance(self):
-        self._phase = (self._phase + 0.10) % (math.pi * 2)
-        self.update()
 
     def paintEvent(self, event):  # noqa: ARG002
         painter = QPainter(self)
@@ -394,14 +388,11 @@ class RgbMenuButton(QPushButton):
         painter.setBrush(QColor(18, 15, 27, 218))
         painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 9, 9)
 
-        line_width = 18
+        line_width = 17
         left = (rect.width() - line_width) // 2
         ys = (10, 16, 22)
-        for index, y in enumerate(ys):
-            red = int(135 + 90 * (0.5 + 0.5 * math.sin(self._phase + index * 2.1)))
-            green = int(135 + 90 * (0.5 + 0.5 * math.sin(self._phase + index * 2.1 + 2.0)))
-            blue = int(135 + 90 * (0.5 + 0.5 * math.sin(self._phase + index * 2.1 + 4.0)))
-            pen = QPen(QColor(red, green, blue, 238), 3)
+        for y in ys:
+            pen = QPen(QColor(255, 255, 255, 238), 1.6)
             pen.setCapStyle(Qt.RoundCap)
             painter.setPen(pen)
             painter.drawLine(left, y, left + line_width, y)
@@ -526,6 +517,8 @@ class MoriceWindow(QWidget):
         self.wake_phrase = normalize_wake_phrase(self.settings.get("wake_phrase", ""))
         self.user_title = normalize_user_title(self.settings.get("user_title", ""))
         self.chat_mode = normalize_chat_mode(self.settings.get("chat_mode", ""))
+        self.project_folder = normalize_project_folder(self.settings.get("project_folder", ""))
+        self.project_access = normalize_project_access(self.settings.get("project_access", ""))
 
         self.wake_signal_path = wake_signal_path()
         self.message_ready.connect(self._on_message_ready)
@@ -545,7 +538,7 @@ class MoriceWindow(QWidget):
 
         self.mode_panel = QFrame()
         self.mode_panel.setObjectName("ModePanel")
-        self.mode_panel.setFixedWidth(230)
+        self.mode_panel.setFixedWidth(292)
         mode_layout = QVBoxLayout(self.mode_panel)
         mode_layout.setContentsMargins(14, 16, 14, 16)
         mode_layout.setSpacing(10)
@@ -565,6 +558,30 @@ class MoriceWindow(QWidget):
         self.project_mode_btn.setObjectName("ModeOption")
         self.project_mode_btn.clicked.connect(lambda: self._set_chat_mode("project"))
 
+        folder_label = QLabel("Work folder")
+        folder_label.setObjectName("ModeSectionLabel")
+
+        self.project_folder_input = QLineEdit()
+        self.project_folder_input.setObjectName("ProjectFolderInput")
+        self.project_folder_input.setReadOnly(True)
+        self.project_folder_input.setPlaceholderText("Choose a folder for builds")
+        self.project_folder_input.setText(self.project_folder)
+
+        self.choose_project_folder_btn = QPushButton("Choose folder")
+        self.choose_project_folder_btn.setObjectName("ProjectFolderButton")
+        self.choose_project_folder_btn.clicked.connect(self._choose_project_folder)
+
+        access_label = QLabel("Access")
+        access_label.setObjectName("ModeSectionLabel")
+
+        self.folder_access_btn = QPushButton("Limited to folder")
+        self.folder_access_btn.setObjectName("AccessOption")
+        self.folder_access_btn.clicked.connect(lambda: self._set_project_access("folder"))
+
+        self.full_access_btn = QPushButton("Full access")
+        self.full_access_btn.setObjectName("AccessOption")
+        self.full_access_btn.clicked.connect(lambda: self._set_project_access("full"))
+
         self.mode_status = QLabel("")
         self.mode_status.setObjectName("ModeStatus")
         self.mode_status.setWordWrap(True)
@@ -574,6 +591,14 @@ class MoriceWindow(QWidget):
         mode_layout.addSpacing(6)
         mode_layout.addWidget(self.normal_mode_btn)
         mode_layout.addWidget(self.project_mode_btn)
+        mode_layout.addSpacing(8)
+        mode_layout.addWidget(folder_label)
+        mode_layout.addWidget(self.project_folder_input)
+        mode_layout.addWidget(self.choose_project_folder_btn)
+        mode_layout.addSpacing(4)
+        mode_layout.addWidget(access_label)
+        mode_layout.addWidget(self.folder_access_btn)
+        mode_layout.addWidget(self.full_access_btn)
         mode_layout.addWidget(self.mode_status)
         mode_layout.addStretch(1)
 
@@ -1012,6 +1037,11 @@ class MoriceWindow(QWidget):
                 color: rgba(226,220,238,0.62);
                 font-size: 12px;
             }
+            #ModeSectionLabel {
+                color: rgba(255,255,255,0.72);
+                font-size: 12px;
+                font-weight: 800;
+            }
             #ModeOption {
                 text-align: left;
                 background: rgba(20,18,28,0.82);
@@ -1028,6 +1058,43 @@ class MoriceWindow(QWidget):
             #ModeOption[active="true"] {
                 background: rgba(118,72,220,0.92);
                 border: 1px solid rgba(225,205,255,0.68);
+            }
+            #ProjectFolderInput {
+                background: rgba(0,0,0,0.44);
+                border-radius: 10px;
+                padding: 9px 10px;
+                border: 1px solid rgba(255,255,255,0.08);
+                color: rgba(246,242,255,0.86);
+                selection-background-color: rgba(178,96,255,0.45);
+            }
+            #ProjectFolderButton {
+                background: rgba(54,78,92,0.82);
+                color: rgba(244,252,255,0.94);
+                border-radius: 10px;
+                padding: 9px 12px;
+                border: 1px solid rgba(120,205,235,0.24);
+                font-weight: 800;
+            }
+            #ProjectFolderButton:hover {
+                background: rgba(70,100,118,0.94);
+                border: 1px solid rgba(150,230,255,0.42);
+            }
+            #AccessOption {
+                text-align: left;
+                background: rgba(20,18,28,0.78);
+                color: rgba(246,242,255,0.88);
+                border-radius: 10px;
+                padding: 9px 12px;
+                border: 1px solid rgba(180,135,255,0.18);
+                font-weight: 800;
+            }
+            #AccessOption:hover {
+                background: rgba(54,42,92,0.9);
+                border: 1px solid rgba(205,172,255,0.34);
+            }
+            #AccessOption[active="true"] {
+                background: rgba(55,112,92,0.9);
+                border: 1px solid rgba(155,235,185,0.45);
             }
             #ModeStatus {
                 color: rgba(165,225,195,0.78);
@@ -1146,11 +1213,14 @@ class MoriceWindow(QWidget):
             #PrecisionButton:disabled,
             #StyleSaveButton:disabled,
             #StyleClearButton:disabled,
+            #ProjectFolderButton:disabled,
+            #AccessOption:disabled,
             #QueueButton:disabled,
             #InputBox:disabled,
             #StyleInput:disabled,
             #TitleInput:disabled,
-            #WakeInput:disabled {
+            #WakeInput:disabled,
+            #ProjectFolderInput:disabled {
                 color: rgba(255,255,255,0.38);
                 background: rgba(45,45,45,0.55);
                 border: 1px solid rgba(255,255,255,0.05);
@@ -1352,13 +1422,46 @@ class MoriceWindow(QWidget):
             return
         self.chat_mode = clean_mode
         self.settings["chat_mode"] = self.chat_mode
-        save_settings(self.settings)
+        self._save_project_settings()
         self._refresh_mode_panel()
         mode_name = "Project" if self.chat_mode == "project" else "Normal chat"
         if self.chat_container.isVisible():
             self.append_message(MORICE_NAME, self._address(f"{mode_name} mode enabled."))
         else:
             self.mode_status.setText(f"{mode_name} mode is ready for the next message.")
+
+    def _choose_project_folder(self):
+        start_dir = (
+            self.project_folder
+            if self.project_folder and os.path.isdir(self.project_folder)
+            else os.path.expanduser("~")
+        )
+        folder = QFileDialog.getExistingDirectory(self, "Choose MORICE work folder", start_dir)
+        if not folder:
+            return
+        self.project_folder = normalize_project_folder(folder)
+        self.project_folder_input.setText(self.project_folder)
+        self.project_folder_input.setToolTip(self.project_folder)
+        self._save_project_settings()
+        self._refresh_mode_panel()
+        self.mode_status.setText("Work folder saved. Project mode can use this as the build root.")
+
+    def _set_project_access(self, access: str):
+        clean_access = normalize_project_access(access)
+        if clean_access == self.project_access:
+            self._refresh_mode_panel()
+            return
+        self.project_access = clean_access
+        self._save_project_settings()
+        self._refresh_mode_panel()
+        label = "Full access" if self.project_access == "full" else "Folder-limited access"
+        self.mode_status.setText(f"{label} saved for project mode.")
+
+    def _save_project_settings(self):
+        self.settings["chat_mode"] = self.chat_mode
+        self.settings["project_folder"] = self.project_folder
+        self.settings["project_access"] = self.project_access
+        save_settings(self.settings)
 
     def _refresh_mode_panel(self):
         if not hasattr(self, "normal_mode_btn"):
@@ -1371,10 +1474,52 @@ class MoriceWindow(QWidget):
             button.setProperty("active", "true" if active else "false")
             button.style().unpolish(button)
             button.style().polish(button)
-        self.mode_status.setText(
-            "Project mode keeps answers organized around files, steps, decisions, and next actions."
-            if is_project
-            else "Normal chat is for everyday questions, quick replies, and casual work."
+        self.project_folder_input.setText(self.project_folder)
+        self.project_folder_input.setToolTip(self.project_folder or "No work folder selected")
+        for button, active in (
+            (self.folder_access_btn, self.project_access == "folder"),
+            (self.full_access_btn, self.project_access == "full"),
+        ):
+            button.setProperty("active", "true" if active else "false")
+            button.style().unpolish(button)
+            button.style().polish(button)
+        if not is_project:
+            self.mode_status.setText("Normal chat is for everyday questions, quick replies, and casual work.")
+            return
+        folder_line = self.project_folder if self.project_folder else "Choose a work folder before real builds."
+        access_line = (
+            "Full access: MORICE treats requested project actions as pre-approved."
+            if self.project_access == "full"
+            else "Limited: MORICE keeps project work inside the chosen folder."
+        )
+        self.mode_status.setText(f"Project builder ready.\n{folder_line}\n{access_line}")
+
+    def _project_builder_system(self) -> str:
+        folder = self.project_folder or "No work folder selected yet."
+        if self.project_access == "full":
+            access = (
+                "Full access is selected. The user has pre-approved ordinary file creation, edits, installs, "
+                "builds, and run commands needed for the requested project. Do not ask for permission for normal "
+                "project work; make clear, professional choices and continue. Destructive actions still need an "
+                "explicit user request."
+            )
+        else:
+            access = (
+                "Folder-limited access is selected. Treat the work folder as the project root and keep all generated "
+                "paths, commands, and file changes inside it unless the user explicitly says otherwise."
+            )
+        return (
+            "Project builder mode is on. Behave like a senior coding agent for apps, games, websites, scripts, APIs, "
+            "desktop apps, and mobile app planning in any language or framework the user asks for. "
+            "Silently correct obvious typos and infer the user's intent from context, for example treating 'sory' as "
+            "'sorry' when the conversation makes that clear. "
+            "When the user asks to build something, produce a complete, practical result: file tree, exact file names, "
+            "code blocks for important files, install/run commands, verification steps, and the next action. "
+            "Use clean architecture, readable names, validation, useful error handling, responsive UI guidance, and "
+            "testing notes where appropriate. If information is missing, choose strong defaults and mention the "
+            "assumption briefly instead of stopping.\n\n"
+            f"Work folder: {folder}\n"
+            f"Access policy: {access}"
         )
 
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
@@ -1415,6 +1560,12 @@ class MoriceWindow(QWidget):
         self.wake_input.setEnabled(not is_busy)
         self.save_style_btn.setEnabled(not is_busy)
         self.clear_style_btn.setEnabled(not is_busy)
+        self.normal_mode_btn.setEnabled(not is_busy)
+        self.project_mode_btn.setEnabled(not is_busy)
+        self.project_folder_input.setEnabled(not is_busy)
+        self.choose_project_folder_btn.setEnabled(not is_busy)
+        self.folder_access_btn.setEnabled(not is_busy)
+        self.full_access_btn.setEnabled(not is_busy)
         self._refresh_send_button_state()
         if not is_busy:
             self.input.setFocus()
@@ -2042,11 +2193,8 @@ class MoriceWindow(QWidget):
                     "Do not call the user 'All Father' unless that is the saved name preference."
                 )
                 if self.chat_mode == "project":
-                    extra_system += (
-                        "\n\nProject mode is on. Keep replies execution-focused: identify the goal, "
-                        "organize work into clear steps, call out files or decisions when relevant, "
-                        "and end with the next concrete action."
-                    )
+                    self.thinking_update.emit("Project builder mode: applying workspace, access, and coding rules.")
+                    extra_system += "\n\n" + self._project_builder_system()
                 response_style = self.response_style.strip()
                 if response_style:
                     extra_system += (
