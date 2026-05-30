@@ -26,6 +26,8 @@ MORICE is a local desktop AI assistant with a PySide6 tinted-glass interface, of
 - While MORICE is replying, use `Steer` to queue follow-up messages.
 - Open `Panel` to reorder, remove, or clear queued messages before they send.
 - Processing status is shown while MORICE works and disappears when the reply arrives.
+- One-command model installer for the Hermes 3 Llama 3.1 8B Q4_K_M GGUF used by this app.
+- Project builder mode with a work-folder picker, folder-limited/full access choices, and stronger coding behavior.
 - Chat text is selectable/copyable.
 - MIT licensed so anyone can study, change, fork, and customize it.
 
@@ -55,13 +57,19 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Add the local model:
+Install the local model:
 
-```text
-MORICE\Hermes-3-Llama-3.1-8B.Q4_K_M.gguf
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-model.ps1
 ```
 
-The GGUF is intentionally not stored in Git because it is large. You can also set:
+The installer places this file in the repo root:
+
+```text
+Hermes-3-Llama-3.1-8B.Q4_K_M.gguf
+```
+
+The script tries the MORICE GitHub model release first, then falls back to the public Hugging Face GGUF if the release asset is not available yet. You can also set:
 
 ```bat
 set MORICE_GGUF_PATH=D:\Models\your-model.gguf
@@ -86,6 +94,34 @@ Run the packaged build:
 ```bat
 dist\MORICE\MORICE.exe
 ```
+
+## Model Distribution
+
+MORICE uses:
+
+```text
+Hermes-3-Llama-3.1-8B.Q4_K_M.gguf
+```
+
+The model is not committed into normal Git history because GitHub blocks normal files above 100 MiB and this GGUF is about 4.9 GB. Use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-model.ps1
+```
+
+Maintainers can prepare split GitHub Release assets with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\prepare-model-release.ps1
+```
+
+Upload every generated file from `release\model-hermes-3-llama-3.1-8b-q4-k-m` to this release tag:
+
+```text
+model-hermes-3-llama-3.1-8b-q4-k-m
+```
+
+After that, `install-model.ps1` installs the model directly from the MORICE GitHub release.
 
 ## Wake Listener
 
@@ -225,6 +261,7 @@ morice/
   web_search.py        Optional web lookup
   assets/              Logo and bundled app assets
 docs/screenshots/      README screenshots
+scripts/               Model install and release-prep scripts
 morice_wake_listener.py
 MORICE.spec
 Modelfile

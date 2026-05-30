@@ -23,6 +23,8 @@ dist/
 # Large model and binary assets (keep out of git)
 *.gguf
 *.bin
+release/
+model-release/
 morice/assets/llama-bin/
 # OCR note:
 # Tesseract was used for early OCR testing, but the runtime bundle was removed.
