@@ -81,6 +81,7 @@ from .settings import (
     DEFAULT_SETTINGS,
     load_settings,
     normalize_chat_mode,
+    normalize_model_path,
     normalize_project_access,
     normalize_project_folder,
     normalize_user_title,
@@ -91,6 +92,19 @@ from .settings import (
 )
 from .web_search import search_web
 from .vision import describe_image
+
+
+MODEL_EXTENSIONS = {
+    ".gguf",
+    ".ggml",
+    ".bin",
+    ".safetensors",
+    ".onnx",
+    ".pt",
+    ".pth",
+    ".ckpt",
+    ".model",
+}
 
 
 def _enable_acrylic(hwnd: int):
@@ -608,6 +622,7 @@ class MoriceWindow(QWidget):
         self.chat_mode = normalize_chat_mode(self.settings.get("chat_mode", ""))
         self.project_folder = normalize_project_folder(self.settings.get("project_folder", ""))
         self.project_access = normalize_project_access(self.settings.get("project_access", ""))
+        self.model_path = normalize_model_path(self.settings.get("model_path", ""))
 
         self.wake_signal_path = wake_signal_path()
         self.message_ready.connect(self._on_message_ready)
@@ -646,6 +661,19 @@ class MoriceWindow(QWidget):
         self.project_mode_btn = QPushButton("Project")
         self.project_mode_btn.setObjectName("ModeOption")
         self.project_mode_btn.clicked.connect(lambda: self._set_chat_mode("project"))
+
+        model_label = QLabel("AI model")
+        model_label.setObjectName("ModeSectionLabel")
+
+        self.model_path_input = QLineEdit()
+        self.model_path_input.setObjectName("ProjectFolderInput")
+        self.model_path_input.setReadOnly(True)
+        self.model_path_input.setPlaceholderText("Bundled Hermes GGUF")
+        self.model_path_input.setText(self._model_display_text())
+
+        self.change_model_btn = QPushButton("Change model")
+        self.change_model_btn.setObjectName("ProjectModelButton")
+        self.change_model_btn.clicked.connect(self._choose_model_file)
 
         self.project_details = QFrame()
         self.project_details.setObjectName("ProjectDetails")
@@ -704,6 +732,10 @@ class MoriceWindow(QWidget):
         mode_layout.addSpacing(6)
         mode_layout.addWidget(self.normal_mode_btn)
         mode_layout.addWidget(self.project_mode_btn)
+        mode_layout.addSpacing(4)
+        mode_layout.addWidget(model_label)
+        mode_layout.addWidget(self.model_path_input)
+        mode_layout.addWidget(self.change_model_btn)
         mode_layout.addWidget(self.project_details)
         mode_layout.addWidget(self.mode_status)
         mode_layout.addStretch(1)
@@ -1185,15 +1217,24 @@ class MoriceWindow(QWidget):
                 color: rgba(246,242,255,0.86);
                 selection-background-color: rgba(178,96,255,0.45);
             }
-            #ProjectAddButton {
+            #ProjectAddButton,
+            #ProjectModelButton {
                 background: rgba(54,78,92,0.82);
                 color: rgba(244,252,255,0.94);
-                border-radius: 16px;
                 border: 1px solid rgba(120,205,235,0.24);
+                font-weight: 800;
+            }
+            #ProjectAddButton {
+                border-radius: 16px;
                 font-size: 18px;
                 font-weight: 900;
             }
-            #ProjectAddButton:hover {
+            #ProjectModelButton {
+                border-radius: 10px;
+                padding: 9px 12px;
+            }
+            #ProjectAddButton:hover,
+            #ProjectModelButton:hover {
                 background: rgba(70,100,118,0.94);
                 border: 1px solid rgba(150,230,255,0.42);
             }
@@ -1339,6 +1380,7 @@ class MoriceWindow(QWidget):
             #StyleSaveButton:disabled,
             #StyleClearButton:disabled,
             #ProjectAddButton:disabled,
+            #ProjectModelButton:disabled,
             #AccessOption:disabled,
             #QueueButton:disabled,
             #InputBox:disabled,
@@ -1591,7 +1633,64 @@ class MoriceWindow(QWidget):
         self.settings["chat_mode"] = self.chat_mode
         self.settings["project_folder"] = self.project_folder
         self.settings["project_access"] = self.project_access
+        self.settings["model_path"] = self.model_path
         save_settings(self.settings)
+
+    def _model_display_text(self) -> str:
+        if not self.model_path:
+            return "Bundled Hermes GGUF"
+        return os.path.basename(self.model_path) or self.model_path
+
+    def _validate_model_file(self, path: str) -> tuple[bool, str]:
+        if not path or not os.path.isfile(path):
+            return False, "That file does not exist."
+        ext = os.path.splitext(path)[1].lower()
+        if ext not in MODEL_EXTENSIONS:
+            return False, "That is not a model file. Choose a GGUF or another known model file."
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            return False, "MORICE could not read that file."
+        if size < 1024 * 1024:
+            return False, "That file is too small to be an AI model."
+        if ext == ".gguf":
+            try:
+                with open(path, "rb") as handle:
+                    if handle.read(4) != b"GGUF":
+                        return False, "That .gguf file is not a valid GGUF model."
+            except OSError:
+                return False, "MORICE could not validate that GGUF file."
+        return True, ""
+
+    def _choose_model_file(self):
+        start_dir = (
+            os.path.dirname(self.model_path)
+            if self.model_path and os.path.exists(self.model_path)
+            else os.path.expanduser("~")
+        )
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Change MORICE AI model",
+            start_dir,
+            "AI model files (*.gguf *.ggml *.bin *.safetensors *.onnx *.pt *.pth *.ckpt *.model);;All files (*)",
+        )
+        if not file_path:
+            return
+        clean_path = normalize_model_path(file_path)
+        ok, error = self._validate_model_file(clean_path)
+        if not ok:
+            self.mode_status.setText(error)
+            return
+        self.model_path = clean_path
+        self.model_path_input.setText(self._model_display_text())
+        self.model_path_input.setToolTip(self.model_path)
+        self._save_project_settings()
+        if os.path.splitext(self.model_path)[1].lower() == ".gguf":
+            self.mode_status.setText("Model changed. MORICE will use this GGUF on the next reply.")
+        else:
+            self.mode_status.setText(
+                "Model file attached, but this PC build runs GGUF directly. Use a GGUF for local chat."
+            )
 
     def _app_folder(self) -> str:
         if getattr(sys, "frozen", False):
@@ -1649,6 +1748,8 @@ class MoriceWindow(QWidget):
         self.access_status_btn.setVisible(is_project)
         self.access_status_btn.setText("Full access" if self.project_access == "full" else "Folder only")
         self.access_status_btn.setToolTip("Open Project access settings")
+        self.model_path_input.setText(self._model_display_text())
+        self.model_path_input.setToolTip(self.model_path or "Using bundled Hermes GGUF")
         for button, active in (
             (self.normal_mode_btn, not is_project),
             (self.project_mode_btn, is_project),
@@ -1679,7 +1780,10 @@ class MoriceWindow(QWidget):
         self._refresh_send_button_state()
 
     def _project_builder_system(self) -> str:
-        folder = self.project_folder or "No work folder selected yet. Ask the user to click the + project button before creating files."
+        folder = (
+            self.project_folder
+            or "No work folder selected yet. Ask the user to click the + project button before creating files."
+        )
         if self.project_access == "full":
             access = (
                 "Full access is selected. The user has pre-approved normal project work, including file creation, "
@@ -1748,6 +1852,8 @@ class MoriceWindow(QWidget):
         self.clear_style_btn.setEnabled(not is_busy)
         self.normal_mode_btn.setEnabled(not is_busy)
         self.project_mode_btn.setEnabled(not is_busy)
+        self.model_path_input.setEnabled(not is_busy)
+        self.change_model_btn.setEnabled(not is_busy)
         self.project_folder_input.setEnabled(not is_busy)
         self.project_add_btn.setEnabled(not is_busy)
         self.folder_access_btn.setEnabled(not is_busy)
@@ -2433,6 +2539,7 @@ class MoriceWindow(QWidget):
                     timeout=180,
                     precision_mode=self.precision_mode,
                     math_steps_mode=self.math_steps_mode or wants_steps_detail(user_input),
+                    gguf_path=self.model_path,
                 )
                 self.history.append({"role": "user", "content": user_input})
                 self.history.append({"role": "assistant", "content": reply})

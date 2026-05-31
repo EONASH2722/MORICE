@@ -193,7 +193,14 @@ def _needs_precision(text: str) -> bool:
     )
 
 
-def _resolve_gguf_path():
+def _resolve_gguf_path(override_path=None):
+    override_path = (override_path or "").strip()
+    if override_path:
+        if not os.path.exists(override_path):
+            return ""
+        if os.path.splitext(override_path)[1].lower() != ".gguf":
+            return ""
+        return override_path
     if DEFAULT_GGUF and os.path.exists(DEFAULT_GGUF):
         return DEFAULT_GGUF
     candidates = [
@@ -332,13 +339,22 @@ def chat(
     timeout=120,
     precision_mode: bool = False,
     math_steps_mode: bool = False,
+    gguf_path: str | None = None,
 ):
     temperature = 0.2 if _needs_precision(user_message) else 0.5
     top_p = 0.9 if _needs_precision(user_message) else 0.9
     if precision_mode:
         temperature = 0.1
         top_p = 0.85
-    gguf_path = _resolve_gguf_path()
+    selected_path = (gguf_path or "").strip()
+    if selected_path and os.path.splitext(selected_path)[1].lower() != ".gguf":
+        return (
+            "(MORICE) Selected model file is not a GGUF model. "
+            "This PC build can run GGUF files directly; choose a .gguf file or use Ollama for other formats."
+        )
+    gguf_path = _resolve_gguf_path(selected_path)
+    if selected_path and not gguf_path:
+        return "(MORICE) Selected model file was not found. Use Change model and pick the file again."
     if gguf_path:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         system_additions = [_runtime_context()]

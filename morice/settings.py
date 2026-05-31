@@ -9,6 +9,7 @@ DEFAULT_SETTINGS = {
     "chat_mode": "normal",
     "project_folder": "",
     "project_access": "folder",
+    "model_path": "",
 }
 
 
@@ -44,6 +45,14 @@ def normalize_project_folder(value: str) -> str:
 def normalize_project_access(value: str) -> str:
     text = (value or "").strip().lower()
     return text if text in {"folder", "full"} else DEFAULT_SETTINGS["project_access"]
+
+
+def normalize_model_path(value: str) -> str:
+    text = (value or "").strip().strip('"')
+    if not text:
+        return DEFAULT_SETTINGS["model_path"]
+    text = "".join(ch for ch in text if ch not in "\r\n\t")
+    return os.path.abspath(os.path.expanduser(text))[:500]
 
 
 def _settings_dir() -> str:
@@ -82,6 +91,7 @@ def load_settings() -> dict:
     settings["chat_mode"] = normalize_chat_mode(settings.get("chat_mode", ""))
     settings["project_folder"] = normalize_project_folder(settings.get("project_folder", ""))
     settings["project_access"] = normalize_project_access(settings.get("project_access", ""))
+    settings["model_path"] = normalize_model_path(settings.get("model_path", ""))
     return settings
 
 
@@ -94,5 +104,6 @@ def save_settings(settings: dict) -> None:
     clean["chat_mode"] = normalize_chat_mode(settings.get("chat_mode", ""))
     clean["project_folder"] = normalize_project_folder(settings.get("project_folder", ""))
     clean["project_access"] = normalize_project_access(settings.get("project_access", ""))
+    clean["model_path"] = normalize_model_path(settings.get("model_path", ""))
     with open(settings_path(), "w", encoding="utf-8") as handle:
         json.dump(clean, handle, indent=2)

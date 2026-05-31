@@ -27,6 +27,7 @@ MORICE is a local desktop AI assistant with a PySide6 tinted-glass interface, of
 - Open `Panel` to reorder, remove, or clear queued messages before they send.
 - Processing status is shown while MORICE works and disappears when the reply arrives.
 - One-command model installer for the Hermes 3 Llama 3.1 8B Q4_K_M GGUF used by this app.
+- In-app model picker from the left sidebar, with model-file validation.
 - Project builder mode with a work-folder picker, folder-limited/full access choices, and stronger coding behavior.
 - Liquid Send button animation that only fills when a message is ready to send.
 - Chat text is selectable/copyable.
@@ -123,6 +124,36 @@ model-hermes-3-llama-3.1-8b-q4-k-m
 ```
 
 After that, `install-model.ps1` installs the model directly from the MORICE GitHub release.
+
+## Change Model In App
+
+Open the left sidebar with the three-line button, then use `Change model`.
+
+MORICE validates the selected file before saving it. Random files are rejected with a clear error. This desktop build can run GGUF models directly through the bundled llama runner. Other recognized model files can be attached, but GGUF is the supported direct-chat format for the PC app.
+
+The selected model path is saved in MORICE settings and used on the next reply. To go back to the bundled/default model, clear the saved settings file or choose the bundled GGUF again.
+
+## PC App Release
+
+The packaged Windows app lives in:
+
+```text
+dist\MORICE\MORICE.exe
+```
+
+For GitHub releases, the app can be uploaded as a split ZIP package, like a PC app bundle:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\prepare-pc-release.ps1
+```
+
+Upload every generated file from `release\morice-pc-app` to a GitHub release. Users who want the ready app can download the release package; developers can still clone the repo and install manually.
+
+Once the release assets are uploaded, users can install the ready PC app with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-pc-app.ps1
+```
 
 ## Wake Listener
 

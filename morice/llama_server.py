@@ -5,6 +5,7 @@ import urllib.request
 
 
 _SERVER_PROCESS = None
+_SERVER_MODEL_PATH = ""
 
 
 def _server_base_url() -> str:
@@ -37,11 +38,22 @@ def _is_server_ready(base_url: str) -> bool:
 
 
 def ensure_server(model_path: str, n_ctx: int, n_gpu_layers: int, n_threads: int, n_batch: int) -> str:
-    global _SERVER_PROCESS
+    global _SERVER_PROCESS, _SERVER_MODEL_PATH
 
     base_url = _server_base_url()
-    if _is_server_ready(base_url):
+    model_path = os.path.abspath(model_path)
+    if _is_server_ready(base_url) and _SERVER_MODEL_PATH == model_path:
         return base_url
+
+    if _SERVER_PROCESS and _SERVER_PROCESS.poll() is None and _SERVER_MODEL_PATH != model_path:
+        _SERVER_PROCESS.terminate()
+        try:
+            _SERVER_PROCESS.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            _SERVER_PROCESS.kill()
+            _SERVER_PROCESS.wait(timeout=8)
+        _SERVER_PROCESS = None
+        _SERVER_MODEL_PATH = ""
 
     server_exe = _server_path()
     if not server_exe:
@@ -74,6 +86,7 @@ def ensure_server(model_path: str, n_ctx: int, n_gpu_layers: int, n_threads: int
         stderr=subprocess.DEVNULL,
         creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
     )
+    _SERVER_MODEL_PATH = model_path
 
     for _ in range(60):
         if _is_server_ready(base_url):
