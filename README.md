@@ -35,6 +35,14 @@ MORICE is a local desktop AI assistant with a PySide6 tinted-glass interface, of
 
 ## Quick Install
 
+Ready PC app:
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest https://raw.githubusercontent.com/EONASH2722/MORICE/main/scripts/install-pc-app.ps1 -OutFile install-pc-app.ps1; .\install-pc-app.ps1"
+```
+
+This downloads the MORICE PC release package, verifies it, and extracts it to your user folder.
+
 Requirements:
 
 - Windows 10/11
@@ -123,7 +131,13 @@ Upload every generated file from `release\model-hermes-3-llama-3.1-8b-q4-k-m` to
 model-hermes-3-llama-3.1-8b-q4-k-m
 ```
 
-After that, `install-model.ps1` installs the model directly from the MORICE GitHub release.
+The model release is available here:
+
+```text
+https://github.com/EONASH2722/MORICE/releases/tag/model-hermes-3-llama-3.1-8b-q4-k-m
+```
+
+`install-model.ps1` installs the model directly from that MORICE GitHub release.
 
 ## Change Model In App
 
@@ -154,6 +168,14 @@ Once the release assets are uploaded, users can install the ready PC app with:
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install-pc-app.ps1
 ```
+
+The PC app release is available here:
+
+```text
+https://github.com/EONASH2722/MORICE/releases/tag/morice-pc-app
+```
+
+Manual users can download `pc-app-manifest.json` and all `MORICE-PC.zip.part*` files from that release, join the parts in order into `MORICE-PC.zip`, then extract it.
 
 ## Wake Listener
 
