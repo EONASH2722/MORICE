@@ -8,7 +8,17 @@ import re
 from ctypes import wintypes
 
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QTimer, Signal, QEvent
-from PySide6.QtGui import QFont, QFontDatabase, QColor, QIcon, QCursor, QPainter, QPen
+from PySide6.QtGui import (
+    QFont,
+    QFontDatabase,
+    QColor,
+    QIcon,
+    QCursor,
+    QPainter,
+    QPen,
+    QPainterPath,
+    QLinearGradient,
+)
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -398,6 +408,85 @@ class RgbMenuButton(QPushButton):
             painter.drawLine(left, y, left + line_width, y)
 
 
+class LiquidSendButton(QPushButton):
+    def __init__(self, text: str):
+        super().__init__(text)
+        self.setObjectName("SendButton")
+        self.setCursor(Qt.PointingHandCursor)
+        self._liquid_ready = False
+        self._phase = 0.0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._advance)
+
+    def set_liquid_ready(self, ready: bool):
+        if self._liquid_ready == ready:
+            return
+        self._liquid_ready = ready
+        self.setProperty("ready", "true" if ready else "false")
+        if ready and not self._timer.isActive():
+            self._timer.start(28)
+        elif not ready and self._timer.isActive():
+            self._timer.stop()
+        self.update()
+
+    def _advance(self):
+        self._phase = (self._phase + 0.18) % (math.pi * 2)
+        self.update()
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect().adjusted(1, 1, -1, -1)
+        radius = 12
+        clip = QPainterPath()
+        clip.addRoundedRect(rect, radius, radius)
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(72, 72, 80, 170))
+        painter.drawPath(clip)
+
+        if self._liquid_ready and self.isEnabled():
+            painter.save()
+            painter.setClipPath(clip)
+            fill = QPainterPath()
+            fill.moveTo(rect.left(), rect.bottom())
+            wave_mid = rect.top() + rect.height() * 0.32
+            step = max(8, rect.width() // 14)
+            for x in range(rect.left(), rect.right() + step, step):
+                wave = math.sin((x * 0.08) + self._phase) * 4.2
+                wave += math.sin((x * 0.035) - self._phase * 1.6) * 2.4
+                fill.lineTo(x, wave_mid + wave)
+            fill.lineTo(rect.right(), rect.bottom())
+            fill.closeSubpath()
+
+            gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
+            gradient.setColorAt(0.0, QColor(108, 72, 230, 240))
+            gradient.setColorAt(0.48, QColor(163, 88, 255, 248))
+            gradient.setColorAt(1.0, QColor(74, 190, 215, 230))
+            painter.setBrush(gradient)
+            painter.drawPath(fill)
+
+            shine = QPainterPath()
+            shine.moveTo(rect.left() - 20, rect.top() + 5)
+            offset = int((0.5 + 0.5 * math.sin(self._phase * 0.9)) * rect.width())
+            shine.lineTo(rect.left() + offset, rect.top() + 3)
+            shine.lineTo(rect.left() + offset + 42, rect.bottom())
+            shine.lineTo(rect.left() + offset - 10, rect.bottom())
+            shine.closeSubpath()
+            painter.setBrush(QColor(255, 255, 255, 34))
+            painter.drawPath(shine)
+            painter.restore()
+
+        border = QColor(215, 190, 255, 155) if self._liquid_ready and self.isEnabled() else QColor(255, 255, 255, 24)
+        painter.setPen(QPen(border, 1))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(clip)
+
+        painter.setPen(QColor(255, 255, 255, 244) if self.isEnabled() else QColor(255, 255, 255, 92))
+        painter.setFont(self.font())
+        painter.drawText(rect, Qt.AlignCenter, self.text())
+
+
 class TitleBar(QFrame):
     def __init__(self, parent: QWidget):
         super().__init__(parent)
@@ -558,18 +647,36 @@ class MoriceWindow(QWidget):
         self.project_mode_btn.setObjectName("ModeOption")
         self.project_mode_btn.clicked.connect(lambda: self._set_chat_mode("project"))
 
-        folder_label = QLabel("Work folder")
+        self.project_details = QFrame()
+        self.project_details.setObjectName("ProjectDetails")
+        self.project_details_opacity = QGraphicsOpacityEffect(self.project_details)
+        self.project_details_opacity.setOpacity(0.0)
+        self.project_details.setGraphicsEffect(self.project_details_opacity)
+        project_details_layout = QVBoxLayout(self.project_details)
+        project_details_layout.setContentsMargins(10, 10, 10, 10)
+        project_details_layout.setSpacing(9)
+
+        project_header = QHBoxLayout()
+        project_header.setContentsMargins(0, 0, 0, 0)
+        project_header.setSpacing(8)
+
+        folder_label = QLabel("Project setup")
         folder_label.setObjectName("ModeSectionLabel")
+
+        self.project_add_btn = QPushButton("+")
+        self.project_add_btn.setObjectName("ProjectAddButton")
+        self.project_add_btn.setFixedSize(32, 32)
+        self.project_add_btn.setToolTip("Choose or create a work folder")
+        self.project_add_btn.clicked.connect(self._choose_project_folder)
+
+        project_header.addWidget(folder_label, stretch=1)
+        project_header.addWidget(self.project_add_btn)
 
         self.project_folder_input = QLineEdit()
         self.project_folder_input.setObjectName("ProjectFolderInput")
         self.project_folder_input.setReadOnly(True)
         self.project_folder_input.setPlaceholderText("Choose a folder for builds")
         self.project_folder_input.setText(self.project_folder)
-
-        self.choose_project_folder_btn = QPushButton("Choose folder")
-        self.choose_project_folder_btn.setObjectName("ProjectFolderButton")
-        self.choose_project_folder_btn.clicked.connect(self._choose_project_folder)
 
         access_label = QLabel("Access")
         access_label.setObjectName("ModeSectionLabel")
@@ -582,6 +689,12 @@ class MoriceWindow(QWidget):
         self.full_access_btn.setObjectName("AccessOption")
         self.full_access_btn.clicked.connect(lambda: self._set_project_access("full"))
 
+        project_details_layout.addLayout(project_header)
+        project_details_layout.addWidget(self.project_folder_input)
+        project_details_layout.addWidget(access_label)
+        project_details_layout.addWidget(self.folder_access_btn)
+        project_details_layout.addWidget(self.full_access_btn)
+
         self.mode_status = QLabel("")
         self.mode_status.setObjectName("ModeStatus")
         self.mode_status.setWordWrap(True)
@@ -591,14 +704,7 @@ class MoriceWindow(QWidget):
         mode_layout.addSpacing(6)
         mode_layout.addWidget(self.normal_mode_btn)
         mode_layout.addWidget(self.project_mode_btn)
-        mode_layout.addSpacing(8)
-        mode_layout.addWidget(folder_label)
-        mode_layout.addWidget(self.project_folder_input)
-        mode_layout.addWidget(self.choose_project_folder_btn)
-        mode_layout.addSpacing(4)
-        mode_layout.addWidget(access_label)
-        mode_layout.addWidget(self.folder_access_btn)
-        mode_layout.addWidget(self.full_access_btn)
+        mode_layout.addWidget(self.project_details)
         mode_layout.addWidget(self.mode_status)
         mode_layout.addStretch(1)
 
@@ -784,6 +890,7 @@ class MoriceWindow(QWidget):
         self.input.setPlaceholderText(f"{self.user_title}: type here...")
         self.input.setObjectName("InputBox")
         self.input.returnPressed.connect(self.on_send)
+        self.input.textChanged.connect(lambda _text: self._refresh_send_button_state())
 
         precision_btn = QPushButton("Precision: ON")
         precision_btn.setObjectName("PrecisionButton")
@@ -796,14 +903,20 @@ class MoriceWindow(QWidget):
         personalization_btn.clicked.connect(self.toggle_sidebar)
         self.personalization_btn = personalization_btn
 
-        send_btn = QPushButton("Send")
-        send_btn.setObjectName("SendButton")
+        access_status_btn = QPushButton()
+        access_status_btn.setObjectName("ProjectAccessStatus")
+        access_status_btn.clicked.connect(self.toggle_mode_panel)
+        access_status_btn.setVisible(False)
+        self.access_status_btn = access_status_btn
+
+        send_btn = LiquidSendButton("Send")
         send_btn.clicked.connect(self.on_send)
         self.send_btn = send_btn
 
         input_layout.addWidget(self.input, stretch=1)
         input_layout.addWidget(precision_btn)
         input_layout.addWidget(personalization_btn)
+        input_layout.addWidget(access_status_btn)
         input_layout.addWidget(send_btn)
 
         self.composer_stage = ComposerStageFrame()
@@ -1042,6 +1155,11 @@ class MoriceWindow(QWidget):
                 font-size: 12px;
                 font-weight: 800;
             }
+            #ProjectDetails {
+                background: rgba(255,255,255,0.025);
+                border-radius: 12px;
+                border: 1px solid rgba(178,130,255,0.12);
+            }
             #ModeOption {
                 text-align: left;
                 background: rgba(20,18,28,0.82);
@@ -1067,15 +1185,15 @@ class MoriceWindow(QWidget):
                 color: rgba(246,242,255,0.86);
                 selection-background-color: rgba(178,96,255,0.45);
             }
-            #ProjectFolderButton {
+            #ProjectAddButton {
                 background: rgba(54,78,92,0.82);
                 color: rgba(244,252,255,0.94);
-                border-radius: 10px;
-                padding: 9px 12px;
+                border-radius: 16px;
                 border: 1px solid rgba(120,205,235,0.24);
-                font-weight: 800;
+                font-size: 18px;
+                font-weight: 900;
             }
-            #ProjectFolderButton:hover {
+            #ProjectAddButton:hover {
                 background: rgba(70,100,118,0.94);
                 border: 1px solid rgba(150,230,255,0.42);
             }
@@ -1192,28 +1310,35 @@ class MoriceWindow(QWidget):
                 border: 1px solid rgba(208,165,255,0.6);
             }
             #SendButton {
-                background: rgba(120,74,220,0.9);
                 color: #fff;
                 border-radius: 12px;
                 padding: 10px 18px;
                 border: none;
-            }
-            #SendButton:hover {
-                background: rgba(148,94,255,0.98);
+                min-width: 82px;
+                font-weight: 700;
             }
             #SendButton[personalized="true"] {
-                background: rgba(126,76,220,0.94);
                 border: 1px solid rgba(202,170,255,0.36);
             }
-            #SendButton[personalized="true"]:hover {
-                background: rgba(158,102,255,1);
+            #ProjectAccessStatus {
+                background: rgba(55,112,92,0.78);
+                color: rgba(246,255,250,0.94);
+                border-radius: 12px;
+                padding: 10px 14px;
+                border: 1px solid rgba(155,235,185,0.34);
+                font-weight: 800;
+            }
+            #ProjectAccessStatus:hover {
+                background: rgba(70,138,112,0.92);
+                border: 1px solid rgba(185,255,212,0.52);
             }
             #SendButton:disabled,
             #PersonalizationStatus:disabled,
+            #ProjectAccessStatus:disabled,
             #PrecisionButton:disabled,
             #StyleSaveButton:disabled,
             #StyleClearButton:disabled,
-            #ProjectFolderButton:disabled,
+            #ProjectAddButton:disabled,
             #AccessOption:disabled,
             #QueueButton:disabled,
             #InputBox:disabled,
@@ -1343,6 +1468,7 @@ class MoriceWindow(QWidget):
         self._update_style_badge()
         self._refresh_queue_list()
         self._refresh_mode_panel()
+        self._refresh_send_button_state()
 
         if should_preload():
             try:
@@ -1427,7 +1553,7 @@ class MoriceWindow(QWidget):
         mode_name = "Project" if self.chat_mode == "project" else "Normal chat"
         if self.chat_container.isVisible():
             self.append_message(MORICE_NAME, self._address(f"{mode_name} mode enabled."))
-        else:
+        elif self.chat_mode == "normal":
             self.mode_status.setText(f"{mode_name} mode is ready for the next message.")
 
     def _choose_project_folder(self):
@@ -1436,10 +1562,14 @@ class MoriceWindow(QWidget):
             if self.project_folder and os.path.isdir(self.project_folder)
             else os.path.expanduser("~")
         )
-        folder = QFileDialog.getExistingDirectory(self, "Choose MORICE work folder", start_dir)
+        folder = QFileDialog.getExistingDirectory(self, "Choose or create a work folder outside MORICE", start_dir)
         if not folder:
             return
-        self.project_folder = normalize_project_folder(folder)
+        clean_folder = normalize_project_folder(folder)
+        if self._is_inside_app_folder(clean_folder):
+            self.mode_status.setText("Pick a work folder outside the MORICE app folder.")
+            return
+        self.project_folder = clean_folder
         self.project_folder_input.setText(self.project_folder)
         self.project_folder_input.setToolTip(self.project_folder)
         self._save_project_settings()
@@ -1463,10 +1593,62 @@ class MoriceWindow(QWidget):
         self.settings["project_access"] = self.project_access
         save_settings(self.settings)
 
+    def _app_folder(self) -> str:
+        if getattr(sys, "frozen", False):
+            return os.path.abspath(os.path.dirname(sys.executable))
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+    def _is_inside_app_folder(self, path: str) -> bool:
+        if not path:
+            return False
+        try:
+            app_folder = os.path.normcase(self._app_folder())
+            candidate = os.path.normcase(os.path.abspath(path))
+            return os.path.commonpath([candidate, app_folder]) == app_folder
+        except ValueError:
+            return False
+
+    def _project_folder_label(self) -> str:
+        if not self.project_folder:
+            return "No folder"
+        name = os.path.basename(os.path.normpath(self.project_folder))
+        return name or self.project_folder
+
+    def _set_project_details_visible(self, visible: bool):
+        if not hasattr(self, "project_details_opacity"):
+            self.project_details.setVisible(visible)
+            return
+        if not hasattr(self, "_anims"):
+            self.project_details_opacity.setOpacity(1.0 if visible else 0.0)
+            self.project_details.setVisible(visible)
+            return
+        if visible:
+            self.project_details.setVisible(True)
+        start = self.project_details_opacity.opacity()
+        end = 1.0 if visible else 0.0
+        if abs(start - end) < 0.01:
+            self.project_details.setVisible(visible)
+            return
+        anim = QPropertyAnimation(self.project_details_opacity, b"opacity")
+        anim.setDuration(220)
+        anim.setStartValue(start)
+        anim.setEndValue(end)
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        if not visible:
+            anim.finished.connect(lambda: self.project_details.setVisible(False))
+        anim.finished.connect(lambda: self._anims.remove(anim) if anim in self._anims else None)
+        self._anims.append(anim)
+        anim.start()
+
     def _refresh_mode_panel(self):
         if not hasattr(self, "normal_mode_btn"):
             return
         is_project = self.chat_mode == "project"
+        self._set_project_details_visible(is_project)
+        self.personalization_btn.setVisible(not is_project)
+        self.access_status_btn.setVisible(is_project)
+        self.access_status_btn.setText("Full access" if self.project_access == "full" else "Folder only")
+        self.access_status_btn.setToolTip("Open Project access settings")
         for button, active in (
             (self.normal_mode_btn, not is_project),
             (self.project_mode_btn, is_project),
@@ -1485,6 +1667,7 @@ class MoriceWindow(QWidget):
             button.style().polish(button)
         if not is_project:
             self.mode_status.setText("Normal chat is for everyday questions, quick replies, and casual work.")
+            self._refresh_send_button_state()
             return
         folder_line = self.project_folder if self.project_folder else "Choose a work folder before real builds."
         access_line = (
@@ -1493,20 +1676,23 @@ class MoriceWindow(QWidget):
             else "Limited: MORICE keeps project work inside the chosen folder."
         )
         self.mode_status.setText(f"Project builder ready.\n{folder_line}\n{access_line}")
+        self._refresh_send_button_state()
 
     def _project_builder_system(self) -> str:
-        folder = self.project_folder or "No work folder selected yet."
+        folder = self.project_folder or "No work folder selected yet. Ask the user to click the + project button before creating files."
         if self.project_access == "full":
             access = (
-                "Full access is selected. The user has pre-approved ordinary file creation, edits, installs, "
-                "builds, and run commands needed for the requested project. Do not ask for permission for normal "
-                "project work; make clear, professional choices and continue. Destructive actions still need an "
-                "explicit user request."
+                "Full access is selected. The user has pre-approved normal project work, including file creation, "
+                "edits, installs, builds, and run commands needed for the requested project. Act responsibly and "
+                "privately: do not create malware, persistence, credential theft, data exfiltration, destructive "
+                "scripts, or system-breaking changes. Avoid blunders by explaining risky assumptions and choosing "
+                "safe defaults."
             )
         else:
             access = (
-                "Folder-limited access is selected. Treat the work folder as the project root and keep all generated "
-                "paths, commands, and file changes inside it unless the user explicitly says otherwise."
+                "Folder-limited access is selected. Treat the work folder as the project root. Keep all generated "
+                "paths, commands, and file changes inside it. If the task needs anything outside that folder, ask "
+                "permission for that specific job only, then return the plan back to the folder."
             )
         return (
             "Project builder mode is on. Behave like a senior coding agent for apps, games, websites, scripts, APIs, "
@@ -1563,15 +1749,19 @@ class MoriceWindow(QWidget):
         self.normal_mode_btn.setEnabled(not is_busy)
         self.project_mode_btn.setEnabled(not is_busy)
         self.project_folder_input.setEnabled(not is_busy)
-        self.choose_project_folder_btn.setEnabled(not is_busy)
+        self.project_add_btn.setEnabled(not is_busy)
         self.folder_access_btn.setEnabled(not is_busy)
         self.full_access_btn.setEnabled(not is_busy)
+        self.access_status_btn.setEnabled(not is_busy)
         self._refresh_send_button_state()
         if not is_busy:
             self.input.setFocus()
 
     def _refresh_send_button_state(self):
         queued_count = len(self.message_queue)
+        has_text = bool(self.input.text().strip()) if hasattr(self, "input") else False
+        can_click = has_text
+        liquid_ready = has_text and not self.is_busy
         if self.is_busy:
             self.send_btn.setText(f"Queued {queued_count}" if queued_count else "Steer")
             if queued_count:
@@ -1581,6 +1771,9 @@ class MoriceWindow(QWidget):
         else:
             self.send_btn.setText("Send")
             self.input.setPlaceholderText(self._input_placeholder())
+        self.send_btn.setEnabled(can_click)
+        if hasattr(self.send_btn, "set_liquid_ready"):
+            self.send_btn.set_liquid_ready(liquid_ready)
         self._refresh_queue_controls()
 
     def _refresh_queue_list(self, preferred_row: int | None = None):
@@ -1737,6 +1930,7 @@ class MoriceWindow(QWidget):
         widgets = [
             self.current_style_value,
             self.personalization_btn,
+            self.access_status_btn,
             self.title_bar,
             self.title_bar.sidebar_btn,
             self.chat_container,
@@ -1760,6 +1954,7 @@ class MoriceWindow(QWidget):
             self.input,
             self.precision_btn,
             self.personalization_btn,
+            self.access_status_btn,
             self.send_btn,
         )
 

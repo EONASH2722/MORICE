@@ -28,6 +28,7 @@ MORICE is a local desktop AI assistant with a PySide6 tinted-glass interface, of
 - Processing status is shown while MORICE works and disappears when the reply arrives.
 - One-command model installer for the Hermes 3 Llama 3.1 8B Q4_K_M GGUF used by this app.
 - Project builder mode with a work-folder picker, folder-limited/full access choices, and stronger coding behavior.
+- Liquid Send button animation that only fills when a message is ready to send.
 - Chat text is selectable/copyable.
 - MIT licensed so anyone can study, change, fork, and customize it.
 
@@ -180,11 +181,14 @@ Use the RGB three-line button on the left side of the title bar to open the mode
 
 Project mode includes:
 
-- A work-folder picker for future builds and project-specific answers.
-- `Limited to folder`, which keeps project paths and commands inside the chosen folder.
-- `Full access`, which treats normal requested project work as pre-approved.
+- A Project-only setup area that appears after clicking `Project`.
+- A `+` button for choosing or creating a work folder outside the MORICE app folder.
+- `Limited to folder`, which keeps project paths and commands inside the chosen folder and asks permission for any specific job outside it.
+- `Full access`, which treats normal requested project work as pre-approved while staying private, safe, and non-destructive.
 - Stronger coding behavior for any requested language or framework.
 - Typo-aware intent handling, so rough wording is interpreted from chat context.
+- In Project mode, the composer replaces the `Personalised` button with the current access mode.
+- The Send button stays grey when empty or while MORICE is replying, then animates with a liquid fill when ready.
 
 ## Message Queue
 
