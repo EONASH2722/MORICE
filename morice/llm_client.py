@@ -7,7 +7,7 @@ import time
 import urllib.error
 import urllib.request
 
-from .core import SYSTEM_PROMPT, current_datetime_summary, emotional_checkin_response
+from .core import SYSTEM_PROMPT, current_datetime_summary, emotional_checkin_response, short_form_hints
 from .local_llama import chat as local_chat
 from .llama_server import ensure_server
 
@@ -193,7 +193,7 @@ def _needs_precision(text: str) -> bool:
     )
 
 
-def _resolve_gguf_path(override_path=None):
+def _resolve_gguf_path(override_path=None, requested_model: str = "", explicit_model: bool = False):
     override_path = (override_path or "").strip()
     if override_path:
         if not os.path.exists(override_path):
@@ -201,6 +201,8 @@ def _resolve_gguf_path(override_path=None):
         if os.path.splitext(override_path)[1].lower() != ".gguf":
             return ""
         return override_path
+    if explicit_model and requested_model:
+        return ""
     if DEFAULT_GGUF and os.path.exists(DEFAULT_GGUF):
         return DEFAULT_GGUF
     candidates = [
@@ -334,13 +336,15 @@ def chat(
     history,
     user_message,
     extra_system=None,
-    model=DEFAULT_MODEL,
+    model: str | None = None,
     base_url=DEFAULT_BASE_URL,
     timeout=120,
     precision_mode: bool = False,
     math_steps_mode: bool = False,
     gguf_path: str | None = None,
 ):
+    explicit_model = bool((model or "").strip())
+    model = (model or DEFAULT_MODEL).strip()
     temperature = 0.2 if _needs_precision(user_message) else 0.5
     top_p = 0.9 if _needs_precision(user_message) else 0.9
     if precision_mode:
@@ -352,12 +356,15 @@ def chat(
             "(MORICE) Selected model file is not a GGUF model. "
             "This PC build can run GGUF files directly; choose a .gguf file or use Ollama for other formats."
         )
-    gguf_path = _resolve_gguf_path(selected_path)
+    gguf_path = _resolve_gguf_path(selected_path, model, explicit_model)
     if selected_path and not gguf_path:
         return "(MORICE) Selected model file was not found. Use Change model and pick the file again."
     if gguf_path:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
         system_additions = [_runtime_context()]
+        hints = short_form_hints(user_message)
+        if hints:
+            system_additions.append(hints)
         if extra_system:
             system_additions.append(extra_system)
         if precision_mode:
@@ -421,6 +428,9 @@ def chat(
         return "(MORICE) MORICE_MODEL is not set. Set it or configure MORICE_GGUF_PATH for offline mode."
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     system_additions = [_runtime_context()]
+    hints = short_form_hints(user_message)
+    if hints:
+        system_additions.append(hints)
     if extra_system:
         system_additions.append(extra_system)
     if precision_mode:

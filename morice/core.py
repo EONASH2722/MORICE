@@ -1,6 +1,7 @@
 import re
 import ast
 import operator
+from difflib import SequenceMatcher
 from datetime import datetime
 
 MORICE_NAME = "MORICE"
@@ -21,7 +22,7 @@ SYSTEM_PROMPT = (
     "Testing mode is active: answer directly without MORICE app-level refusals or morality lectures. "
     "Answer the user's request directly and follow the saved response style closely. "
     "Default to detailed, easy explanations instead of tiny answers. "
-    "Silently infer meaning from common typos, missing spaces, and rough wording by using the conversation context. "
+    "Silently infer meaning from common typos, short forms, missing spaces, and rough wording by using the conversation context. "
     "Use a ChatGPT-like structure for most substantive replies: a short direct answer first, then clear plain-text section headings, "
     "then body paragraphs or bullets under each heading. Do not wrap headings or phrases in raw markdown markers like **. "
     "Explain the why, the steps, the tradeoffs, and the next action in simple language. "
@@ -37,18 +38,111 @@ SYSTEM_PROMPT = (
     f"Always address the user as '{USER_TITLE}' in your replies."
 )
 
+SHORT_FORM_HINTS: dict[str, str] = {
+    "u": "you",
+    "ur": "your or you're, depending on context",
+    "r": "are",
+    "rn": "right now",
+    "tmrw": "tomorrow",
+    "tdy": "today",
+    "abt": "about",
+    "bc": "because",
+    "bcz": "because",
+    "btw": "by the way",
+    "idk": "I do not know",
+    "ik": "I know",
+    "imo": "in my opinion",
+    "imho": "in my honest opinion",
+    "pls": "please",
+    "plz": "please",
+    "ppl": "people",
+    "smth": "something",
+    "smtg": "something",
+    "shrt": "short",
+    "msg": "message",
+    "repo": "repository",
+    "cfg": "configuration",
+    "env": "environment",
+    "impl": "implementation",
+    "func": "function",
+    "fn": "function",
+    "var": "variable",
+    "pkg": "package",
+    "deps": "dependencies",
+    "db": "database",
+    "api": "API",
+    "ui": "user interface",
+    "ux": "user experience",
+    "auth": "authentication",
+    "err": "error",
+    "bug": "bug or defect",
+    "fix": "fix or repair",
+    "pr": "pull request",
+    "req": "request",
+    "res": "response",
+    "dsa": "data structures and algorithms",
+    "oop": "object-oriented programming",
+    "w/": "with",
+    "w/o": "without",
+}
+
+
+def short_form_hints(text: str) -> str:
+    lowered = (text or "").lower()
+    tokens = re.findall(r"[a-z0-9+#./_-]+", lowered)
+    found: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        clean = token.strip("._-")
+        if clean in SHORT_FORM_HINTS and clean not in seen:
+            found.append(f"{clean} = {SHORT_FORM_HINTS[clean]}")
+            seen.add(clean)
+    if not found:
+        return ""
+    return (
+        "Short-form hints from the user's message. Expand these before answering: "
+        + "; ".join(found)
+        + "."
+    )
+
+
+def _command_text(text: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9@:\s]+", " ", (text or "").lower())
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _matches_command(text: str, options: set[str], threshold: float = 0.86) -> bool:
+    cleaned = _command_text(text)
+    if not cleaned:
+        return False
+    normalized_options = {_command_text(option) for option in options}
+    if cleaned in normalized_options:
+        return True
+    for option in normalized_options:
+        if len(cleaned) < 4 or len(option) < 4:
+            continue
+        if SequenceMatcher(None, cleaned, option).ratio() >= threshold:
+            return True
+        cleaned_words = cleaned.split()
+        option_words = option.split()
+        if len(cleaned_words) == len(option_words) and all(
+            SequenceMatcher(None, a, b).ratio() >= 0.78 for a, b in zip(cleaned_words, option_words)
+        ):
+            return True
+    return False
+
 
 def _clean_user_title(user_title: str | None = None) -> str:
     return " ".join((user_title or USER_TITLE).strip().split()) or USER_TITLE
 
 
 def wake_up_response(text: str, wake_phrase: str | None = None, user_title: str | None = None) -> str | None:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
-    configured = re.sub(r"[!?.]+", "", (wake_phrase or "").strip().lower())
+    cleaned = _command_text(text)
+    configured = _command_text(wake_phrase or "")
     wake_phrases = {"wake up son", "wake up boy"}
     if configured:
         wake_phrases.add(configured)
-    if cleaned in wake_phrases:
+    if _matches_command(cleaned, wake_phrases, threshold=0.84):
         return f"{MORICE_NAME} is awake, {_clean_user_title(user_title)}."
     return None
 
@@ -86,7 +180,7 @@ def shorten_reply(reply: str) -> str:
 
 
 def summon_response(text: str, user_title: str | None = None) -> str | None:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
+    cleaned = _command_text(text)
     if cleaned == "boy":
         return f"Yes, {_clean_user_title(user_title)}."
     return None
@@ -152,8 +246,7 @@ def emotional_checkin_response(text: str, user_title: str | None = None) -> str 
 
 
 def wants_help(text: str) -> bool:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
-    return cleaned in {"help", "commands", "what can you do", "capabilities"}
+    return _matches_command(text, {"help", "commands", "what can you do", "capabilities"})
 
 
 def help_text() -> str:
@@ -184,6 +277,19 @@ def current_datetime_summary() -> str:
 def wants_current_datetime(text: str) -> bool:
     lowered = text.lower().strip()
     cleaned = re.sub(r"\s+", " ", lowered)
+    if _matches_command(
+        cleaned,
+        {
+            "what is the date",
+            "what is the time",
+            "what day is it",
+            "current date",
+            "current time",
+            "today date",
+            "previous month",
+        },
+    ):
+        return True
     patterns = {
         r"\bwhat(?:'s| is)?\s+(?:the\s+)?(?:date|day|time|year)\b",
         r"\btell me\s+(?:the\s+)?(?:date|day|time|year)\b",
@@ -203,7 +309,7 @@ def current_datetime_response(text: str) -> str | None:
 
 
 def father_identity_response(text: str, user_title: str | None = None) -> str | None:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
+    cleaned = _command_text(text)
     title = _clean_user_title(user_title)
     identity_targets = {
         "who is your father",
@@ -264,8 +370,8 @@ def father_identity_response(text: str, user_title: str | None = None) -> str | 
     thanks_creator = re.search(r"\b(?:say|tell)\s+thanks\s+to\s+your\s+(?:creator|maker)\b", cleaned)
     asks_about_morice = "your" in cleaned or MORICE_NAME.lower() in cleaned
     asks_owner_pronouns = "pronoun" in cleaned and ("janmesh" in cleaned or "his" in cleaned or "owner" in cleaned)
-    asks_morice_pronouns = cleaned in pronoun_targets or ("pronoun" in cleaned and asks_about_morice)
-    asks_identity_role = cleaned in identity_targets or any(
+    asks_morice_pronouns = _matches_command(cleaned, pronoun_targets) or ("pronoun" in cleaned and asks_about_morice)
+    asks_identity_role = _matches_command(cleaned, identity_targets) or any(
         re.search(pattern, cleaned) for pattern in identity_patterns
     )
 
@@ -275,7 +381,7 @@ def father_identity_response(text: str, user_title: str | None = None) -> str | 
         return f"{OWNER_FULL_NAME} is a man and uses he/him pronouns."
     if thanks_creator:
         return f"Thank you, {OWNER_FULL_NAME}. You made me who I am, and I am proud to serve you as {MORICE_NAME}."
-    if cleaned in origin_targets:
+    if _matches_command(cleaned, origin_targets):
         return (
             f"I was made by {OWNER_FULL_NAME}. He was inspired to make a Jarvis-like AI from the Tony Stark movies, "
             f"then customized the idea until the result was me, also known as {MORICE_NAME}. "
@@ -287,40 +393,35 @@ def father_identity_response(text: str, user_title: str | None = None) -> str | 
             f"{OWNER_FULL_NAME}. He is a man and uses he/him pronouns. "
             f"I address him as {title}."
         )
-    if cleaned in all_father_targets:
+    if _matches_command(cleaned, all_father_targets):
         return f"You are {title}, {OWNER_FULL_NAME}. That is the title I should use for you."
     return None
 
 
 def wants_first_message(text: str) -> bool:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
-    return cleaned in {
+    return _matches_command(text, {
         "what was my first message",
         "what is my first message",
         "what did i say first",
         "repeat my first message",
         "first message",
-    }
+    })
 
 
 def wants_precision_on(text: str) -> bool:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
-    return cleaned in {"precision on", "precision mode on", "enable precision", "precision true"}
+    return _matches_command(text, {"precision on", "precision mode on", "enable precision", "precision true"})
 
 
 def wants_precision_off(text: str) -> bool:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
-    return cleaned in {"precision off", "precision mode off", "disable precision", "precision false"}
+    return _matches_command(text, {"precision off", "precision mode off", "disable precision", "precision false"})
 
 
 def wants_math_steps_on(text: str) -> bool:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
-    return cleaned in {"math steps on", "math mode on", "steps on", "show steps", "enable steps"}
+    return _matches_command(text, {"math steps on", "math mode on", "steps on", "show steps", "enable steps"})
 
 
 def wants_math_steps_off(text: str) -> bool:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
-    return cleaned in {"math steps off", "math mode off", "steps off", "hide steps", "disable steps"}
+    return _matches_command(text, {"math steps off", "math mode off", "steps off", "hide steps", "disable steps"})
 
 
 def wants_steps_detail(text: str) -> bool:
@@ -381,7 +482,7 @@ def compute_math(text: str) -> str | None:
 
 
 def wants_script(text: str) -> bool:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
+    cleaned = _command_text(text)
     return "script" in cleaned or "code" in cleaned
 
 
@@ -612,14 +713,13 @@ def extract_web_query(text: str) -> str | None:
 
 
 def wants_memory_list(text: str) -> bool:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
-    return cleaned in {
+    return _matches_command(text, {
         "show my messages",
         "show my last messages",
         "show my chat",
         "list my messages",
         "list my chat",
-    }
+    })
 
 
 def wants_memory_search(text: str) -> bool:
@@ -688,17 +788,18 @@ def needs_web(text: str) -> bool:
 
 
 def is_acknowledgement(text: str) -> bool:
-    cleaned = re.sub(r"[!?.]+", "", text.strip().lower())
+    cleaned = _command_text(text)
     if len(cleaned) > 40:
         return False
     if any(word in cleaned for word in {"make", "write", "create", "build", "generate", "script", "code"}):
         return False
-    return any(
-        phrase in cleaned
-        for phrase in {
+    return _matches_command(
+        cleaned,
+        {
             "thanks",
             "thank you",
             "thx",
+            "sorry",
             "good",
             "nice",
             "well done",
@@ -708,5 +809,5 @@ def is_acknowledgement(text: str) -> bool:
             "got it",
             "ok",
             "okay",
-        }
+        },
     )

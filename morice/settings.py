@@ -9,7 +9,9 @@ DEFAULT_SETTINGS = {
     "chat_mode": "normal",
     "project_folder": "",
     "project_access": "folder",
+    "project_lookup_mode": "online",
     "model_path": "",
+    "model_name": "",
 }
 
 
@@ -47,12 +49,24 @@ def normalize_project_access(value: str) -> str:
     return text if text in {"folder", "full"} else DEFAULT_SETTINGS["project_access"]
 
 
+def normalize_project_lookup_mode(value: str) -> str:
+    text = (value or "").strip().lower().replace("_", "-")
+    aliases = {"online": "online", "online+local": "online", "local+online": "online", "local": "local"}
+    return aliases.get(text, DEFAULT_SETTINGS["project_lookup_mode"])
+
+
 def normalize_model_path(value: str) -> str:
     text = (value or "").strip().strip('"')
     if not text:
         return DEFAULT_SETTINGS["model_path"]
     text = "".join(ch for ch in text if ch not in "\r\n\t")
     return os.path.abspath(os.path.expanduser(text))[:500]
+
+
+def normalize_model_name(value: str) -> str:
+    text = (value or "").strip()
+    text = "".join(ch for ch in text if ch not in "\r\n\t")
+    return text[:160]
 
 
 def _settings_dir() -> str:
@@ -91,7 +105,9 @@ def load_settings() -> dict:
     settings["chat_mode"] = normalize_chat_mode(settings.get("chat_mode", ""))
     settings["project_folder"] = normalize_project_folder(settings.get("project_folder", ""))
     settings["project_access"] = normalize_project_access(settings.get("project_access", ""))
+    settings["project_lookup_mode"] = normalize_project_lookup_mode(settings.get("project_lookup_mode", ""))
     settings["model_path"] = normalize_model_path(settings.get("model_path", ""))
+    settings["model_name"] = normalize_model_name(settings.get("model_name", ""))
     return settings
 
 
@@ -104,6 +120,8 @@ def save_settings(settings: dict) -> None:
     clean["chat_mode"] = normalize_chat_mode(settings.get("chat_mode", ""))
     clean["project_folder"] = normalize_project_folder(settings.get("project_folder", ""))
     clean["project_access"] = normalize_project_access(settings.get("project_access", ""))
+    clean["project_lookup_mode"] = normalize_project_lookup_mode(settings.get("project_lookup_mode", ""))
     clean["model_path"] = normalize_model_path(settings.get("model_path", ""))
+    clean["model_name"] = normalize_model_name(settings.get("model_name", ""))
     with open(settings_path(), "w", encoding="utf-8") as handle:
         json.dump(clean, handle, indent=2)

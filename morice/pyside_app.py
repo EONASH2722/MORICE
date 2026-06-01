@@ -3,8 +3,10 @@ import sys
 import threading
 import ctypes
 import html
+import json
 import math
 import re
+import difflib
 from ctypes import wintypes
 
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QTimer, Signal, QEvent
@@ -81,9 +83,11 @@ from .settings import (
     DEFAULT_SETTINGS,
     load_settings,
     normalize_chat_mode,
+    normalize_model_name,
     normalize_model_path,
     normalize_project_access,
     normalize_project_folder,
+    normalize_project_lookup_mode,
     normalize_user_title,
     normalize_wake_phrase,
     normalize_response_style,
@@ -104,6 +108,58 @@ MODEL_EXTENSIONS = {
     ".pth",
     ".ckpt",
     ".model",
+}
+
+PROJECT_TEXT_EXTENSIONS = {
+    ".bat",
+    ".c",
+    ".cpp",
+    ".cs",
+    ".css",
+    ".csv",
+    ".go",
+    ".gradle",
+    ".h",
+    ".html",
+    ".java",
+    ".js",
+    ".json",
+    ".jsx",
+    ".kt",
+    ".md",
+    ".php",
+    ".ps1",
+    ".py",
+    ".rb",
+    ".rs",
+    ".sh",
+    ".sql",
+    ".swift",
+    ".toml",
+    ".ts",
+    ".tsx",
+    ".txt",
+    ".xml",
+    ".yaml",
+    ".yml",
+}
+
+PROJECT_IGNORED_DIRS = {
+    ".git",
+    ".hg",
+    ".idea",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".svn",
+    ".venv",
+    ".vscode",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "target",
+    "venv",
 }
 
 
@@ -582,6 +638,7 @@ class TitleBar(QFrame):
 class MoriceWindow(QWidget):
     message_ready = Signal(str, str, bool)
     thinking_update = Signal(str)
+    project_changes_ready = Signal(str, str)
 
     def __init__(self):
         super().__init__()
@@ -622,11 +679,14 @@ class MoriceWindow(QWidget):
         self.chat_mode = normalize_chat_mode(self.settings.get("chat_mode", ""))
         self.project_folder = normalize_project_folder(self.settings.get("project_folder", ""))
         self.project_access = normalize_project_access(self.settings.get("project_access", ""))
+        self.project_lookup_mode = normalize_project_lookup_mode(self.settings.get("project_lookup_mode", ""))
         self.model_path = normalize_model_path(self.settings.get("model_path", ""))
+        self.model_name = normalize_model_name(self.settings.get("model_name", ""))
 
         self.wake_signal_path = wake_signal_path()
         self.message_ready.connect(self._on_message_ready)
         self.thinking_update.connect(self._on_thinking_update)
+        self.project_changes_ready.connect(self._on_project_changes_ready)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
@@ -665,6 +725,13 @@ class MoriceWindow(QWidget):
         model_label = QLabel("AI model")
         model_label.setObjectName("ModeSectionLabel")
 
+        self.model_name_input = QLineEdit()
+        self.model_name_input.setObjectName("ProjectFolderInput")
+        self.model_name_input.setPlaceholderText("Ollama model, e.g. qwen2.5-coder:7b")
+        self.model_name_input.setText(self.model_name)
+        self.model_name_input.setToolTip("Optional Ollama model name. Clear the GGUF file to use this route.")
+        self.model_name_input.editingFinished.connect(self._save_model_name)
+
         self.model_path_input = QLineEdit()
         self.model_path_input.setObjectName("ProjectFolderInput")
         self.model_path_input.setReadOnly(True)
@@ -674,6 +741,16 @@ class MoriceWindow(QWidget):
         self.change_model_btn = QPushButton("Change model")
         self.change_model_btn.setObjectName("ProjectModelButton")
         self.change_model_btn.clicked.connect(self._choose_model_file)
+
+        self.clear_model_btn = QPushButton("Clear file")
+        self.clear_model_btn.setObjectName("ProjectModelButton")
+        self.clear_model_btn.clicked.connect(self._clear_model_file)
+
+        model_button_row = QHBoxLayout()
+        model_button_row.setContentsMargins(0, 0, 0, 0)
+        model_button_row.setSpacing(8)
+        model_button_row.addWidget(self.change_model_btn)
+        model_button_row.addWidget(self.clear_model_btn)
 
         self.project_details = QFrame()
         self.project_details.setObjectName("ProjectDetails")
@@ -734,8 +811,9 @@ class MoriceWindow(QWidget):
         mode_layout.addWidget(self.project_mode_btn)
         mode_layout.addSpacing(4)
         mode_layout.addWidget(model_label)
+        mode_layout.addWidget(self.model_name_input)
         mode_layout.addWidget(self.model_path_input)
-        mode_layout.addWidget(self.change_model_btn)
+        mode_layout.addLayout(model_button_row)
         mode_layout.addWidget(self.project_details)
         mode_layout.addWidget(self.mode_status)
         mode_layout.addStretch(1)
@@ -788,6 +866,31 @@ class MoriceWindow(QWidget):
 
         content_layout.addWidget(chat_container, stretch=1)
         chat_container.setVisible(False)
+
+        self.changes_panel = QFrame()
+        self.changes_panel.setObjectName("ProjectChangesPanel")
+        self.changes_panel.setFixedWidth(390)
+        changes_layout = QVBoxLayout(self.changes_panel)
+        changes_layout.setContentsMargins(14, 14, 14, 14)
+        changes_layout.setSpacing(10)
+
+        changes_title = QLabel("Project changes")
+        changes_title.setObjectName("ProjectChangesTitle")
+
+        self.changes_summary = QLabel("Build something in Project mode to see file changes here.")
+        self.changes_summary.setObjectName("ProjectChangesSummary")
+        self.changes_summary.setWordWrap(True)
+
+        self.changes_view = QTextEdit()
+        self.changes_view.setObjectName("ProjectChangesView")
+        self.changes_view.setReadOnly(True)
+        self.changes_view.setAcceptRichText(True)
+
+        changes_layout.addWidget(changes_title)
+        changes_layout.addWidget(self.changes_summary)
+        changes_layout.addWidget(self.changes_view, stretch=1)
+        body.addWidget(self.changes_panel)
+        self.changes_panel.setVisible(False)
 
         self.sidebar = QFrame()
         self.sidebar.setObjectName("SidebarPanel")
@@ -941,6 +1044,12 @@ class MoriceWindow(QWidget):
         access_status_btn.setVisible(False)
         self.access_status_btn = access_status_btn
 
+        project_lookup_btn = QPushButton()
+        project_lookup_btn.setObjectName("ProjectLookupStatus")
+        project_lookup_btn.clicked.connect(self._toggle_project_lookup_mode)
+        project_lookup_btn.setVisible(False)
+        self.project_lookup_btn = project_lookup_btn
+
         send_btn = LiquidSendButton("Send")
         send_btn.clicked.connect(self.on_send)
         self.send_btn = send_btn
@@ -949,6 +1058,7 @@ class MoriceWindow(QWidget):
         input_layout.addWidget(precision_btn)
         input_layout.addWidget(personalization_btn)
         input_layout.addWidget(access_status_btn)
+        input_layout.addWidget(project_lookup_btn)
         input_layout.addWidget(send_btn)
 
         self.composer_stage = ComposerStageFrame()
@@ -1260,6 +1370,30 @@ class MoriceWindow(QWidget):
                 font-size: 12px;
                 padding-top: 4px;
             }
+            #ProjectChangesPanel {
+                background: rgba(8,10,14,0.96);
+                border-radius: 14px;
+                border: 1px solid rgba(178,130,255,0.22);
+            }
+            #ProjectChangesTitle {
+                color: #ffffff;
+                font-size: 17px;
+                font-weight: 900;
+            }
+            #ProjectChangesSummary {
+                color: rgba(165,225,195,0.82);
+                font-size: 12px;
+            }
+            #ProjectChangesView {
+                background: rgba(0,0,0,0.42);
+                border-radius: 10px;
+                padding: 10px;
+                border: 1px solid rgba(178,130,255,0.16);
+                font-family: "Cascadia Mono", "Consolas";
+                font-size: 11px;
+                color: rgba(238,238,238,0.92);
+                selection-background-color: rgba(118,72,220,0.62);
+            }
             #SidebarTitle {
                 color: #ffffff;
                 font-size: 18px;
@@ -1373,9 +1507,22 @@ class MoriceWindow(QWidget):
                 background: rgba(70,138,112,0.92);
                 border: 1px solid rgba(185,255,212,0.52);
             }
+            #ProjectLookupStatus {
+                background: rgba(54,78,122,0.78);
+                color: rgba(244,250,255,0.94);
+                border-radius: 12px;
+                padding: 10px 14px;
+                border: 1px solid rgba(130,190,255,0.34);
+                font-weight: 800;
+            }
+            #ProjectLookupStatus:hover {
+                background: rgba(68,96,150,0.92);
+                border: 1px solid rgba(170,215,255,0.52);
+            }
             #SendButton:disabled,
             #PersonalizationStatus:disabled,
             #ProjectAccessStatus:disabled,
+            #ProjectLookupStatus:disabled,
             #PrecisionButton:disabled,
             #StyleSaveButton:disabled,
             #StyleClearButton:disabled,
@@ -1629,17 +1776,52 @@ class MoriceWindow(QWidget):
         label = "Full access" if self.project_access == "full" else "Folder-limited access"
         self.mode_status.setText(f"{label} saved for project mode.")
 
+    def _toggle_project_lookup_mode(self):
+        self.project_lookup_mode = "local" if self.project_lookup_mode == "online" else "online"
+        self._save_project_settings()
+        self._refresh_mode_panel()
+        label = "Online+local" if self.project_lookup_mode == "online" else "Local mode"
+        self.mode_status.setText(f"{label} saved for Project mode.")
+
     def _save_project_settings(self):
         self.settings["chat_mode"] = self.chat_mode
         self.settings["project_folder"] = self.project_folder
         self.settings["project_access"] = self.project_access
+        self.settings["project_lookup_mode"] = self.project_lookup_mode
         self.settings["model_path"] = self.model_path
+        self.settings["model_name"] = self.model_name
         save_settings(self.settings)
+
+    def _save_model_name(self):
+        clean_name = normalize_model_name(self.model_name_input.text())
+        if self.model_name_input.text() != clean_name:
+            self.model_name_input.setText(clean_name)
+        if clean_name == self.model_name:
+            return
+        self.model_name = clean_name
+        self._save_project_settings()
+        self._refresh_mode_panel()
+        if self.model_name:
+            if self.model_path:
+                self.mode_status.setText(
+                    f"Ollama model saved: {self.model_name}. Clear the GGUF file when you want Ollama to answer."
+                )
+            else:
+                self.mode_status.setText(f"Ollama model saved: {self.model_name}. MORICE will use it next.")
+        else:
+            self.mode_status.setText("Ollama model name cleared. MORICE will use the selected or bundled GGUF.")
 
     def _model_display_text(self) -> str:
         if not self.model_path:
             return "Bundled Hermes GGUF"
         return os.path.basename(self.model_path) or self.model_path
+
+    def _model_status_line(self) -> str:
+        if self.model_path:
+            return f"Model file: {self._model_display_text()}."
+        if self.model_name:
+            return f"Ollama model: {self.model_name}."
+        return "Model: bundled Hermes GGUF."
 
     def _validate_model_file(self, path: str) -> tuple[bool, str]:
         if not path or not os.path.isfile(path):
@@ -1691,6 +1873,20 @@ class MoriceWindow(QWidget):
             self.mode_status.setText(
                 "Model file attached, but this PC build runs GGUF directly. Use a GGUF for local chat."
             )
+
+    def _clear_model_file(self):
+        if not self.model_path:
+            self.mode_status.setText(self._model_status_line())
+            return
+        self.model_path = ""
+        self.model_path_input.setText(self._model_display_text())
+        self.model_path_input.setToolTip("Using bundled Hermes GGUF unless an Ollama model name is set")
+        self._save_project_settings()
+        self._refresh_mode_panel()
+        if self.model_name:
+            self.mode_status.setText(f"GGUF file cleared. MORICE will use Ollama model {self.model_name}.")
+        else:
+            self.mode_status.setText("GGUF file cleared. MORICE will use the bundled Hermes GGUF.")
 
     def _app_folder(self) -> str:
         if getattr(sys, "frozen", False):
@@ -1744,12 +1940,18 @@ class MoriceWindow(QWidget):
             return
         is_project = self.chat_mode == "project"
         self._set_project_details_visible(is_project)
+        if not is_project:
+            self.changes_panel.setVisible(False)
         self.personalization_btn.setVisible(not is_project)
         self.access_status_btn.setVisible(is_project)
+        self.project_lookup_btn.setVisible(is_project)
         self.access_status_btn.setText("Full access" if self.project_access == "full" else "Folder only")
         self.access_status_btn.setToolTip("Open Project access settings")
+        self.project_lookup_btn.setText("Online+local" if self.project_lookup_mode == "online" else "Local mode")
+        self.project_lookup_btn.setToolTip("Toggle Project mode web lookup. Online+local is recommended.")
+        self.model_name_input.setText(self.model_name)
         self.model_path_input.setText(self._model_display_text())
-        self.model_path_input.setToolTip(self.model_path or "Using bundled Hermes GGUF")
+        self.model_path_input.setToolTip(self.model_path or "Using bundled Hermes GGUF unless an Ollama name is set")
         for button, active in (
             (self.normal_mode_btn, not is_project),
             (self.project_mode_btn, is_project),
@@ -1767,7 +1969,10 @@ class MoriceWindow(QWidget):
             button.style().unpolish(button)
             button.style().polish(button)
         if not is_project:
-            self.mode_status.setText("Normal chat is for everyday questions, quick replies, and casual work.")
+            self.mode_status.setText(
+                "Normal chat is for everyday questions, quick replies, and casual work.\n"
+                + self._model_status_line()
+            )
             self._refresh_send_button_state()
             return
         folder_line = self.project_folder if self.project_folder else "Choose a work folder before real builds."
@@ -1776,7 +1981,14 @@ class MoriceWindow(QWidget):
             if self.project_access == "full"
             else "Limited: MORICE keeps project work inside the chosen folder."
         )
-        self.mode_status.setText(f"Project builder ready.\n{folder_line}\n{access_line}")
+        lookup_line = (
+            "Online+local: web lookup is available for current docs and examples."
+            if self.project_lookup_mode == "online"
+            else "Local mode: MORICE will use only the selected folder and local model."
+        )
+        self.mode_status.setText(
+            f"Project builder ready.\n{folder_line}\n{access_line}\n{lookup_line}\n{self._model_status_line()}"
+        )
         self._refresh_send_button_state()
 
     def _project_builder_system(self) -> str:
@@ -1798,19 +2010,256 @@ class MoriceWindow(QWidget):
                 "paths, commands, and file changes inside it. If the task needs anything outside that folder, ask "
                 "permission for that specific job only, then return the plan back to the folder."
             )
+        lookup = (
+            "Online+local mode is selected. Use the local project snapshot first, then use provided web context for "
+            "current APIs, package commands, and examples. If web context is missing or weak, say so briefly and use "
+            "stable local knowledge."
+            if self.project_lookup_mode == "online"
+            else "Local/offline mode is selected. Use the selected model, conversation, and project snapshot only. "
+            "Do not pretend to have current documentation; choose conservative, dependency-light code when unsure."
+        )
         return (
             "Project builder mode is on. Behave like a senior coding agent for apps, games, websites, scripts, APIs, "
             "desktop apps, and mobile app planning in any language or framework the user asks for. "
-            "Silently correct obvious typos and infer the user's intent from context, for example treating 'sory' as "
-            "'sorry' when the conversation makes that clear. "
+            "Silently correct obvious typos, short forms, and missing words from context, for example treating 'shrt "
+            "frm' as 'short form' and 'sory' as 'sorry' when the conversation makes that clear. "
             "When the user asks to build something, produce a complete, practical result: file tree, exact file names, "
             "code blocks for important files, install/run commands, verification steps, and the next action. "
             "Use clean architecture, readable names, validation, useful error handling, responsive UI guidance, and "
             "testing notes where appropriate. If information is missing, choose strong defaults and mention the "
             "assumption briefly instead of stopping.\n\n"
             f"Work folder: {folder}\n"
-            f"Access policy: {access}"
+            f"Access policy: {access}\n"
+            f"Lookup policy: {lookup}"
         )
+
+    def _is_project_build_request(self, text: str) -> bool:
+        if self.chat_mode != "project":
+            return False
+        lowered = " ".join((text or "").lower().split())
+        if not lowered:
+            return False
+        explanation_only = (
+            lowered.startswith("chat:")
+            or lowered.startswith("ask:")
+            or lowered.startswith("explain:")
+        )
+        if explanation_only:
+            return False
+        return any(
+            key in lowered
+            for key in {
+                "app",
+                "add",
+                "build",
+                "code",
+                "create",
+                "edit",
+                "file",
+                "fix",
+                "game",
+                "generate",
+                "implement",
+                "make",
+                "page",
+                "project",
+                "site",
+                "tool",
+                "update",
+                "website",
+            }
+        ) or len(lowered.split()) >= 3
+
+    def _project_snapshot(self) -> str:
+        if not self.project_folder or not os.path.isdir(self.project_folder):
+            return "Existing project snapshot: no files yet."
+
+        root = os.path.abspath(self.project_folder)
+        tree_lines: list[str] = []
+        content_blocks: list[str] = []
+        total_chars = 0
+        max_files = 120
+        max_chars = 70_000
+        scanned = 0
+
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = sorted(
+                name for name in dirnames if name not in PROJECT_IGNORED_DIRS and not name.startswith(".cache")
+            )
+            rel_dir = os.path.relpath(dirpath, root)
+            depth = 0 if rel_dir == "." else rel_dir.count(os.sep) + 1
+            if depth > 4:
+                dirnames[:] = []
+                continue
+            for filename in sorted(filenames):
+                if scanned >= max_files:
+                    break
+                full_path = os.path.join(dirpath, filename)
+                rel_path = os.path.relpath(full_path, root).replace("\\", "/")
+                try:
+                    size = os.path.getsize(full_path)
+                except OSError:
+                    continue
+                if size > 1_000_000:
+                    tree_lines.append(f"- {rel_path} ({size} bytes, skipped: large)")
+                    scanned += 1
+                    continue
+                tree_lines.append(f"- {rel_path} ({size} bytes)")
+                scanned += 1
+
+                ext = os.path.splitext(filename)[1].lower()
+                if ext not in PROJECT_TEXT_EXTENSIONS or total_chars >= max_chars:
+                    continue
+                try:
+                    with open(full_path, "r", encoding="utf-8", errors="replace") as handle:
+                        content = handle.read()
+                except OSError:
+                    continue
+                remaining = max_chars - total_chars
+                if len(content) > remaining:
+                    content = content[:remaining] + "\n...truncated..."
+                total_chars += len(content)
+                content_blocks.append(f"\n--- {rel_path} ---\n{content}")
+            if scanned >= max_files:
+                break
+
+        if not tree_lines:
+            return "Existing project snapshot: no files yet."
+        snapshot = "Existing project files:\n" + "\n".join(tree_lines)
+        if content_blocks:
+            snapshot += "\n\nReadable file contents:" + "".join(content_blocks)
+        return snapshot
+
+    def _project_manifest_instruction(self) -> str:
+        return (
+            "For this project request, do not give copy-paste instructions and do not ask the user to create files. "
+            "Return only valid JSON with this shape: "
+            '{"summary":"short result","files":[{"path":"relative/path.ext","content":"full file content"}],'
+            '"commands":["optional commands"],"notes":["optional notes"]}. '
+            "Every file path must be relative to the work folder. Include complete file contents, not snippets. "
+            "When editing an existing file, include the full updated file content. "
+            "Do not wrap the JSON in markdown. Do not include explanations outside the JSON."
+        )
+
+    def _extract_project_manifest(self, reply: str) -> dict | None:
+        text = (reply or "").strip()
+        if not text:
+            return None
+        fence_match = re.search(r"```(?:json)?\s*(\{.*\})\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+        candidates = []
+        if fence_match:
+            candidates.append(fence_match.group(1))
+        start = text.find("{")
+        end = text.rfind("}")
+        if start >= 0 and end > start:
+            candidates.append(text[start : end + 1])
+        candidates.append(text)
+        for candidate in candidates:
+            try:
+                manifest = json.loads(candidate)
+            except Exception:
+                continue
+            if isinstance(manifest, dict) and isinstance(manifest.get("files"), list):
+                return manifest
+        return None
+
+    def _project_target_path(self, relative_path: str) -> str:
+        rel = (relative_path or "").replace("\\", "/").strip().lstrip("/")
+        if not rel or rel.endswith("/"):
+            raise ValueError("Invalid project file path.")
+        root = os.path.abspath(self.project_folder)
+        target = os.path.abspath(os.path.join(root, *rel.split("/")))
+        if os.path.commonpath([root, target]) != root:
+            raise ValueError(f"Blocked unsafe path outside project folder: {relative_path}")
+        return target
+
+    def _diff_html(self, path: str, old: str, new: str) -> str:
+        lines = difflib.unified_diff(
+            old.splitlines(),
+            new.splitlines(),
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
+            lineterm="",
+        )
+        rendered = [f"<div style='color:#f4f4f4;font-weight:800;margin:8px 0'>{html.escape(path)}</div>"]
+        for line in lines:
+            escaped = html.escape(line)
+            if line.startswith("+") and not line.startswith("+++"):
+                color = "#8ff0a4"
+            elif line.startswith("-") and not line.startswith("---"):
+                color = "#ff8b8b"
+            elif line.startswith("@@"):
+                color = "#9cc8ff"
+            else:
+                color = "rgba(235,235,235,0.72)"
+            rendered.append(f"<div style='white-space:pre;color:{color}'>{escaped}</div>")
+        return "".join(rendered)
+
+    def _apply_project_manifest(self, reply: str) -> dict | None:
+        manifest = self._extract_project_manifest(reply)
+        if not manifest:
+            return None
+        files = manifest.get("files") or []
+        if not self.project_folder:
+            raise ValueError("No work folder selected.")
+        os.makedirs(self.project_folder, exist_ok=True)
+
+        changed = []
+        diff_parts = []
+        for item in files[:80]:
+            if not isinstance(item, dict):
+                continue
+            relative_path = str(item.get("path") or "").strip()
+            content = item.get("content")
+            if not relative_path or not isinstance(content, str):
+                continue
+            if len(content) > 2_000_000:
+                raise ValueError(f"Refused very large generated file: {relative_path}")
+            target = self._project_target_path(relative_path)
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            old = ""
+            if os.path.exists(target):
+                with open(target, "r", encoding="utf-8", errors="replace") as handle:
+                    old = handle.read()
+            if old == content:
+                continue
+            with open(target, "w", encoding="utf-8", newline="") as handle:
+                handle.write(content)
+            changed.append(relative_path)
+            diff_parts.append(self._diff_html(relative_path, old, content))
+
+        summary = str(manifest.get("summary") or "").strip() or f"Updated {len(changed)} file(s)."
+        if not changed:
+            summary = summary + " No file content changed."
+        panel_html = "<div style='font-family:Consolas,monospace;font-size:11px'>" + "".join(diff_parts) + "</div>"
+        commands = [
+            str(command).strip()
+            for command in (manifest.get("commands") or [])[:6]
+            if str(command).strip()
+        ]
+        notes = [
+            str(note).strip()
+            for note in (manifest.get("notes") or [])[:4]
+            if str(note).strip()
+        ]
+        message = (
+            f"{summary}\n\n"
+            f"Work folder: {self.project_folder}\n"
+            f"Changed files: {', '.join(changed) if changed else 'none'}"
+        )
+        if commands:
+            message += "\n\nSuggested run commands:\n" + "\n".join(f"- {command}" for command in commands)
+        if notes:
+            message += "\n\nNotes:\n" + "\n".join(f"- {note}" for note in notes)
+        return {"summary": summary, "message": message, "diff_html": panel_html, "changed": changed}
+
+    def _on_project_changes_ready(self, summary: str, diff_html: str):
+        self.changes_summary.setText(summary or "Project files updated.")
+        self.changes_view.setHtml(
+            diff_html
+            or "<span style='color:rgba(255,255,255,0.64)'>No visible file diff for this action.</span>"
+        )
+        self.changes_panel.setVisible(self.chat_mode == "project")
 
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
         should_follow = self.follow_latest or self._is_at_bottom()
@@ -1852,13 +2301,16 @@ class MoriceWindow(QWidget):
         self.clear_style_btn.setEnabled(not is_busy)
         self.normal_mode_btn.setEnabled(not is_busy)
         self.project_mode_btn.setEnabled(not is_busy)
+        self.model_name_input.setEnabled(not is_busy)
         self.model_path_input.setEnabled(not is_busy)
         self.change_model_btn.setEnabled(not is_busy)
+        self.clear_model_btn.setEnabled(not is_busy)
         self.project_folder_input.setEnabled(not is_busy)
         self.project_add_btn.setEnabled(not is_busy)
         self.folder_access_btn.setEnabled(not is_busy)
         self.full_access_btn.setEnabled(not is_busy)
         self.access_status_btn.setEnabled(not is_busy)
+        self.project_lookup_btn.setEnabled(not is_busy)
         self._refresh_send_button_state()
         if not is_busy:
             self.input.setFocus()
@@ -2037,12 +2489,14 @@ class MoriceWindow(QWidget):
             self.current_style_value,
             self.personalization_btn,
             self.access_status_btn,
+            self.project_lookup_btn,
             self.title_bar,
             self.title_bar.sidebar_btn,
             self.chat_container,
             self.input_frame,
             self.sidebar,
             self.mode_panel,
+            self.changes_panel,
             self.precision_btn,
             self.save_style_btn,
             self.send_btn,
@@ -2061,6 +2515,7 @@ class MoriceWindow(QWidget):
             self.precision_btn,
             self.personalization_btn,
             self.access_status_btn,
+            self.project_lookup_btn,
             self.send_btn,
         )
 
@@ -2459,7 +2914,20 @@ class MoriceWindow(QWidget):
             self.append_message(MORICE_NAME, self._address(summary))
             return
 
-        if wants_web_capability(user_input) and not extract_web_query(user_input):
+        project_build_request = self._is_project_build_request(user_input)
+        if project_build_request and not self.project_folder:
+            self.append_message(
+                MORICE_NAME,
+                self._address("Choose a work folder with the + button first, then I can create and edit the project files there."),
+            )
+            return
+
+        project_online_lookup = project_build_request and self.project_lookup_mode == "online"
+        if (
+            wants_web_capability(user_input)
+            and not extract_web_query(user_input)
+            and not project_online_lookup
+        ):
             self.append_message(
                 MORICE_NAME,
                 self._address("Offline mode is active. Start the message with @web <query> when you want web search."),
@@ -2474,7 +2942,15 @@ class MoriceWindow(QWidget):
         self.thinking_update.emit(
             "Using @web, collecting search results, then asking the Hermes engine."
             if web_query_for_status
-            else "Full offline mode: asking the local Hermes engine only."
+            else (
+                "Online+local Project mode: collecting web context, then building files."
+                if project_online_lookup
+                else (
+                    "Local Project mode: using the selected folder and local model to build files."
+                    if project_build_request
+                    else "Full offline mode: asking the local Hermes engine only."
+                )
+            )
         )
 
         def worker():
@@ -2483,9 +2959,14 @@ class MoriceWindow(QWidget):
                 context = retrieve_context(user_input) if should_use_context(user_input) else ""
                 web_context = ""
                 web_query = extract_web_query(user_input)
-                if os.getenv("MORICE_WEB", "1") == "1" and web_query:
-                    self.thinking_update.emit("Searching the web because the message used @web.")
-                    web_context = search_web(web_query)
+                auto_project_web = project_build_request and self.project_lookup_mode == "online"
+                if os.getenv("MORICE_WEB", "1") == "1" and (web_query or auto_project_web):
+                    search_query = web_query or user_input
+                    if web_query:
+                        self.thinking_update.emit("Searching the web because the message used @web.")
+                    else:
+                        self.thinking_update.emit("Online+local mode: searching the web for useful project context.")
+                    web_context = search_web(search_query)
                     if not web_context:
                         web_context = "Web lookup returned no results."
 
@@ -2496,6 +2977,10 @@ class MoriceWindow(QWidget):
                 if self.chat_mode == "project":
                     self.thinking_update.emit("Project builder mode: applying workspace, access, and coding rules.")
                     extra_system += "\n\n" + self._project_builder_system()
+                    if project_build_request:
+                        self.thinking_update.emit("Reading the work folder so edits can be applied directly.")
+                        extra_system += "\n\n" + self._project_snapshot()
+                        extra_system += "\n\n" + self._project_manifest_instruction()
                 response_style = self.response_style.strip()
                 if response_style:
                     extra_system += (
@@ -2531,19 +3016,66 @@ class MoriceWindow(QWidget):
                         "Web results (may be incomplete):\n" + web_context
                     )
 
-                self.thinking_update.emit("Asking Hermes to compose the final answer.")
+                self.thinking_update.emit(
+                    "Asking Hermes for project files."
+                    if project_build_request
+                    else "Asking Hermes to compose the final answer."
+                )
                 reply = chat(
                     self.history,
                     user_input,
                     extra_system=extra_system,
+                    model=self.model_name or None,
                     timeout=180,
                     precision_mode=self.precision_mode,
                     math_steps_mode=self.math_steps_mode or wants_steps_detail(user_input),
                     gguf_path=self.model_path,
                 )
+                visible_reply = reply
+                if project_build_request:
+                    project_result = None
+                    apply_error = ""
+                    self.thinking_update.emit("Applying generated files to the selected work folder.")
+                    try:
+                        project_result = self._apply_project_manifest(reply)
+                    except Exception as exc:  # noqa: BLE001
+                        apply_error = str(exc)
+
+                    if not project_result:
+                        self.thinking_update.emit("Converting the model output into a safe file manifest.")
+                        repair_prompt = (
+                            "Turn this project request into the required JSON file manifest only. "
+                            "Include complete file contents and relative paths.\n\n"
+                            f"User request:\n{user_input}\n\n"
+                            f"Previous model output:\n{reply}"
+                        )
+                        try:
+                            repair_reply = chat(
+                                [],
+                                repair_prompt,
+                                extra_system=extra_system + "\n\n" + self._project_manifest_instruction(),
+                                model=self.model_name or None,
+                                timeout=180,
+                                precision_mode=True,
+                                math_steps_mode=False,
+                                gguf_path=self.model_path,
+                            )
+                            project_result = self._apply_project_manifest(repair_reply)
+                        except Exception as exc:  # noqa: BLE001
+                            apply_error = str(exc)
+
+                    if project_result:
+                        visible_reply = project_result["message"]
+                        self.project_changes_ready.emit(project_result["summary"], project_result["diff_html"])
+                    else:
+                        detail = f" Error: {apply_error}" if apply_error else ""
+                        visible_reply = (
+                            "I could not safely turn that request into project files yet."
+                            f"{detail}\n\nChoose a work folder and try again with a direct build request."
+                        )
                 self.history.append({"role": "user", "content": user_input})
-                self.history.append({"role": "assistant", "content": reply})
-                self.message_ready.emit(MORICE_NAME, self._address(shorten_reply(reply)), False)
+                self.history.append({"role": "assistant", "content": visible_reply})
+                self.message_ready.emit(MORICE_NAME, self._address(shorten_reply(visible_reply)), False)
             except Exception as exc:  # noqa: BLE001
                 self.message_ready.emit(MORICE_NAME, self._address(f"I hit an app error: {exc}"), False)
 
