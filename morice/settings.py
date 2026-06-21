@@ -12,6 +12,8 @@ DEFAULT_SETTINGS = {
     "project_lookup_mode": "online",
     "model_path": "",
     "model_name": "",
+    "gpu_name": "",
+    "gpu_vram_mb": "",
 }
 
 
@@ -69,6 +71,25 @@ def normalize_model_name(value: str) -> str:
     return text[:160]
 
 
+def normalize_gpu_name(value: str) -> str:
+    text = " ".join((value or "").strip().split())
+    text = "".join(ch for ch in text if ch not in "\r\n\t")
+    return text[:160]
+
+
+def normalize_gpu_vram_mb(value: str) -> str:
+    text = str(value or "").strip().replace(",", "")
+    if not text:
+        return DEFAULT_SETTINGS["gpu_vram_mb"]
+    try:
+        amount = int(float(text))
+    except ValueError:
+        return DEFAULT_SETTINGS["gpu_vram_mb"]
+    if amount <= 0:
+        return DEFAULT_SETTINGS["gpu_vram_mb"]
+    return str(min(amount, 1024 * 1024))
+
+
 def _settings_dir() -> str:
     base = os.getenv("APPDATA", "").strip()
     if base:
@@ -108,6 +129,8 @@ def load_settings() -> dict:
     settings["project_lookup_mode"] = normalize_project_lookup_mode(settings.get("project_lookup_mode", ""))
     settings["model_path"] = normalize_model_path(settings.get("model_path", ""))
     settings["model_name"] = normalize_model_name(settings.get("model_name", ""))
+    settings["gpu_name"] = normalize_gpu_name(settings.get("gpu_name", ""))
+    settings["gpu_vram_mb"] = normalize_gpu_vram_mb(settings.get("gpu_vram_mb", ""))
     return settings
 
 
@@ -123,5 +146,7 @@ def save_settings(settings: dict) -> None:
     clean["project_lookup_mode"] = normalize_project_lookup_mode(settings.get("project_lookup_mode", ""))
     clean["model_path"] = normalize_model_path(settings.get("model_path", ""))
     clean["model_name"] = normalize_model_name(settings.get("model_name", ""))
+    clean["gpu_name"] = normalize_gpu_name(settings.get("gpu_name", ""))
+    clean["gpu_vram_mb"] = normalize_gpu_vram_mb(settings.get("gpu_vram_mb", ""))
     with open(settings_path(), "w", encoding="utf-8") as handle:
         json.dump(clean, handle, indent=2)

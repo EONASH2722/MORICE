@@ -139,7 +139,14 @@ def _clean_user_title(user_title: str | None = None) -> str:
 def wake_up_response(text: str, wake_phrase: str | None = None, user_title: str | None = None) -> str | None:
     cleaned = _command_text(text)
     configured = _command_text(wake_phrase or "")
-    wake_phrases = {"wake up son", "wake up boy"}
+    wake_phrases = {
+        "wake up son",
+        "wake up boy",
+        "morice",
+        "hey morice",
+        "wake morice",
+        "morice wake up",
+    }
     if configured:
         wake_phrases.add(configured)
     if _matches_command(cleaned, wake_phrases, threshold=0.84):

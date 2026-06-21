@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">MORICE workflow chain</title>
+  <desc id="desc">A dark galaxy diagram showing how Project mode, web lookup, notes lookup, and the model browser feed the MORICE local assistant pipeline.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#050814"/>
+      <stop offset="44%" stop-color="#141027"/>
+      <stop offset="72%" stop-color="#062637"/>
+      <stop offset="100%" stop-color="#050711"/>
+    </linearGradient>
+    <linearGradient id="liquid" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6f4dff"/>
+      <stop offset="52%" stop-color="#3bbbd2"/>
+      <stop offset="100%" stop-color="#76f0a4"/>
+    </linearGradient>
+    <linearGradient id="project" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5431c7"/>
+      <stop offset="100%" stop-color="#2b9ac0"/>
+    </linearGradient>
+    <linearGradient id="web" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#255fdb"/>
+      <stop offset="100%" stop-color="#1bc3a8"/>
+    </linearGradient>
+    <linearGradient id="notes" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2d8f67"/>
+      <stop offset="100%" stop-color="#9ce66d"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.45 0 0 0 0 0.78 0 0 0 0 1 0 0 0 0.75 0"/>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#9bdcff"/>
+    </marker>
+    <style>
+      .label { font-family: Segoe UI, Inter, Arial, sans-serif; fill: #f5f7ff; font-size: 24px; font-weight: 800; }
+      .small { font-family: Segoe UI, Inter, Arial, sans-serif; fill: #cbd5e1; font-size: 16px; }
+      .tiny { font-family: Segoe UI, Inter, Arial, sans-serif; fill: #d9f7ff; font-size: 14px; }
+      .box { stroke: rgba(180,220,255,0.42); stroke-width: 1.5; rx: 22; filter: url(#glow); }
+      .line { fill: none; stroke: #9bdcff; stroke-width: 3; marker-end: url(#arrow); opacity: 0.86; }
+      .soft { fill: rgba(255,255,255,0.06); stroke: rgba(255,255,255,0.16); stroke-width: 1.2; rx: 18; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="720" fill="url(#bg)"/>
+
+  <g opacity="0.8">
+    <circle cx="103" cy="84" r="2.2" fill="#e8fbff"/>
+    <circle cx="206" cy="128" r="1.7" fill="#c9f0ff"/>
+    <circle cx="340" cy="62" r="2.5" fill="#ffffff"/>
+    <circle cx="480" cy="154" r="1.6" fill="#a7e7ff"/>
+    <circle cx="618" cy="82" r="2.4" fill="#ffffff"/>
+    <circle cx="794" cy="122" r="1.8" fill="#cceaff"/>
+    <circle cx="936" cy="70" r="2.1" fill="#ffffff"/>
+    <circle cx="1102" cy="142" r="1.8" fill="#c5f4ff"/>
+    <circle cx="1198" cy="82" r="2.5" fill="#ffffff"/>
+    <circle cx="166" cy="610" r="1.8" fill="#c5f4ff"/>
+    <circle cx="372" cy="652" r="2.3" fill="#ffffff"/>
+    <circle cx="760" cy="610" r="1.8" fill="#b2f7ff"/>
+    <circle cx="1080" cy="640" r="2.1" fill="#ffffff"/>
+  </g>
+
+  <path d="M0 600 C170 540 260 650 420 590 S700 530 840 600 S1080 675 1280 590 L1280 720 L0 720 Z" fill="url(#liquid)" opacity="0.18"/>
+
+  <text x="64" y="64" class="label">MORICE workflow chain</text>
+  <text x="64" y="92" class="small">One prompt enters the assistant, then MORICE routes it to the right context source before replying or writing files.</text>
+
+  <rect x="66" y="164" width="210" height="84" class="box" fill="rgba(8,14,30,0.9)"/>
+  <text x="92" y="198" class="label" font-size="22">User prompt</text>
+  <text x="92" y="224" class="small">Chat, Project, @web, @notes</text>
+
+  <line x1="276" y1="206" x2="376" y2="206" class="line"/>
+
+  <rect x="384" y="150" width="240" height="112" class="box" fill="rgba(18,22,42,0.92)"/>
+  <text x="416" y="188" class="label" font-size="22">Intent router</text>
+  <text x="416" y="216" class="small">Wake state, mode, command</text>
+  <text x="416" y="239" class="small">and selected model settings</text>
+
+  <line x1="624" y1="206" x2="724" y2="206" class="line"/>
+
+  <rect x="738" y="151" width="238" height="112" class="box" fill="rgba(8,18,28,0.92)"/>
+  <text x="770" y="188" class="label" font-size="22">Local model</text>
+  <text x="770" y="216" class="small">GGUF, selected file, or Ollama</text>
+  <text x="770" y="239" class="small">with style and memory context</text>
+
+  <line x1="976" y1="206" x2="1080" y2="206" class="line"/>
+
+  <rect x="1094" y="164" width="128" height="84" class="box" fill="rgba(10,25,24,0.92)"/>
+  <text x="1124" y="198" class="label" font-size="22">Reply</text>
+  <text x="1124" y="224" class="small">or file diff</text>
+
+  <path d="M504 262 C504 312 214 300 214 350" class="line"/>
+  <rect x="74" y="350" width="280" height="150" class="box" fill="url(#project)" opacity="0.94"/>
+  <text x="104" y="386" class="label" font-size="22">Project mode</text>
+  <text x="104" y="416" class="small">Folder snapshot</text>
+  <text x="104" y="441" class="small">Optional Online+local web context</text>
+  <text x="104" y="466" class="small">JSON file manifest</text>
+  <text x="104" y="491" class="small">Safe writes plus diff panel</text>
+
+  <path d="M504 262 C504 318 504 316 504 350" class="line"/>
+  <rect x="382" y="350" width="244" height="150" class="box" fill="url(#web)" opacity="0.94"/>
+  <text x="412" y="386" class="label" font-size="22">@web mode</text>
+  <text x="412" y="416" class="small">Search current web</text>
+  <text x="412" y="441" class="small">Summarize sources</text>
+  <text x="412" y="466" class="small">Send compact context</text>
+  <text x="412" y="491" class="small">Answer with URLs</text>
+
+  <path d="M504 262 C504 312 800 300 800 350" class="line"/>
+  <rect x="664" y="350" width="272" height="150" class="box" fill="url(#notes)" opacity="0.94"/>
+  <text x="694" y="386" class="label" font-size="22">@notes mode</text>
+  <text x="694" y="416" class="small">Search local knowledge folder</text>
+  <text x="694" y="441" class="small">Select relevant snippets</text>
+  <text x="694" y="466" class="small">Keep private context local</text>
+  <text x="694" y="491" class="small">Ground the final answer</text>
+
+  <path d="M856 263 C856 316 1088 312 1088 350" class="line"/>
+  <rect x="974" y="350" width="244" height="150" class="box" fill="rgba(18,26,50,0.94)"/>
+  <text x="1004" y="386" class="label" font-size="22">Model browser</text>
+  <text x="1004" y="416" class="small">Detect GPU and VRAM</text>
+  <text x="1004" y="441" class="small">Search trusted sources</text>
+  <text x="1004" y="466" class="small">Show speciality and license</text>
+  <text x="1004" y="491" class="small">Install verified GGUF</text>
+
+  <rect x="356" y="562" width="568" height="72" class="soft"/>
+  <text x="392" y="594" class="label" font-size="20">Design rule</text>
+  <text x="392" y="618" class="small">MORICE keeps normal chat local by default, then adds web, notes, or project context only when the user asks for it.</text>
+</svg>

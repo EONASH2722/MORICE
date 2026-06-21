@@ -37,6 +37,19 @@ def _is_server_ready(base_url: str) -> bool:
         return False
 
 
+def stop_server() -> None:
+    global _SERVER_PROCESS, _SERVER_MODEL_PATH
+    if _SERVER_PROCESS and _SERVER_PROCESS.poll() is None:
+        _SERVER_PROCESS.terminate()
+        try:
+            _SERVER_PROCESS.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            _SERVER_PROCESS.kill()
+            _SERVER_PROCESS.wait(timeout=8)
+    _SERVER_PROCESS = None
+    _SERVER_MODEL_PATH = ""
+
+
 def ensure_server(model_path: str, n_ctx: int, n_gpu_layers: int, n_threads: int, n_batch: int) -> str:
     global _SERVER_PROCESS, _SERVER_MODEL_PATH
 
@@ -46,14 +59,7 @@ def ensure_server(model_path: str, n_ctx: int, n_gpu_layers: int, n_threads: int
         return base_url
 
     if _SERVER_PROCESS and _SERVER_PROCESS.poll() is None and _SERVER_MODEL_PATH != model_path:
-        _SERVER_PROCESS.terminate()
-        try:
-            _SERVER_PROCESS.wait(timeout=8)
-        except subprocess.TimeoutExpired:
-            _SERVER_PROCESS.kill()
-            _SERVER_PROCESS.wait(timeout=8)
-        _SERVER_PROCESS = None
-        _SERVER_MODEL_PATH = ""
+        stop_server()
 
     server_exe = _server_path()
     if not server_exe:

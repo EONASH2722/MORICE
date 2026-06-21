@@ -19,6 +19,10 @@ def _is_oom_error(exc: Exception) -> bool:
 _LLM_CACHE = {}
 
 
+def clear_cache() -> None:
+    _LLM_CACHE.clear()
+
+
 def _get_llm(
     model_path: str,
     n_ctx: int,

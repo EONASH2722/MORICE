@@ -24,6 +24,21 @@ DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "900"))
 _OLLAMA_PROCESS = None
 
 
+def reset_model_runtime() -> None:
+    try:
+        from .llama_server import stop_server
+
+        stop_server()
+    except Exception:
+        pass
+    try:
+        from .local_llama import clear_cache
+
+        clear_cache()
+    except Exception:
+        pass
+
+
 def _asset_path(*parts: str) -> str:
     return os.path.join(os.path.dirname(__file__), "assets", *parts)
 

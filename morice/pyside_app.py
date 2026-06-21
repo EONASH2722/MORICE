@@ -7,12 +7,14 @@ import json
 import math
 import re
 import difflib
+import time
 from ctypes import wintypes
 
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QTimer, Signal, QEvent
+from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QSize, QTimer, Signal, QEvent
 from PySide6.QtGui import (
     QFont,
     QFontDatabase,
+    QBrush,
     QColor,
     QIcon,
     QCursor,
@@ -20,9 +22,11 @@ from PySide6.QtGui import (
     QPen,
     QPainterPath,
     QLinearGradient,
+    QRadialGradient,
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -35,6 +39,8 @@ from PySide6.QtWidgets import (
     QGraphicsDropShadowEffect,
     QFileDialog,
     QListWidget,
+    QListWidgetItem,
+    QProgressBar,
     QSizePolicy,
     QTextEdit,
 )
@@ -79,6 +85,24 @@ from .core import (
 )
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload, search_notes
 from .llm_client import chat
+from .llm_client import reset_model_runtime
+from .model_catalog import (
+    GpuProfile,
+    default_model_download_dir,
+    detect_gpu_profile,
+    download_model_result,
+    format_size,
+    gpu_profile_from_values,
+    gpu_profile_summary,
+    local_model_result,
+    model_run_plan,
+    model_worth,
+    model_compatibility,
+    search_huggingface_gguf,
+    verify_ai_model_file,
+)
+from .project_builder import build_project_fallback_manifest
+from .science_engine import GraphArtifact, PhysicsArtifact, ScienceArtifact, build_science_artifact, is_science_request
 from .settings import (
     DEFAULT_SETTINGS,
     load_settings,
@@ -88,6 +112,8 @@ from .settings import (
     normalize_project_access,
     normalize_project_folder,
     normalize_project_lookup_mode,
+    normalize_gpu_name,
+    normalize_gpu_vram_mb,
     normalize_user_title,
     normalize_wake_phrase,
     normalize_response_style,
@@ -96,19 +122,6 @@ from .settings import (
 )
 from .web_search import search_web
 from .vision import describe_image
-
-
-MODEL_EXTENSIONS = {
-    ".gguf",
-    ".ggml",
-    ".bin",
-    ".safetensors",
-    ".onnx",
-    ".pt",
-    ".pth",
-    ".ckpt",
-    ".model",
-}
 
 PROJECT_TEXT_EXTENSIONS = {
     ".bat",
@@ -226,6 +239,864 @@ def _load_ui_fonts():
     if loaded_family:
         app.setFont(QFont(loaded_family, 10))
     _UI_FONTS_LOADED = True
+
+
+class ModelSourceDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.choice = ""
+        self.setWindowTitle("Change MORICE model")
+        self.setModal(True)
+        self.setMinimumWidth(360)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("Choose model source")
+        title.setObjectName("ModelDialogTitle")
+
+        file_btn = QPushButton("Files from PC")
+        file_btn.setObjectName("ModelChoiceButton")
+        file_btn.clicked.connect(lambda: self._choose("files"))
+
+        web_btn = QPushButton("Trusted web browser")
+        web_btn.setObjectName("ModelChoiceButton")
+        web_btn.clicked.connect(lambda: self._choose("web"))
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("ModelCancelButton")
+        cancel_btn.clicked.connect(self.reject)
+
+        layout.addWidget(title)
+        layout.addWidget(file_btn)
+        layout.addWidget(web_btn)
+        layout.addWidget(cancel_btn)
+        self.setStyleSheet(
+            """
+            QDialog {
+                background: #111018;
+                color: #f4f0ff;
+                font-family: "Segoe UI";
+            }
+            #ModelDialogTitle {
+                font-size: 18px;
+                font-weight: 800;
+            }
+            #ModelChoiceButton {
+                background: rgba(92,58,154,0.9);
+                color: #fff;
+                border-radius: 10px;
+                padding: 11px 14px;
+                border: 1px solid rgba(205,170,255,0.45);
+                font-weight: 800;
+            }
+            #ModelChoiceButton:hover {
+                background: rgba(118,72,220,0.96);
+            }
+            #ModelCancelButton {
+                background: rgba(62,62,72,0.8);
+                color: rgba(255,255,255,0.86);
+                border-radius: 10px;
+                padding: 9px 12px;
+                border: 1px solid rgba(255,255,255,0.12);
+            }
+            """
+        )
+
+    def _choose(self, choice: str):
+        self.choice = choice
+        self.accept()
+
+
+class LiquidGalaxyFrame(QFrame):
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("ModelGalaxySurface")
+        self.setMouseTracking(True)
+        self._phase = 0.0
+        self._cursor = QPoint(-900, -900)
+        self._cursor_active = False
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._advance)
+        self._timer.start(32)
+
+    def watch(self, root: QWidget):
+        for widget in [root, *root.findChildren(QWidget)]:
+            widget.setMouseTracking(True)
+            widget.installEventFilter(self)
+
+    def _advance(self):
+        self._phase = (self._phase + 0.045) % (math.pi * 2)
+        self.update()
+
+    def eventFilter(self, source, event):
+        if event.type() == QEvent.MouseMove and isinstance(source, QWidget):
+            try:
+                pos = event.position().toPoint()
+            except AttributeError:
+                pos = event.pos()
+            self._cursor = source.mapTo(self, pos)
+            self._cursor_active = True
+            self.update()
+        elif event.type() == QEvent.Leave and source is self:
+            self._cursor_active = False
+            self.update()
+        return super().eventFilter(source, event)
+
+    def leaveEvent(self, event):
+        self._cursor_active = False
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        width = max(1, rect.width())
+        height = max(1, rect.height())
+
+        base = QLinearGradient(rect.topLeft(), rect.bottomRight())
+        base.setColorAt(0.0, QColor(5, 7, 18, 255))
+        base.setColorAt(0.42, QColor(18, 12, 35, 255))
+        base.setColorAt(0.72, QColor(5, 25, 35, 255))
+        base.setColorAt(1.0, QColor(4, 7, 13, 255))
+        painter.fillRect(rect, QBrush(base))
+
+        painter.setPen(Qt.NoPen)
+        for i in range(72):
+            x = int((i * 97 + math.sin(self._phase + i) * 16) % (width + 28)) - 14
+            y = int((i * i * 31 + math.cos(self._phase * 0.7 + i * 0.4) * 10) % (height + 24)) - 12
+            pulse = 0.55 + 0.45 * math.sin(self._phase * 1.8 + i * 0.73)
+            alpha = int(28 + 95 * pulse)
+            size = 1 + (i % 3)
+            painter.setBrush(QColor(160, 210, 255, alpha))
+            painter.drawEllipse(x, y, size, size)
+
+        if self._cursor_active:
+            glow_radius = max(width, height) * 0.46
+            glow = QRadialGradient(self._cursor, glow_radius)
+            glow.setColorAt(0.0, QColor(142, 86, 255, 92))
+            glow.setColorAt(0.32, QColor(72, 190, 220, 48))
+            glow.setColorAt(1.0, QColor(0, 0, 0, 0))
+            painter.fillRect(rect, QBrush(glow))
+
+        wave = QPainterPath()
+        wave.moveTo(0, height)
+        wave_top = height * 0.74
+        step = max(8, width // 42)
+        for x in range(-step, width + step * 2, step):
+            y = wave_top
+            y += math.sin((x * 0.018) + self._phase * 2.4) * 16
+            y += math.sin((x * 0.045) - self._phase * 1.8) * 7
+            wave.lineTo(x, y)
+        wave.lineTo(width, height)
+        wave.closeSubpath()
+
+        liquid = QLinearGradient(0, int(wave_top), width, height)
+        liquid.setColorAt(0.0, QColor(68, 38, 140, 92))
+        liquid.setColorAt(0.48, QColor(104, 64, 210, 120))
+        liquid.setColorAt(1.0, QColor(36, 178, 196, 84))
+        painter.fillPath(wave, QBrush(liquid))
+
+
+class ModelWebBrowserDialog(QDialog):
+    search_finished = Signal(object, str)
+    download_progress = Signal(int, str)
+    download_finished = Signal(str, str)
+    gpu_detected = Signal(object)
+
+    def __init__(self, parent=None, gpu_profile: GpuProfile | None = None):
+        super().__init__(parent)
+        self.selected_path = ""
+        self.gpu_profile = gpu_profile or gpu_profile_from_values()
+        self._busy = False
+        self._auto_search_started = False
+        self._gpu_detection_busy = False
+        self.setWindowTitle("MORICE trusted model browser")
+        self.setModal(True)
+        self.resize(1040, 760)
+        self.setMinimumSize(920, 660)
+
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
+
+        self.galaxy_surface = LiquidGalaxyFrame()
+        root_layout.addWidget(self.galaxy_surface)
+
+        layout = QVBoxLayout(self.galaxy_surface)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("Trusted model browser")
+        title.setObjectName("ModelDialogTitle")
+
+        source = QLabel(
+            "Trusted lanes only: Hugging Face GGUF files, verified download URLs, and official/source links."
+        )
+        source.setObjectName("ModelDialogSource")
+        source.setWordWrap(True)
+
+        self.gpu_chip = QLabel(gpu_profile_summary(self.gpu_profile))
+        self.gpu_chip.setObjectName("ModelGpuChip")
+        self.gpu_chip.setWordWrap(True)
+
+        self.browser_map = QLabel(
+            "Search or use a lane below. MORICE shows what the model is best for, whether it is worth using, "
+            "and whether your detected GPU/VRAM can run it smoothly before install."
+        )
+        self.browser_map.setObjectName("ModelBrowserMap")
+        self.browser_map.setWordWrap(True)
+
+        gpu_row = QHBoxLayout()
+        gpu_row.setContentsMargins(0, 0, 0, 0)
+        gpu_row.setSpacing(8)
+
+        self.dialog_detect_gpu_btn = QPushButton("Detect GPU")
+        self.dialog_detect_gpu_btn.setObjectName("ModelSecondaryButton")
+        self.dialog_detect_gpu_btn.clicked.connect(lambda _checked=False: self._detect_gpu_profile(auto=False))
+
+        gpu_row.addWidget(self.gpu_chip, stretch=1)
+        gpu_row.addWidget(self.dialog_detect_gpu_btn)
+
+        search_row = QHBoxLayout()
+        search_row.setContentsMargins(0, 0, 0, 0)
+        search_row.setSpacing(8)
+
+        self.search_input = QLineEdit()
+        self.search_input.setObjectName("ModelSearchInput")
+        self.search_input.setPlaceholderText("Search model, e.g. hermes 3 8b")
+        self.search_input.returnPressed.connect(self._start_search)
+
+        self.search_btn = QPushButton("Search")
+        self.search_btn.setObjectName("ModelPrimaryButton")
+        self.search_btn.clicked.connect(self._start_search)
+
+        search_row.addWidget(self.search_input, stretch=1)
+        search_row.addWidget(self.search_btn)
+
+        quick_row = QHBoxLayout()
+        quick_row.setContentsMargins(0, 0, 0, 0)
+        quick_row.setSpacing(8)
+        self.quick_buttons = []
+        for label, query in (
+            ("Best fit", ""),
+            ("Hermes 8B", "hermes 3 8b"),
+            ("Qwen coder", "qwen2.5 coder 7b"),
+            ("Mistral", "mistral 7b instruct"),
+            ("Gemma", "gemma 3 4b"),
+            ("Phi mini", "phi 4 mini"),
+        ):
+            button = QPushButton(label)
+            button.setObjectName("ModelLaneButton")
+            button.clicked.connect(lambda _checked=False, value=query: self._quick_search(value))
+            quick_row.addWidget(button)
+            self.quick_buttons.append(button)
+
+        self.results = QListWidget()
+        self.results.setObjectName("ModelResultList")
+        self.results.setSpacing(8)
+        self.results.setWordWrap(True)
+        self.results.setMinimumHeight(260)
+        self.results.itemSelectionChanged.connect(self._refresh_install_state)
+
+        self.status = QLabel("Search trusted model sources and choose a GGUF model file.")
+        self.status.setObjectName("ModelStatus")
+        self.status.setWordWrap(True)
+
+        self.compatibility_card = QFrame()
+        self.compatibility_card.setObjectName("CompatibilityCard")
+        compatibility_layout = QHBoxLayout(self.compatibility_card)
+        compatibility_layout.setContentsMargins(10, 10, 10, 10)
+        compatibility_layout.setSpacing(10)
+
+        self.compatibility_dot = QFrame()
+        self.compatibility_dot.setObjectName("CompatibilityDot")
+        self.compatibility_dot.setFixedSize(16, 16)
+
+        compatibility_text = QVBoxLayout()
+        compatibility_text.setContentsMargins(0, 0, 0, 0)
+        compatibility_text.setSpacing(3)
+
+        self.compatibility_title = QLabel("Compatibility: choose a model")
+        self.compatibility_title.setObjectName("CompatibilityTitle")
+
+        self.compatibility_detail = QLabel(
+            "Red means very low, yellow medium, green good, and dark green excellent."
+        )
+        self.compatibility_detail.setObjectName("CompatibilityDetail")
+        self.compatibility_detail.setWordWrap(True)
+
+        compatibility_text.addWidget(self.compatibility_title)
+        compatibility_text.addWidget(self.compatibility_detail)
+        compatibility_layout.addWidget(self.compatibility_dot, alignment=Qt.AlignTop)
+        compatibility_layout.addLayout(compatibility_text, stretch=1)
+
+        self.worth_card = QFrame()
+        self.worth_card.setObjectName("WorthCard")
+        worth_layout = QHBoxLayout(self.worth_card)
+        worth_layout.setContentsMargins(10, 10, 10, 10)
+        worth_layout.setSpacing(10)
+
+        self.worth_dot = QFrame()
+        self.worth_dot.setObjectName("WorthDot")
+        self.worth_dot.setFixedSize(16, 16)
+
+        worth_text = QVBoxLayout()
+        worth_text.setContentsMargins(0, 0, 0, 0)
+        worth_text.setSpacing(3)
+
+        self.worth_title = QLabel("Worth: choose a model")
+        self.worth_title.setObjectName("WorthTitle")
+
+        self.worth_detail = QLabel("Worth blends source trust, popularity, file quality, search match, and GPU fit.")
+        self.worth_detail.setObjectName("WorthDetail")
+        self.worth_detail.setWordWrap(True)
+
+        worth_text.addWidget(self.worth_title)
+        worth_text.addWidget(self.worth_detail)
+        worth_layout.addWidget(self.worth_dot, alignment=Qt.AlignTop)
+        worth_layout.addLayout(worth_text, stretch=1)
+
+        self.run_plan_card = QFrame()
+        self.run_plan_card.setObjectName("RunPlanCard")
+        run_plan_layout = QHBoxLayout(self.run_plan_card)
+        run_plan_layout.setContentsMargins(10, 10, 10, 10)
+        run_plan_layout.setSpacing(10)
+
+        self.run_plan_dot = QFrame()
+        self.run_plan_dot.setObjectName("RunPlanDot")
+        self.run_plan_dot.setFixedSize(16, 16)
+
+        run_plan_text = QVBoxLayout()
+        run_plan_text.setContentsMargins(0, 0, 0, 0)
+        run_plan_text.setSpacing(3)
+
+        self.run_plan_title = QLabel("Run plan: choose a model")
+        self.run_plan_title.setObjectName("RunPlanTitle")
+
+        self.run_plan_detail = QLabel("MORICE will explain context and GPU-offload expectations here.")
+        self.run_plan_detail.setObjectName("RunPlanDetail")
+        self.run_plan_detail.setWordWrap(True)
+
+        run_plan_text.addWidget(self.run_plan_title)
+        run_plan_text.addWidget(self.run_plan_detail)
+        run_plan_layout.addWidget(self.run_plan_dot, alignment=Qt.AlignTop)
+        run_plan_layout.addLayout(run_plan_text, stretch=1)
+
+        self.model_detail_card = QFrame()
+        self.model_detail_card.setObjectName("ModelDetailCard")
+        model_detail_layout = QVBoxLayout(self.model_detail_card)
+        model_detail_layout.setContentsMargins(10, 10, 10, 10)
+        model_detail_layout.setSpacing(5)
+
+        self.speciality_title = QLabel("Model speciality")
+        self.speciality_title.setObjectName("SpecialityTitle")
+
+        self.speciality_detail = QLabel("Choose a result to see what that AI model is best at.")
+        self.speciality_detail.setObjectName("SpecialityDetail")
+        self.speciality_detail.setWordWrap(True)
+
+        self.source_detail = QLabel("Trusted source details will appear here.")
+        self.source_detail.setObjectName("SourceDetail")
+        self.source_detail.setWordWrap(True)
+        self.source_detail.setTextFormat(Qt.RichText)
+        self.source_detail.setTextInteractionFlags(Qt.TextBrowserInteraction)
+        self.source_detail.setOpenExternalLinks(True)
+
+        model_detail_layout.addWidget(self.speciality_title)
+        model_detail_layout.addWidget(self.speciality_detail)
+        model_detail_layout.addWidget(self.source_detail)
+
+        self.progress = QProgressBar()
+        self.progress.setObjectName("ModelProgress")
+        self.progress.setVisible(False)
+
+        button_row = QHBoxLayout()
+        button_row.setContentsMargins(0, 0, 0, 0)
+        button_row.setSpacing(8)
+
+        self.install_btn = QPushButton("Install and use")
+        self.install_btn.setObjectName("ModelPrimaryButton")
+        self.install_btn.clicked.connect(self._start_install)
+        self.install_btn.setEnabled(False)
+
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("ModelCancelButton")
+        close_btn.clicked.connect(self.reject)
+
+        button_row.addWidget(self.install_btn)
+        button_row.addWidget(close_btn)
+
+        layout.addWidget(title)
+        layout.addWidget(source)
+        layout.addWidget(self.browser_map)
+        layout.addLayout(gpu_row)
+        layout.addLayout(search_row)
+        layout.addLayout(quick_row)
+        layout.addWidget(self.results, stretch=1)
+        layout.addWidget(self.compatibility_card)
+        layout.addWidget(self.worth_card)
+        layout.addWidget(self.run_plan_card)
+        layout.addWidget(self.model_detail_card)
+        layout.addWidget(self.status)
+        layout.addWidget(self.progress)
+        layout.addLayout(button_row)
+
+        self.search_finished.connect(self._on_search_finished)
+        self.download_progress.connect(self._on_download_progress)
+        self.download_finished.connect(self._on_download_finished)
+        self.gpu_detected.connect(self._on_gpu_detected)
+        self.setStyleSheet(
+            """
+            QDialog {
+                background: #050711;
+                color: #f6f1ff;
+                font-family: "Segoe UI";
+            }
+            #ModelGalaxySurface {
+                border-radius: 16px;
+                border: 1px solid rgba(150,190,255,0.22);
+            }
+            #ModelDialogTitle {
+                font-size: 20px;
+                font-weight: 900;
+            }
+            #ModelDialogSource {
+                color: rgba(178,230,210,0.82);
+                font-weight: 700;
+            }
+            #ModelBrowserMap {
+                background: rgba(5,12,20,0.58);
+                color: rgba(225,238,245,0.84);
+                border-radius: 12px;
+                padding: 9px 11px;
+                border: 1px solid rgba(95,215,235,0.16);
+                font-size: 12px;
+            }
+            #ModelGpuChip {
+                background: rgba(28,48,42,0.72);
+                color: rgba(225,255,238,0.92);
+                border-radius: 9px;
+                padding: 8px 10px;
+                border: 1px solid rgba(125,210,160,0.24);
+                font-size: 12px;
+                font-weight: 800;
+            }
+            #ModelSearchInput {
+                background: rgba(5,8,18,0.72);
+                border-radius: 14px;
+                padding: 10px 12px;
+                border: 1px solid rgba(145,190,255,0.28);
+                selection-background-color: rgba(178,96,255,0.45);
+            }
+            #ModelSearchInput:focus {
+                border: 1px solid rgba(120,230,255,0.68);
+                background: rgba(8,12,26,0.9);
+            }
+            #ModelResultList {
+                background: rgba(1,3,10,0.52);
+                border-radius: 14px;
+                padding: 8px;
+                border: 1px solid rgba(128,170,255,0.2);
+                color: rgba(245,239,255,0.94);
+                selection-background-color: rgba(58,120,190,0.82);
+            }
+            #ModelResultList::item {
+                background: rgba(12,16,31,0.74);
+                border: 1px solid rgba(135,190,255,0.12);
+                border-radius: 12px;
+                padding: 10px;
+                margin: 3px;
+            }
+            #ModelResultList::item:hover {
+                background: rgba(25,34,60,0.88);
+                border: 1px solid rgba(120,230,255,0.34);
+            }
+            #ModelResultList::item:selected {
+                background: rgba(52,72,126,0.95);
+                border: 1px solid rgba(175,230,255,0.62);
+            }
+            #ModelStatus {
+                color: rgba(224,216,240,0.82);
+                min-height: 20px;
+            }
+            #CompatibilityCard {
+                background: rgba(4,8,18,0.62);
+                border-radius: 12px;
+                border: 1px solid rgba(178,130,255,0.18);
+            }
+            #WorthCard {
+                background: rgba(4,8,18,0.62);
+                border-radius: 12px;
+                border: 1px solid rgba(125,210,160,0.18);
+            }
+            #RunPlanCard {
+                background: rgba(4,8,18,0.62);
+                border-radius: 12px;
+                border: 1px solid rgba(95,215,235,0.18);
+            }
+            #CompatibilityDot {
+                border-radius: 8px;
+                background: #aeb4bf;
+                border: 1px solid rgba(255,255,255,0.22);
+            }
+            #WorthDot {
+                border-radius: 8px;
+                background: #aeb4bf;
+                border: 1px solid rgba(255,255,255,0.22);
+            }
+            #RunPlanDot {
+                border-radius: 8px;
+                background: #aeb4bf;
+                border: 1px solid rgba(255,255,255,0.22);
+            }
+            #CompatibilityTitle {
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 900;
+            }
+            #WorthTitle {
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 900;
+            }
+            #RunPlanTitle {
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 900;
+            }
+            #CompatibilityDetail {
+                color: rgba(224,216,240,0.78);
+                font-size: 12px;
+            }
+            #WorthDetail {
+                color: rgba(224,238,224,0.8);
+                font-size: 12px;
+            }
+            #RunPlanDetail {
+                color: rgba(224,238,245,0.82);
+                font-size: 12px;
+            }
+            #ModelDetailCard {
+                background: rgba(4,10,18,0.64);
+                border-radius: 12px;
+                border: 1px solid rgba(95,215,235,0.16);
+            }
+            #SpecialityTitle {
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 900;
+            }
+            #SpecialityDetail,
+            #SourceDetail {
+                color: rgba(224,238,245,0.82);
+                font-size: 12px;
+            }
+            #SourceDetail a {
+                color: rgba(135,230,255,0.96);
+            }
+            #ModelPrimaryButton {
+                background: rgba(58,82,154,0.86);
+                color: #fff;
+                border-radius: 14px;
+                padding: 10px 14px;
+                border: 1px solid rgba(150,215,255,0.42);
+                font-weight: 800;
+            }
+            #ModelPrimaryButton:hover {
+                background: rgba(88,78,220,0.96);
+            }
+            #ModelSecondaryButton,
+            #ModelLaneButton {
+                background: rgba(22,28,42,0.86);
+                color: rgba(245,250,255,0.92);
+                border-radius: 12px;
+                padding: 9px 12px;
+                border: 1px solid rgba(150,215,255,0.24);
+                font-weight: 800;
+            }
+            #ModelSecondaryButton:hover,
+            #ModelLaneButton:hover {
+                background: rgba(45,68,96,0.94);
+                border: 1px solid rgba(150,230,255,0.48);
+            }
+            #ModelPrimaryButton:disabled {
+                background: rgba(50,50,56,0.68);
+                color: rgba(255,255,255,0.42);
+                border: 1px solid rgba(255,255,255,0.08);
+            }
+            #ModelCancelButton {
+                background: rgba(22,28,42,0.86);
+                color: rgba(255,255,255,0.86);
+                border-radius: 14px;
+                padding: 10px 14px;
+                border: 1px solid rgba(170,210,255,0.14);
+            }
+            #ModelProgress {
+                border-radius: 8px;
+                background: rgba(255,255,255,0.08);
+                color: #fff;
+                text-align: center;
+            }
+            #ModelProgress::chunk {
+                border-radius: 8px;
+                background: rgba(138,84,235,0.95);
+            }
+            """
+        )
+        self.galaxy_surface.watch(self)
+        if not self.gpu_profile.detected or self.gpu_profile.vram_mb <= 0:
+            QTimer.singleShot(140, lambda: self._detect_gpu_profile(auto=True))
+        else:
+            QTimer.singleShot(140, self._start_recommended_search)
+
+    def _recommended_query(self) -> str:
+        vram = self.gpu_profile.vram_mb if self.gpu_profile else 0
+        if not vram:
+            return "qwen2.5 3b gguf"
+        if vram and vram < 5_500:
+            return "qwen2.5 3b gguf"
+        if vram and vram < 9_500:
+            return "hermes 3 8b gguf"
+        if vram and vram < 15_000:
+            return "qwen2.5 coder 7b gguf"
+        return "mistral 7b instruct gguf"
+
+    def _start_recommended_search(self):
+        if self._auto_search_started or self.results.count() > 0:
+            return
+        self._auto_search_started = True
+        self._quick_search("")
+
+    def _quick_search(self, query: str):
+        self.search_input.setText(query or self._recommended_query())
+        self._start_search()
+
+    def _detect_gpu_profile(self, auto: bool = False):
+        if self._gpu_detection_busy:
+            return
+        self._gpu_detection_busy = True
+        self.dialog_detect_gpu_btn.setEnabled(False)
+        self.gpu_chip.setText("Detecting GPU and VRAM...")
+        if not auto:
+            self.status.setText("Detecting GPU/VRAM so model fit is not a guess.")
+
+        def worker():
+            profile = detect_gpu_profile()
+            self.gpu_detected.emit(profile)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_gpu_detected(self, profile: GpuProfile):
+        self._gpu_detection_busy = False
+        self.gpu_profile = profile
+        self.dialog_detect_gpu_btn.setEnabled(not self._busy)
+        self.gpu_chip.setText(gpu_profile_summary(profile))
+        self.gpu_chip.setToolTip(profile.message)
+        if profile.detected:
+            self.status.setText(f"GPU detected: {gpu_profile_summary(profile)}")
+        else:
+            self.status.setText(profile.message)
+        for index in range(self.results.count()):
+            item = self.results.item(index)
+            result = item.data(Qt.UserRole)
+            if isinstance(result, dict):
+                compatibility = model_compatibility(result, self.gpu_profile)
+                item.setForeground(QBrush(QColor(compatibility.color)))
+        self._refresh_compatibility()
+        self._start_recommended_search()
+
+    def _set_busy(self, busy: bool):
+        self._busy = busy
+        self.search_btn.setEnabled(not busy)
+        self.search_input.setEnabled(not busy)
+        self.results.setEnabled(not busy)
+        self.dialog_detect_gpu_btn.setEnabled((not busy) and not self._gpu_detection_busy)
+        for button in self.quick_buttons:
+            button.setEnabled(not busy)
+        self._refresh_install_state()
+
+    def _refresh_install_state(self):
+        self.install_btn.setEnabled((not self._busy) and bool(self.results.selectedItems()))
+        self._refresh_compatibility()
+
+    def _refresh_compatibility(self):
+        selected = self.results.selectedItems()
+        if not selected:
+            self.compatibility_title.setText("Compatibility: choose a model")
+            self.compatibility_detail.setText(
+                "Red means very low, yellow medium, green good, and dark green excellent."
+            )
+            self.speciality_title.setText("Model speciality")
+            self.speciality_detail.setText("Choose a result to see what that AI model is best at.")
+            self.source_detail.setText("Trusted source details will appear here.")
+            self.compatibility_dot.setStyleSheet("background: #aeb4bf; border-radius: 8px;")
+            self.worth_title.setText("Worth: choose a model")
+            self.worth_detail.setText("Worth blends source trust, popularity, file quality, search match, and GPU fit.")
+            self.worth_dot.setStyleSheet("background: #aeb4bf; border-radius: 8px;")
+            self.run_plan_title.setText("Run plan: choose a model")
+            self.run_plan_detail.setText("MORICE will explain context and GPU-offload expectations here.")
+            self.run_plan_dot.setStyleSheet("background: #aeb4bf; border-radius: 8px;")
+            self.install_btn.setText("Install and use")
+            self.install_btn.setToolTip("")
+            return
+        result = selected[0].data(Qt.UserRole)
+        if not isinstance(result, dict):
+            return
+        compatibility = model_compatibility(result, self.gpu_profile)
+        self.compatibility_title.setText(
+            f"Compatibility: {compatibility.label} ({compatibility.score}/100)"
+            if compatibility.score
+            else f"Compatibility: {compatibility.label}"
+        )
+        self.compatibility_detail.setText(compatibility.message)
+        self.compatibility_dot.setStyleSheet(
+            f"background: {compatibility.color}; border-radius: 8px;"
+        )
+        worth = model_worth(result, compatibility)
+        self.worth_title.setText(f"Worth: {worth.label} ({worth.score}/100)")
+        self.worth_detail.setText(worth.message)
+        self.worth_dot.setStyleSheet(f"background: {worth.color}; border-radius: 8px;")
+        run_plan = model_run_plan(result, self.gpu_profile)
+        self.run_plan_title.setText(f"Run plan: {run_plan.label}")
+        self.run_plan_detail.setText(f"{run_plan.message} {run_plan.context_hint} {run_plan.offload_hint}")
+        self.run_plan_dot.setStyleSheet(f"background: {run_plan.color}; border-radius: 8px;")
+        self.install_btn.setText("Install anyway" if compatibility.level in {"cpu-assisted", "very-low"} else "Install and use")
+        self.speciality_title.setText(f"{result.get('family') or 'Model'} speciality")
+        self.speciality_detail.setText(result.get("speciality") or "Best for general local assistant work.")
+        repo_url = html.escape(result.get("detail_url") or "")
+        official_url = html.escape(result.get("official_url") or repo_url)
+        source_label = html.escape(result.get("source_label") or "Hugging Face model repo")
+        license_text = html.escape(result.get("license") or "License not listed")
+        pipeline = html.escape(result.get("pipeline_tag") or "text-generation")
+        self.source_detail.setText(
+            f"{source_label} | Task: {pipeline} | License: {license_text}<br>"
+            f"<a href=\"{repo_url}\">Hugging Face repo</a> | "
+            f"<a href=\"{official_url}\">Official/source page</a>"
+        )
+        self.install_btn.setToolTip(f"{compatibility.message}\n{run_plan.message}\n{worth.message}")
+
+    def _start_search(self):
+        query = " ".join(self.search_input.text().split())
+        if not query:
+            self.status.setText("Type a model name first.")
+            return
+        self.results.clear()
+        self.progress.setVisible(False)
+        self.status.setText("Searching trusted model sources...")
+        self._set_busy(True)
+
+        def worker():
+            try:
+                results = search_huggingface_gguf(query)
+                error = ""
+            except Exception as exc:  # noqa: BLE001
+                results = []
+                error = str(exc)
+            self.search_finished.emit(results, error)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_search_finished(self, results: list[dict], error: str):
+        self._set_busy(False)
+        if error:
+            self.status.setText(f"Search failed: {error}")
+            return
+        if not results:
+            self.status.setText("No trusted GGUF model files found for that search.")
+            return
+
+        def result_rank(result: dict) -> tuple[int, int, int, int]:
+            compatibility = model_compatibility(result, self.gpu_profile)
+            worth = model_worth(result, compatibility)
+            fit_score = compatibility.score if compatibility.score else 50
+            return (
+                fit_score,
+                worth.score,
+                int(result.get("downloads") or 0),
+                int(result.get("file_score") or 0),
+            )
+
+        ranked_results = sorted(results, key=result_rank, reverse=True)
+        for result in ranked_results:
+            downloads = int(result.get("downloads") or 0)
+            compatibility = model_compatibility(result, self.gpu_profile)
+            worth = model_worth(result, compatibility)
+            run_plan = model_run_plan(result, self.gpu_profile)
+            fit_line = (
+                f"GPU fit: {compatibility.label} ({compatibility.score}/100)"
+                if compatibility.score
+                else f"GPU fit: {compatibility.label}"
+            )
+            item = QListWidgetItem(
+                f"{result.get('title', 'Model')}\n"
+                f"{result.get('size_text') or format_size(result.get('size'))} | "
+                f"{downloads:,} downloads | {fit_line} | Run: {run_plan.label} | Worth: {worth.score}/100\n"
+                f"{result.get('source_label', 'Hugging Face')} | {result.get('speciality', '')}"
+            )
+            item.setData(Qt.UserRole, result)
+            item.setToolTip(result.get("detail_url", ""))
+            item.setForeground(QBrush(QColor(compatibility.color)))
+            item.setSizeHint(QSize(0, 92))
+            self.results.addItem(item)
+        self.status.setText(f"Found {len(results)} GGUF model file(s), sorted by detected GPU fit and model worth.")
+        if self.results.count() > 0:
+            self.results.setCurrentRow(0)
+
+    def _start_install(self):
+        selected = self.results.selectedItems()
+        if not selected:
+            return
+        result = selected[0].data(Qt.UserRole)
+        if not isinstance(result, dict):
+            return
+        self._set_busy(True)
+        self.progress.setVisible(True)
+        self.progress.setRange(0, 0)
+        self.status.setText("Installing selected model...")
+
+        def progress(percent: int, message: str):
+            self.download_progress.emit(percent, message)
+
+        def worker():
+            try:
+                path = download_model_result(result, default_model_download_dir(), progress)
+                error = ""
+            except Exception as exc:  # noqa: BLE001
+                path = ""
+                error = str(exc)
+            self.download_finished.emit(path, error)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_download_progress(self, percent: int, message: str):
+        if percent > 0:
+            self.progress.setRange(0, 100)
+            self.progress.setValue(min(100, percent))
+        self.status.setText(message)
+
+    def _on_download_finished(self, path: str, error: str):
+        self._set_busy(False)
+        if error:
+            self.progress.setRange(0, 100)
+            self.progress.setValue(0)
+            self.status.setText(f"Install failed: {error}")
+            return
+        self.selected_path = path
+        selected = self.results.selectedItems()
+        result = selected[0].data(Qt.UserRole) if selected else {}
+        if not isinstance(result, dict):
+            result = local_model_result(path)
+        compatibility = model_compatibility(result, self.gpu_profile)
+        run_plan = model_run_plan(result, self.gpu_profile)
+        self.progress.setRange(0, 100)
+        self.progress.setValue(100)
+        self.status.setText(
+            f"Installed and selected. GPU fit: {compatibility.label}. Run plan: {run_plan.label}."
+        )
+        QTimer.singleShot(650, self.accept)
 
 
 def _inline_markdown_to_rich_text(text: str) -> str:
@@ -478,29 +1349,18 @@ class RgbMenuButton(QPushButton):
             painter.drawLine(left, y, left + line_width, y)
 
 
-class LiquidSendButton(QPushButton):
+class SendButton(QPushButton):
     def __init__(self, text: str):
         super().__init__(text)
         self.setObjectName("SendButton")
         self.setCursor(Qt.PointingHandCursor)
-        self._liquid_ready = False
-        self._phase = 0.0
-        self._timer = QTimer(self)
-        self._timer.timeout.connect(self._advance)
+        self._is_ready = False
 
-    def set_liquid_ready(self, ready: bool):
-        if self._liquid_ready == ready:
+    def set_ready(self, ready: bool):
+        if self._is_ready == ready:
             return
-        self._liquid_ready = ready
+        self._is_ready = ready
         self.setProperty("ready", "true" if ready else "false")
-        if ready and not self._timer.isActive():
-            self._timer.start(28)
-        elif not ready and self._timer.isActive():
-            self._timer.stop()
-        self.update()
-
-    def _advance(self):
-        self._phase = (self._phase + 0.18) % (math.pi * 2)
         self.update()
 
     def paintEvent(self, event):  # noqa: ARG002
@@ -512,42 +1372,13 @@ class LiquidSendButton(QPushButton):
         clip.addRoundedRect(rect, radius, radius)
 
         painter.setPen(Qt.NoPen)
-        painter.setBrush(QColor(72, 72, 80, 170))
+        if self._is_ready and self.isEnabled():
+            painter.setBrush(QColor(104, 72, 194, 230))
+        else:
+            painter.setBrush(QColor(72, 72, 80, 170))
         painter.drawPath(clip)
 
-        if self._liquid_ready and self.isEnabled():
-            painter.save()
-            painter.setClipPath(clip)
-            fill = QPainterPath()
-            fill.moveTo(rect.left(), rect.bottom())
-            wave_mid = rect.top() + rect.height() * 0.32
-            step = max(8, rect.width() // 14)
-            for x in range(rect.left(), rect.right() + step, step):
-                wave = math.sin((x * 0.08) + self._phase) * 4.2
-                wave += math.sin((x * 0.035) - self._phase * 1.6) * 2.4
-                fill.lineTo(x, wave_mid + wave)
-            fill.lineTo(rect.right(), rect.bottom())
-            fill.closeSubpath()
-
-            gradient = QLinearGradient(rect.topLeft(), rect.bottomRight())
-            gradient.setColorAt(0.0, QColor(108, 72, 230, 240))
-            gradient.setColorAt(0.48, QColor(163, 88, 255, 248))
-            gradient.setColorAt(1.0, QColor(74, 190, 215, 230))
-            painter.setBrush(gradient)
-            painter.drawPath(fill)
-
-            shine = QPainterPath()
-            shine.moveTo(rect.left() - 20, rect.top() + 5)
-            offset = int((0.5 + 0.5 * math.sin(self._phase * 0.9)) * rect.width())
-            shine.lineTo(rect.left() + offset, rect.top() + 3)
-            shine.lineTo(rect.left() + offset + 42, rect.bottom())
-            shine.lineTo(rect.left() + offset - 10, rect.bottom())
-            shine.closeSubpath()
-            painter.setBrush(QColor(255, 255, 255, 34))
-            painter.drawPath(shine)
-            painter.restore()
-
-        border = QColor(215, 190, 255, 155) if self._liquid_ready and self.isEnabled() else QColor(255, 255, 255, 24)
+        border = QColor(215, 190, 255, 128) if self._is_ready and self.isEnabled() else QColor(255, 255, 255, 24)
         painter.setPen(QPen(border, 1))
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(clip)
@@ -555,6 +1386,322 @@ class LiquidSendButton(QPushButton):
         painter.setPen(QColor(255, 255, 255, 244) if self.isEnabled() else QColor(255, 255, 255, 92))
         painter.setFont(self.font())
         painter.drawText(rect, Qt.AlignCenter, self.text())
+
+
+class GraphCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("GraphCanvas")
+        self.setMinimumHeight(300)
+        self.setMouseTracking(True)
+        self.artifact: GraphArtifact | None = None
+        self.zoom = 1.0
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self._drag_start = QPoint()
+        self._dragging = False
+        self._last_mouse = QPoint()
+
+    def set_artifact(self, artifact: GraphArtifact | None):
+        self.artifact = artifact
+        self.zoom = 1.0
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self.update()
+
+    def _ranges(self) -> tuple[float, float, float, float]:
+        if not self.artifact:
+            return -10.0, 10.0, -10.0, 10.0
+        x0, x1 = self.artifact.x_range
+        y0, y1 = self.artifact.y_range
+        cx = (x0 + x1) / 2 + self.pan_x
+        cy = (y0 + y1) / 2 + self.pan_y
+        half_x = max(0.001, (x1 - x0) / (2 * self.zoom))
+        half_y = max(0.001, (y1 - y0) / (2 * self.zoom))
+        return cx - half_x, cx + half_x, cy - half_y, cy + half_y
+
+    def _to_screen(self, x: float, y: float, rect: QRect) -> QPoint:
+        x0, x1, y0, y1 = self._ranges()
+        px = rect.left() + int(((x - x0) / max(1e-9, x1 - x0)) * rect.width())
+        py = rect.bottom() - int(((y - y0) / max(1e-9, y1 - y0)) * rect.height())
+        return QPoint(px, py)
+
+    def _to_world(self, point: QPoint, rect: QRect) -> tuple[float, float]:
+        x0, x1, y0, y1 = self._ranges()
+        x = x0 + ((point.x() - rect.left()) / max(1, rect.width())) * (x1 - x0)
+        y = y1 - ((point.y() - rect.top()) / max(1, rect.height())) * (y1 - y0)
+        return x, y
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta:
+            self.zoom = max(0.18, min(18.0, self.zoom * (1.12 if delta > 0 else 0.88)))
+            self.update()
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._drag_start = event.position().toPoint()
+            self._last_mouse = self._drag_start
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        pos = event.position().toPoint()
+        plot = self.rect().adjusted(46, 26, -18, -38)
+        if self._dragging:
+            x0, x1, y0, y1 = self._ranges()
+            dx = pos.x() - self._last_mouse.x()
+            dy = pos.y() - self._last_mouse.y()
+            self.pan_x -= dx / max(1, plot.width()) * (x1 - x0)
+            self.pan_y += dy / max(1, plot.height()) * (y1 - y0)
+            self._last_mouse = pos
+            self.update()
+        elif self.artifact and plot.contains(pos):
+            x, y = self._to_world(pos, plot)
+            nearest = ""
+            best = 999999.0
+            for series in self.artifact.series:
+                for sx, sy in zip(series.x[::8], series.y[::8]):
+                    if not math.isfinite(sy):
+                        continue
+                    distance = abs(sx - x) + abs(sy - y)
+                    if distance < best:
+                        best = distance
+                        nearest = f"{series.label}: x={sx:.3g}, y={sy:.3g}"
+            self.inspected.emit(nearest or f"x={x:.3g}, y={y:.3g}")
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = False
+        event.accept()
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(46, 26, -18, -38)
+        painter.fillRect(rect, QColor(5, 7, 12, 235))
+        painter.setPen(QPen(QColor(150, 120, 225, 70), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 12, 12)
+
+        if not self.artifact:
+            painter.setPen(QColor(255, 255, 255, 160))
+            painter.drawText(rect, Qt.AlignCenter, "No graph generated yet")
+            return
+
+        x0, x1, y0, y1 = self._ranges()
+        painter.setPen(QPen(QColor(255, 255, 255, 42), 1))
+        for i in range(11):
+            x = plot.left() + int(plot.width() * i / 10)
+            y = plot.top() + int(plot.height() * i / 10)
+            painter.drawLine(x, plot.top(), x, plot.bottom())
+            painter.drawLine(plot.left(), y, plot.right(), y)
+
+        zero = self._to_screen(0.0, 0.0, plot)
+        painter.setPen(QPen(QColor(255, 255, 255, 96), 1))
+        if plot.left() <= zero.x() <= plot.right():
+            painter.drawLine(zero.x(), plot.top(), zero.x(), plot.bottom())
+        if plot.top() <= zero.y() <= plot.bottom():
+            painter.drawLine(plot.left(), zero.y(), plot.right(), zero.y())
+
+        painter.setClipRect(plot)
+        for series in self.artifact.series:
+            path = QPainterPath()
+            started = False
+            for sx, sy in zip(series.x, series.y):
+                if not math.isfinite(sy) or sx < x0 or sx > x1 or sy < y0 or sy > y1:
+                    started = False
+                    continue
+                point = self._to_screen(sx, sy, plot)
+                if not started:
+                    path.moveTo(point)
+                    started = True
+                else:
+                    path.lineTo(point)
+            painter.setPen(QPen(QColor(series.color), 2))
+            painter.drawPath(path)
+        painter.setClipping(False)
+
+        for series in self.artifact.series:
+            marker_color = QColor(series.color)
+            for inspection in series.inspection_points[:5]:
+                try:
+                    ix = float(inspection.get("x", 0.0))
+                    iy = float(inspection.get("y", 0.0))
+                except (TypeError, ValueError):
+                    continue
+                if ix < x0 or ix > x1 or iy < y0 or iy > y1:
+                    continue
+                point = self._to_screen(ix, iy, plot)
+                if not plot.adjusted(-8, -8, 8, 8).contains(point):
+                    continue
+                painter.setPen(QPen(QColor(4, 8, 16, 220), 2))
+                painter.setBrush(marker_color)
+                painter.drawEllipse(point, 5, 5)
+                label = str(inspection.get("label") or "point")
+                value = f"{ix:.3g}, {iy:.3g}"
+                text = f"{label}\n{value}"
+                metrics = painter.fontMetrics()
+                width = max(metrics.horizontalAdvance(label), metrics.horizontalAdvance(value)) + 26
+                height = metrics.height() * 2 + 16
+                bubble_x = point.x() + 14
+                bubble_y = point.y() - height - 10
+                if bubble_x + width > plot.right():
+                    bubble_x = point.x() - width - 14
+                if bubble_y < plot.top():
+                    bubble_y = point.y() + 14
+                bubble = QRect(bubble_x, bubble_y, width, height)
+                pointer = QPainterPath()
+                pointer.addRoundedRect(bubble, 14, 14)
+                painter.setPen(QPen(QColor(125, 210, 255, 130), 1))
+                painter.setBrush(QColor(0, 145, 255, 230))
+                painter.drawPath(pointer)
+                painter.setPen(QColor(255, 255, 255, 245))
+                painter.drawText(bubble.adjusted(8, 4, -8, -4), Qt.AlignCenter, text)
+
+        painter.setPen(QColor(255, 255, 255, 218))
+        painter.drawText(rect.adjusted(12, 6, -12, -6), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+        painter.setPen(QColor(180, 205, 255, 160))
+        painter.drawText(
+            rect.adjusted(12, 0, -12, -10),
+            Qt.AlignBottom | Qt.AlignLeft,
+            f"x {x0:.2g}..{x1:.2g} | y {y0:.2g}..{y1:.2g} | wheel zoom, drag pan",
+        )
+
+
+class PhysicsCanvas(QWidget):
+    stats_changed = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("PhysicsCanvas")
+        self.setMinimumHeight(300)
+        self.artifact: PhysicsArtifact | None = None
+        self.running = True
+        self.speed = 1.0
+        self._collisions = 0
+        self._frames = 0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self.step)
+        self._timer.start(16)
+
+    def set_artifact(self, artifact: PhysicsArtifact | None):
+        self.artifact = artifact
+        self._collisions = 0
+        self._frames = 0
+        self.running = True
+        self.update()
+
+    def set_running(self, running: bool):
+        self.running = running
+
+    def set_speed(self, speed: float):
+        self.speed = max(0.05, min(5.0, speed))
+
+    def step_once(self):
+        self._advance()
+        self.update()
+
+    def step(self):
+        if self.running:
+            self._advance()
+            self.update()
+
+    def _advance(self):
+        if not self.artifact:
+            return
+        width, height = self.artifact.bounds
+        dt = 1 / 60 * self.speed
+        particles = self.artifact.particles
+        frame_collisions = 0
+        for particle in particles:
+            particle.vy += self.artifact.gravity * dt
+            particle.vx *= self.artifact.friction
+            particle.vy *= self.artifact.friction
+            particle.x += particle.vx * dt
+            particle.y += particle.vy * dt
+            if particle.x - particle.radius < 0:
+                particle.x = particle.radius
+                particle.vx = abs(particle.vx) * 0.82
+                frame_collisions += 1
+            elif particle.x + particle.radius > width:
+                particle.x = width - particle.radius
+                particle.vx = -abs(particle.vx) * 0.82
+                frame_collisions += 1
+            if particle.y - particle.radius < 0:
+                particle.y = particle.radius
+                particle.vy = abs(particle.vy) * 0.82
+                frame_collisions += 1
+            elif particle.y + particle.radius > height:
+                particle.y = height - particle.radius
+                particle.vy = -abs(particle.vy) * 0.82
+                frame_collisions += 1
+
+        if len(particles) <= 220:
+            for i, first in enumerate(particles):
+                for second in particles[i + 1 :]:
+                    dx = second.x - first.x
+                    dy = second.y - first.y
+                    min_dist = first.radius + second.radius
+                    dist_sq = dx * dx + dy * dy
+                    if 0 < dist_sq < min_dist * min_dist:
+                        dist = math.sqrt(dist_sq)
+                        nx = dx / dist
+                        ny = dy / dist
+                        overlap = (min_dist - dist) * 0.5
+                        first.x -= nx * overlap
+                        first.y -= ny * overlap
+                        second.x += nx * overlap
+                        second.y += ny * overlap
+                        first.vx, second.vx = second.vx * 0.88, first.vx * 0.88
+                        first.vy, second.vy = second.vy * 0.88, first.vy * 0.88
+                        frame_collisions += 1
+
+        self._collisions += frame_collisions
+        self._frames += 1
+        if self._frames % 20 == 0:
+            stats = (
+                f"Particles: {len(particles)} | FPS target: 60 | "
+                f"Collisions/sec: {int((self._collisions / max(1, self._frames)) * 60)} | Speed: {self.speed:g}x"
+            )
+            self.stats_changed.emit(stats)
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        painter.fillRect(rect, QColor(5, 7, 12, 235))
+        painter.setPen(QPen(QColor(150, 120, 225, 70), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 12, 12)
+        if not self.artifact:
+            painter.setPen(QColor(255, 255, 255, 160))
+            painter.drawText(rect, Qt.AlignCenter, "No simulation generated yet")
+            return
+        sim_w, sim_h = self.artifact.bounds
+        scale = min((rect.width() - 36) / sim_w, (rect.height() - 58) / sim_h)
+        left = rect.left() + (rect.width() - sim_w * scale) / 2
+        top = rect.top() + 34
+        field = QRect(int(left), int(top), int(sim_w * scale), int(sim_h * scale))
+        painter.setPen(QPen(QColor(255, 255, 255, 42), 1))
+        painter.setBrush(QColor(255, 255, 255, 10))
+        painter.drawRoundedRect(field, 8, 8)
+        painter.setClipRect(field)
+        for index, particle in enumerate(self.artifact.particles):
+            px = left + particle.x * scale
+            py = top + particle.y * scale
+            radius = max(1.5, particle.radius * scale)
+            color = QColor(particle.color)
+            if self.artifact.simulation_type.endswith("3d-projected"):
+                radius *= 0.65 + (index % 9) * 0.055
+            painter.setBrush(color)
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(QPoint(int(px), int(py)), int(radius), int(radius))
+        painter.setClipping(False)
+        painter.setPen(QColor(255, 255, 255, 218))
+        painter.drawText(rect.adjusted(12, 6, -12, -6), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
 
 
 class TitleBar(QFrame):
@@ -576,6 +1723,10 @@ class TitleBar(QFrame):
         self.sidebar_btn.setObjectName("SidebarButton")
         self.sidebar_btn.clicked.connect(self._parent.toggle_sidebar)
 
+        self.workspace_btn = QPushButton("Lab")
+        self.workspace_btn.setObjectName("SidebarButton")
+        self.workspace_btn.clicked.connect(self._parent.toggle_workspace_panel)
+
         logo = QLabel()
         logo.setObjectName("TitleLogo")
         icon = QIcon(_icon_path())
@@ -588,6 +1739,7 @@ class TitleBar(QFrame):
 
         layout.addWidget(self.mode_btn)
         layout.addWidget(self.sidebar_btn)
+        layout.addWidget(self.workspace_btn)
         layout.addWidget(logo)
         layout.addWidget(title)
         layout.addStretch(1)
@@ -639,6 +1791,7 @@ class MoriceWindow(QWidget):
     message_ready = Signal(str, str, bool)
     thinking_update = Signal(str)
     project_changes_ready = Signal(str, str)
+    gpu_detected = Signal(object)
 
     def __init__(self):
         super().__init__()
@@ -682,11 +1835,19 @@ class MoriceWindow(QWidget):
         self.project_lookup_mode = normalize_project_lookup_mode(self.settings.get("project_lookup_mode", ""))
         self.model_path = normalize_model_path(self.settings.get("model_path", ""))
         self.model_name = normalize_model_name(self.settings.get("model_name", ""))
+        self.gpu_name = normalize_gpu_name(self.settings.get("gpu_name", ""))
+        self.gpu_vram_mb = normalize_gpu_vram_mb(self.settings.get("gpu_vram_mb", ""))
+        self.gpu_profile = gpu_profile_from_values(self.gpu_name, self.gpu_vram_mb, "settings")
+        self.science_artifacts: list[ScienceArtifact] = []
+        self.active_workspace_kind = "graph"
+        self.last_project_request = ""
+        self._last_external_wake_notice = 0.0
 
         self.wake_signal_path = wake_signal_path()
         self.message_ready.connect(self._on_message_ready)
         self.thinking_update.connect(self._on_thinking_update)
         self.project_changes_ready.connect(self._on_project_changes_ready)
+        self.gpu_detected.connect(self._on_gpu_detected)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
@@ -740,7 +1901,7 @@ class MoriceWindow(QWidget):
 
         self.change_model_btn = QPushButton("Change model")
         self.change_model_btn.setObjectName("ProjectModelButton")
-        self.change_model_btn.clicked.connect(self._choose_model_file)
+        self.change_model_btn.clicked.connect(self._choose_model_source)
 
         self.clear_model_btn = QPushButton("Clear file")
         self.clear_model_btn.setObjectName("ProjectModelButton")
@@ -751,6 +1912,20 @@ class MoriceWindow(QWidget):
         model_button_row.setSpacing(8)
         model_button_row.addWidget(self.change_model_btn)
         model_button_row.addWidget(self.clear_model_btn)
+
+        hardware_label = QLabel("GPU setting")
+        hardware_label.setObjectName("ModeSectionLabel")
+
+        self.gpu_status_input = QLineEdit()
+        self.gpu_status_input.setObjectName("ProjectFolderInput")
+        self.gpu_status_input.setReadOnly(True)
+        self.gpu_status_input.setPlaceholderText("Detect GPU for model fit")
+        self.gpu_status_input.setText(gpu_profile_summary(self.gpu_profile))
+        self.gpu_status_input.setToolTip(self.gpu_profile.message)
+
+        self.detect_gpu_btn = QPushButton("Detect GPU")
+        self.detect_gpu_btn.setObjectName("ProjectModelButton")
+        self.detect_gpu_btn.clicked.connect(lambda _checked=False: self._detect_gpu_profile(auto=False))
 
         self.project_details = QFrame()
         self.project_details.setObjectName("ProjectDetails")
@@ -814,12 +1989,112 @@ class MoriceWindow(QWidget):
         mode_layout.addWidget(self.model_name_input)
         mode_layout.addWidget(self.model_path_input)
         mode_layout.addLayout(model_button_row)
+        mode_layout.addWidget(hardware_label)
+        mode_layout.addWidget(self.gpu_status_input)
+        mode_layout.addWidget(self.detect_gpu_btn)
         mode_layout.addWidget(self.project_details)
         mode_layout.addWidget(self.mode_status)
         mode_layout.addStretch(1)
 
         body.addWidget(self.mode_panel)
         self.mode_panel.setVisible(False)
+
+        self.workspace_panel = QFrame()
+        self.workspace_panel.setObjectName("ScienceWorkspacePanel")
+        self.workspace_panel.setMinimumWidth(350)
+        self.workspace_panel.setMaximumWidth(700)
+        self.workspace_panel.setFixedWidth(430)
+        workspace_layout = QVBoxLayout(self.workspace_panel)
+        workspace_layout.setContentsMargins(14, 14, 14, 14)
+        workspace_layout.setSpacing(10)
+
+        workspace_header = QHBoxLayout()
+        workspace_header.setContentsMargins(0, 0, 0, 0)
+        workspace_title = QLabel("Science workspace")
+        workspace_title.setObjectName("ScienceWorkspaceTitle")
+        workspace_close = QPushButton("Close")
+        workspace_close.setObjectName("WorkspaceCloseButton")
+        workspace_close.clicked.connect(self._close_workspace)
+        workspace_header.addWidget(workspace_title, stretch=1)
+        workspace_header.addWidget(workspace_close)
+
+        workspace_tabs = QHBoxLayout()
+        workspace_tabs.setContentsMargins(0, 0, 0, 0)
+        workspace_tabs.setSpacing(8)
+        self.graph_workspace_btn = QPushButton("Graphs")
+        self.graph_workspace_btn.setObjectName("WorkspaceTab")
+        self.graph_workspace_btn.clicked.connect(lambda: self._set_workspace_view("graph"))
+        self.physics_workspace_btn = QPushButton("Simulations")
+        self.physics_workspace_btn.setObjectName("WorkspaceTab")
+        self.physics_workspace_btn.clicked.connect(lambda: self._set_workspace_view("physics"))
+        self.notebook_workspace_btn = QPushButton("Notebook")
+        self.notebook_workspace_btn.setObjectName("WorkspaceTab")
+        self.notebook_workspace_btn.clicked.connect(lambda: self._set_workspace_view("notebook"))
+        workspace_tabs.addWidget(self.graph_workspace_btn)
+        workspace_tabs.addWidget(self.physics_workspace_btn)
+        workspace_tabs.addWidget(self.notebook_workspace_btn)
+
+        self.workspace_artifact_list = QListWidget()
+        self.workspace_artifact_list.setObjectName("WorkspaceArtifactList")
+        self.workspace_artifact_list.currentRowChanged.connect(self._on_workspace_artifact_selected)
+
+        self.graph_canvas = GraphCanvas()
+        self.graph_canvas.inspected.connect(lambda text: self.graph_inspector.setText(text or "Move over the graph to inspect points."))
+        self.graph_inspector = QLabel("Move over the graph to inspect points.")
+        self.graph_inspector.setObjectName("WorkspaceInspector")
+        self.graph_equations = QLabel("No equations yet.")
+        self.graph_equations.setObjectName("WorkspaceInspector")
+        self.graph_equations.setWordWrap(True)
+
+        self.physics_canvas = PhysicsCanvas()
+        self.physics_canvas.stats_changed.connect(lambda text: self.physics_stats.setText(text))
+        self.physics_stats = QLabel("No simulation yet.")
+        self.physics_stats.setObjectName("WorkspaceInspector")
+        self.physics_stats.setWordWrap(True)
+
+        self.physics_controls_frame = QFrame()
+        self.physics_controls_frame.setObjectName("WorkspaceControlsFrame")
+        physics_controls = QHBoxLayout(self.physics_controls_frame)
+        physics_controls.setContentsMargins(0, 0, 0, 0)
+        physics_controls.setSpacing(8)
+        pause_btn = QPushButton("Pause")
+        pause_btn.setObjectName("WorkspaceControl")
+        pause_btn.clicked.connect(lambda: self.physics_canvas.set_running(False))
+        resume_btn = QPushButton("Resume")
+        resume_btn.setObjectName("WorkspaceControl")
+        resume_btn.clicked.connect(lambda: self.physics_canvas.set_running(True))
+        step_btn = QPushButton("Step")
+        step_btn.setObjectName("WorkspaceControl")
+        step_btn.clicked.connect(self.physics_canvas.step_once)
+        speed_btn = QPushButton("2x")
+        speed_btn.setObjectName("WorkspaceControl")
+        speed_btn.clicked.connect(lambda: self.physics_canvas.set_speed(2.0 if self.physics_canvas.speed == 1.0 else 1.0))
+        physics_controls.addWidget(pause_btn)
+        physics_controls.addWidget(resume_btn)
+        physics_controls.addWidget(step_btn)
+        physics_controls.addWidget(speed_btn)
+
+        self.notebook_view = QTextEdit()
+        self.notebook_view.setObjectName("WorkspaceNotebook")
+        self.notebook_view.setReadOnly(True)
+        self.notebook_view.setPlainText(
+            "Scientific notebook mode stores the chat prompt, deterministic instruction JSON, generated graphs, "
+            "simulation state, files, and notes per project. This VNext panel is the first desktop slice."
+        )
+
+        workspace_layout.addLayout(workspace_header)
+        workspace_layout.addLayout(workspace_tabs)
+        workspace_layout.addWidget(self.workspace_artifact_list)
+        workspace_layout.addWidget(self.graph_canvas, stretch=1)
+        workspace_layout.addWidget(self.graph_equations)
+        workspace_layout.addWidget(self.graph_inspector)
+        workspace_layout.addWidget(self.physics_canvas, stretch=1)
+        workspace_layout.addWidget(self.physics_stats)
+        workspace_layout.addWidget(self.physics_controls_frame)
+        workspace_layout.addWidget(self.notebook_view, stretch=1)
+
+        body.addWidget(self.workspace_panel)
+        self.workspace_panel.setVisible(False)
 
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(0, 0, 0, 0)
@@ -1050,7 +2325,7 @@ class MoriceWindow(QWidget):
         project_lookup_btn.setVisible(False)
         self.project_lookup_btn = project_lookup_btn
 
-        send_btn = LiquidSendButton("Send")
+        send_btn = SendButton("Send")
         send_btn.clicked.connect(self.on_send)
         self.send_btn = send_btn
 
@@ -1394,6 +2669,81 @@ class MoriceWindow(QWidget):
                 color: rgba(238,238,238,0.92);
                 selection-background-color: rgba(118,72,220,0.62);
             }
+            #ScienceWorkspacePanel {
+                background: rgba(5,8,14,0.97);
+                border-radius: 14px;
+                border: 1px solid rgba(120,180,255,0.24);
+            }
+            #ScienceWorkspaceTitle {
+                color: #ffffff;
+                font-size: 17px;
+                font-weight: 900;
+            }
+            #WorkspaceCloseButton,
+            #WorkspaceControl,
+            #WorkspaceTab {
+                background: rgba(22,24,34,0.86);
+                color: rgba(246,250,255,0.9);
+                border-radius: 8px;
+                padding: 8px 10px;
+                border: 1px solid rgba(160,200,255,0.18);
+                font-weight: 800;
+            }
+            #WorkspaceTab[active="true"] {
+                background: rgba(74,112,205,0.72);
+                border: 1px solid rgba(124,216,255,0.45);
+            }
+            #WorkspaceCloseButton:hover,
+            #WorkspaceControl:hover,
+            #WorkspaceTab:hover {
+                background: rgba(62,74,112,0.92);
+                border: 1px solid rgba(168,220,255,0.42);
+            }
+            #WorkspaceArtifactList {
+                min-height: 92px;
+                max-height: 132px;
+                background: rgba(0,0,0,0.34);
+                color: rgba(245,248,255,0.9);
+                border-radius: 10px;
+                border: 1px solid rgba(160,200,255,0.14);
+                padding: 4px;
+            }
+            #WorkspaceArtifactList::item {
+                padding: 7px 8px;
+                border-radius: 6px;
+            }
+            #WorkspaceArtifactList::item:selected {
+                background: rgba(96,78,210,0.72);
+            }
+            #WorkspaceInspector {
+                color: rgba(188,226,255,0.86);
+                font-size: 12px;
+            }
+            #WorkspaceNotebook {
+                background: rgba(0,0,0,0.34);
+                color: rgba(240,244,255,0.9);
+                border-radius: 10px;
+                border: 1px solid rgba(160,200,255,0.14);
+                padding: 10px;
+            }
+            #ScienceActionCard {
+                background: rgba(8,12,22,0.84);
+                border-radius: 12px;
+                border: 1px solid rgba(124,216,255,0.28);
+                padding: 10px;
+            }
+            #ScienceActionButton {
+                background: rgba(74,112,205,0.72);
+                color: #ffffff;
+                border-radius: 10px;
+                padding: 11px 14px;
+                border: 1px solid rgba(160,220,255,0.42);
+                font-weight: 900;
+                text-align: left;
+            }
+            #ScienceActionButton:hover {
+                background: rgba(95,132,225,0.9);
+            }
             #SidebarTitle {
                 color: #ffffff;
                 font-size: 18px;
@@ -1657,6 +3007,8 @@ class MoriceWindow(QWidget):
         self._update_style_badge()
         self._refresh_queue_list()
         self._refresh_mode_panel()
+        self._refresh_gpu_profile_ui()
+        self._set_workspace_view("graph")
         self._refresh_send_button_state()
 
         if should_preload():
@@ -1679,6 +3031,8 @@ class MoriceWindow(QWidget):
             )
 
         QTimer.singleShot(200, self._post_init)
+        if not self.gpu_profile.detected or self.gpu_profile.vram_mb <= 0:
+            QTimer.singleShot(650, lambda: self._detect_gpu_profile(auto=True))
         self.wake_signal_timer = QTimer(self)
         self.wake_signal_timer.timeout.connect(self._check_external_wake_signal)
         self.wake_signal_timer.start(1000)
@@ -1693,18 +3047,29 @@ class MoriceWindow(QWidget):
     def _check_external_wake_signal(self):
         if not os.path.exists(self.wake_signal_path):
             return
+        source = ""
+        try:
+            with open(self.wake_signal_path, "r", encoding="utf-8", errors="replace") as handle:
+                source = handle.read().strip()
+        except Exception:
+            source = ""
         try:
             os.remove(self.wake_signal_path)
         except Exception:
             pass
-        self._wake_from_external()
+        self._wake_from_external(source)
 
-    def _wake_from_external(self):
+    def _wake_from_external(self, source: str = ""):
+        now = time.monotonic()
         if self.awake:
-            self.append_message(MORICE_NAME, self._address("I heard the wake signal. I am already awake."))
+            if now - self._last_external_wake_notice >= 4.0:
+                detail = f" from {source}" if source else ""
+                self.append_message(MORICE_NAME, self._address(f"I heard the wake signal{detail}. I am already awake."))
+                self._last_external_wake_notice = now
             return
         self.awake = True
         self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {self.user_title}.")
+        self._last_external_wake_notice = now
 
     def _address(self, reply: str) -> str:
         return enforce_father(reply, self.user_title)
@@ -1727,8 +3092,12 @@ class MoriceWindow(QWidget):
         is_visible = not self.sidebar.isVisible()
         self.sidebar.setVisible(is_visible)
         self.title_bar.sidebar_btn.setText("Close" if is_visible else "Panel")
-        if is_visible:
-            self.style_input.setFocus()
+
+    def toggle_workspace_panel(self):
+        if self.workspace_panel.isVisible():
+            self._close_workspace()
+        else:
+            self._open_workspace(self.active_workspace_kind)
 
     def _set_chat_mode(self, mode: str):
         clean_mode = normalize_chat_mode(mode)
@@ -1765,6 +3134,34 @@ class MoriceWindow(QWidget):
         self._refresh_mode_panel()
         self.mode_status.setText("Work folder saved. Project mode can use this as the build root.")
 
+    def _ensure_project_folder_for_build(self) -> bool:
+        typed_folder = ""
+        if hasattr(self, "project_folder_input"):
+            typed_folder = normalize_project_folder(self.project_folder_input.text())
+        if typed_folder and not self._is_inside_app_folder(typed_folder):
+            self.project_folder = typed_folder
+
+        if not self.project_folder:
+            base = os.path.join(os.path.expanduser("~"), "MORICE Projects")
+            self.project_folder = normalize_project_folder(os.path.join(base, "Quick Build"))
+
+        if self._is_inside_app_folder(self.project_folder):
+            self.mode_status.setText("Pick a work folder outside the MORICE app folder.")
+            return False
+
+        try:
+            os.makedirs(self.project_folder, exist_ok=True)
+        except OSError as exc:
+            self.mode_status.setText(f"Could not prepare work folder: {exc}")
+            return False
+
+        if hasattr(self, "project_folder_input"):
+            self.project_folder_input.setText(self.project_folder)
+            self.project_folder_input.setToolTip(self.project_folder)
+        self._save_project_settings()
+        self._refresh_mode_panel()
+        return True
+
     def _set_project_access(self, access: str):
         clean_access = normalize_project_access(access)
         if clean_access == self.project_access:
@@ -1790,7 +3187,45 @@ class MoriceWindow(QWidget):
         self.settings["project_lookup_mode"] = self.project_lookup_mode
         self.settings["model_path"] = self.model_path
         self.settings["model_name"] = self.model_name
+        self.settings["gpu_name"] = self.gpu_name
+        self.settings["gpu_vram_mb"] = self.gpu_vram_mb
         save_settings(self.settings)
+
+    def _refresh_gpu_profile_ui(self):
+        if not hasattr(self, "gpu_status_input"):
+            return
+        self.gpu_status_input.setText(gpu_profile_summary(self.gpu_profile))
+        self.gpu_status_input.setToolTip(self.gpu_profile.message)
+
+    def _detect_gpu_profile(self, auto: bool = False):
+        if getattr(self, "_gpu_detection_busy", False):
+            return
+        self._gpu_detection_busy = True
+        self.detect_gpu_btn.setEnabled(False)
+        self.gpu_status_input.setText("Detecting GPU and VRAM...")
+        if not auto:
+            self.mode_status.setText("Detecting GPU and VRAM for model compatibility.")
+
+        def worker():
+            profile = detect_gpu_profile()
+            self.gpu_detected.emit(profile)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_gpu_detected(self, profile: GpuProfile):
+        self._gpu_detection_busy = False
+        self.detect_gpu_btn.setEnabled(not self.is_busy)
+        self.gpu_profile = profile
+        self.gpu_name = normalize_gpu_name(profile.name)
+        self.gpu_vram_mb = normalize_gpu_vram_mb(str(profile.vram_mb))
+        self._save_project_settings()
+        self._refresh_gpu_profile_ui()
+        if self.model_path:
+            self.model_path_input.setToolTip(f"{self.model_path}\n{self._model_fit_message(self.model_path)}")
+        if profile.detected:
+            self.mode_status.setText(f"GPU profile saved: {gpu_profile_summary(profile)}")
+        else:
+            self.mode_status.setText(profile.message)
 
     def _save_model_name(self):
         clean_name = normalize_model_name(self.model_name_input.text())
@@ -1798,9 +3233,12 @@ class MoriceWindow(QWidget):
             self.model_name_input.setText(clean_name)
         if clean_name == self.model_name:
             return
+        old_name = self.model_name
         self.model_name = clean_name
         self._save_project_settings()
         self._refresh_mode_panel()
+        if old_name != self.model_name and not self.model_path:
+            reset_model_runtime()
         if self.model_name:
             if self.model_path:
                 self.mode_status.setText(
@@ -1823,26 +3261,53 @@ class MoriceWindow(QWidget):
             return f"Ollama model: {self.model_name}."
         return "Model: bundled Hermes GGUF."
 
-    def _validate_model_file(self, path: str) -> tuple[bool, str]:
-        if not path or not os.path.isfile(path):
-            return False, "That file does not exist."
-        ext = os.path.splitext(path)[1].lower()
-        if ext not in MODEL_EXTENSIONS:
-            return False, "That is not a model file. Choose a GGUF or another known model file."
-        try:
-            size = os.path.getsize(path)
-        except OSError:
-            return False, "MORICE could not read that file."
-        if size < 1024 * 1024:
-            return False, "That file is too small to be an AI model."
-        if ext == ".gguf":
-            try:
-                with open(path, "rb") as handle:
-                    if handle.read(4) != b"GGUF":
-                        return False, "That .gguf file is not a valid GGUF model."
-            except OSError:
-                return False, "MORICE could not validate that GGUF file."
-        return True, ""
+    def _model_fit_message(self, path: str) -> str:
+        result = local_model_result(path)
+        compatibility = model_compatibility(result, self.gpu_profile)
+        run_plan = model_run_plan(result, self.gpu_profile)
+        return (
+            f"{compatibility.message} Run plan: {run_plan.label}. "
+            f"{run_plan.context_hint} {run_plan.offload_hint}"
+        )
+
+    def _apply_model_file(self, path: str, source: str) -> bool:
+        clean_path = normalize_model_path(path)
+        verification = self._validate_model_file(clean_path)
+        if not verification.ok:
+            self.mode_status.setText(verification.message)
+            return False
+        if not verification.direct_chat:
+            self.mode_status.setText(
+                verification.message + " Pick a GGUF file or use Web to install a GGUF model."
+            )
+            return False
+
+        changed = clean_path != self.model_path
+        self.model_path = clean_path
+        self.model_path_input.setText(self._model_display_text())
+        fit_message = self._model_fit_message(clean_path)
+        self.model_path_input.setToolTip(f"{self.model_path}\n{fit_message}")
+        self._save_project_settings()
+        self._refresh_mode_panel()
+        if changed:
+            reset_model_runtime()
+        override_note = " GGUF has priority over the typed Ollama model." if self.model_name else ""
+        self.mode_status.setText(
+            f"{source}: {verification.message} MORICE will use it on the next reply.{override_note} {fit_message}"
+        )
+        return True
+
+    def _validate_model_file(self, path: str):
+        return verify_ai_model_file(path)
+
+    def _choose_model_source(self):
+        dialog = ModelSourceDialog(self)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        if dialog.choice == "files":
+            self._choose_model_file()
+        elif dialog.choice == "web":
+            self._open_model_web_browser()
 
     def _choose_model_file(self):
         start_dir = (
@@ -1852,27 +3317,22 @@ class MoriceWindow(QWidget):
         )
         file_path, _ = QFileDialog.getOpenFileName(
             self,
-            "Change MORICE AI model",
+            "Choose an AI model file",
             start_dir,
-            "AI model files (*.gguf *.ggml *.bin *.safetensors *.onnx *.pt *.pth *.ckpt *.model);;All files (*)",
+            "All files (*)",
         )
         if not file_path:
             return
-        clean_path = normalize_model_path(file_path)
-        ok, error = self._validate_model_file(clean_path)
-        if not ok:
-            self.mode_status.setText(error)
+        self._apply_model_file(file_path, "Local model selected")
+
+    def _open_model_web_browser(self):
+        dialog = ModelWebBrowserDialog(self, self.gpu_profile)
+        result = dialog.exec()
+        if dialog.gpu_profile and dialog.gpu_profile.detected:
+            self._on_gpu_detected(dialog.gpu_profile)
+        if result != QDialog.Accepted or not dialog.selected_path:
             return
-        self.model_path = clean_path
-        self.model_path_input.setText(self._model_display_text())
-        self.model_path_input.setToolTip(self.model_path)
-        self._save_project_settings()
-        if os.path.splitext(self.model_path)[1].lower() == ".gguf":
-            self.mode_status.setText("Model changed. MORICE will use this GGUF on the next reply.")
-        else:
-            self.mode_status.setText(
-                "Model file attached, but this PC build runs GGUF directly. Use a GGUF for local chat."
-            )
+        self._apply_model_file(dialog.selected_path, "Web model installed and selected")
 
     def _clear_model_file(self):
         if not self.model_path:
@@ -1883,6 +3343,7 @@ class MoriceWindow(QWidget):
         self.model_path_input.setToolTip("Using bundled Hermes GGUF unless an Ollama model name is set")
         self._save_project_settings()
         self._refresh_mode_panel()
+        reset_model_runtime()
         if self.model_name:
             self.mode_status.setText(f"GGUF file cleared. MORICE will use Ollama model {self.model_name}.")
         else:
@@ -1951,7 +3412,11 @@ class MoriceWindow(QWidget):
         self.project_lookup_btn.setToolTip("Toggle Project mode web lookup. Online+local is recommended.")
         self.model_name_input.setText(self.model_name)
         self.model_path_input.setText(self._model_display_text())
-        self.model_path_input.setToolTip(self.model_path or "Using bundled Hermes GGUF unless an Ollama name is set")
+        if self.model_path:
+            self.model_path_input.setToolTip(f"{self.model_path}\n{self._model_fit_message(self.model_path)}")
+        else:
+            self.model_path_input.setToolTip("Using bundled Hermes GGUF unless an Ollama name is set")
+        self._refresh_gpu_profile_ui()
         for button, active in (
             (self.normal_mode_btn, not is_project),
             (self.project_mode_btn, is_project),
@@ -2043,32 +3508,99 @@ class MoriceWindow(QWidget):
             lowered.startswith("chat:")
             or lowered.startswith("ask:")
             or lowered.startswith("explain:")
+            or lowered.startswith("question:")
         )
         if explanation_only:
             return False
-        return any(
-            key in lowered
-            for key in {
-                "app",
-                "add",
-                "build",
-                "code",
-                "create",
-                "edit",
-                "file",
-                "fix",
-                "game",
-                "generate",
-                "implement",
-                "make",
-                "page",
-                "project",
-                "site",
-                "tool",
-                "update",
-                "website",
-            }
-        ) or len(lowered.split()) >= 3
+        action_words = {
+            "add",
+            "build",
+            "change",
+            "code",
+            "complete",
+            "create",
+            "debug",
+            "edit",
+            "enhance",
+            "fix",
+            "finish",
+            "generate",
+            "improve",
+            "implement",
+            "make",
+            "patch",
+            "polish",
+            "refactor",
+            "repair",
+            "scaffold",
+            "tighten",
+            "update",
+            "write",
+        }
+        direct_build_words = {"build", "code", "create", "generate", "make", "scaffold", "write"}
+        project_words = {
+            "api",
+            "app",
+            "bug",
+            "bugs",
+            "component",
+            "file",
+            "game",
+            "page",
+            "project",
+            "screen",
+            "script",
+            "site",
+            "tool",
+            "ui",
+            "website",
+        }
+        question_words = {
+            "how",
+            "what",
+            "when",
+            "where",
+            "which",
+            "who",
+            "why",
+            "explain",
+            "tell me",
+        }
+        has_action = any(key in lowered for key in action_words)
+        has_project_target = any(key in lowered for key in project_words)
+        has_direct_build = any(key in lowered for key in direct_build_words)
+        if has_action and has_project_target:
+            return True
+        if has_direct_build and len(lowered.split()) >= 2 and not any(lowered.startswith(word) for word in question_words):
+            return True
+        if has_action and any(marker in lowered for marker in {"this folder", "the project", "my project", "these files"}):
+            return True
+        if has_action and any(marker in lowered for marker in {"bug", "glitch", "issue", "loose end", "error"}):
+            return True
+        if has_project_target and not any(lowered.startswith(word) for word in question_words):
+            return any(key in lowered for key in {"new", "simple", "small", "full", "complete", "working"})
+        return False
+
+    def _is_project_retry_request(self, text: str) -> bool:
+        if self.chat_mode != "project" or not self.last_project_request:
+            return False
+        lowered = " ".join((text or "").lower().split())
+        retry_phrases = {
+            "again",
+            "do it",
+            "do it now",
+            "done now try",
+            "now try",
+            "retry",
+            "try again",
+            "try it",
+            "try it now",
+            "try now",
+        }
+        return lowered in retry_phrases or (
+            any(phrase in lowered for phrase in {"try again", "retry", "now try"})
+            and len(lowered.split()) <= 5
+        )
 
     def _project_snapshot(self) -> str:
         if not self.project_folder or not os.path.isdir(self.project_folder):
@@ -2138,8 +3670,75 @@ class MoriceWindow(QWidget):
             '"commands":["optional commands"],"notes":["optional notes"]}. '
             "Every file path must be relative to the work folder. Include complete file contents, not snippets. "
             "When editing an existing file, include the full updated file content. "
+            "Do not return a commands-only manifest; create or update at least one practical file whenever the request asks to build. "
             "Do not wrap the JSON in markdown. Do not include explanations outside the JSON."
         )
+
+    def _manifest_from_markdown_files(self, text: str) -> dict | None:
+        default_names = {
+            "css": "styles.css",
+            "html": "index.html",
+            "javascript": "app.js",
+            "js": "app.js",
+            "jsx": "src/App.jsx",
+            "py": "main.py",
+            "python": "main.py",
+            "ts": "src/app.ts",
+            "tsx": "src/App.tsx",
+        }
+        files = []
+        used_paths: set[str] = set()
+
+        def unique_path(path: str) -> str:
+            cleaned = path.replace("\\", "/").strip().strip("`'\"")
+            base, ext = os.path.splitext(cleaned)
+            candidate = cleaned
+            counter = 2
+            while candidate.lower() in used_paths:
+                candidate = f"{base}-{counter}{ext}"
+                counter += 1
+            used_paths.add(candidate.lower())
+            return candidate
+
+        def infer_path(before: str, language: str, index: int) -> str | None:
+            for line in reversed(before.splitlines()[-5:]):
+                line = line.strip().rstrip(":")
+                matches = re.findall(
+                    r"([A-Za-z0-9_.-]+(?:[/\\][A-Za-z0-9_.-]+)*\.[A-Za-z0-9]{1,8})",
+                    line,
+                )
+                for match in reversed(matches):
+                    ext = os.path.splitext(match)[1].lower()
+                    if ext in PROJECT_TEXT_EXTENSIONS:
+                        return unique_path(match)
+            language = (language or "").lower().strip()
+            if language in {"json", "text", "txt", ""}:
+                return None
+            if language in default_names:
+                return unique_path(default_names[language])
+            return unique_path(f"generated-{index}.{language}")
+
+        for index, match in enumerate(
+            re.finditer(r"```([A-Za-z0-9_+.-]*)[ \t]*\n(.*?)```", text, flags=re.DOTALL),
+            start=1,
+        ):
+            language = match.group(1).strip().lower()
+            content = match.group(2).rstrip()
+            if not content:
+                continue
+            relative_path = infer_path(text[: match.start()], language, index)
+            if not relative_path:
+                continue
+            files.append({"path": relative_path, "content": content + "\n"})
+
+        if not files:
+            return None
+        return {
+            "summary": f"Created {len(files)} file(s) from the model's code blocks.",
+            "files": files,
+            "commands": [],
+            "notes": ["MORICE converted markdown code blocks into editable project files."],
+        }
 
     def _extract_project_manifest(self, reply: str) -> dict | None:
         text = (reply or "").strip()
@@ -2158,17 +3757,30 @@ class MoriceWindow(QWidget):
             try:
                 manifest = json.loads(candidate)
             except Exception:
+                decoder = json.JSONDecoder()
+                for match in re.finditer(r"\{", candidate):
+                    try:
+                        manifest, _end = decoder.raw_decode(candidate[match.start() :])
+                    except Exception:
+                        continue
+                    if isinstance(manifest, dict) and isinstance(manifest.get("files"), list):
+                        return manifest
                 continue
             if isinstance(manifest, dict) and isinstance(manifest.get("files"), list):
                 return manifest
-        return None
+        return self._manifest_from_markdown_files(text)
 
     def _project_target_path(self, relative_path: str) -> str:
         rel = (relative_path or "").replace("\\", "/").strip().lstrip("/")
-        if not rel or rel.endswith("/"):
+        parts = [part for part in rel.split("/") if part and part != "."]
+        if not parts or rel.endswith("/"):
             raise ValueError("Invalid project file path.")
+        if any(part == ".." or ":" in part for part in parts):
+            raise ValueError(f"Blocked unsafe project path: {relative_path}")
+        if any(part.lower() in PROJECT_IGNORED_DIRS for part in parts):
+            raise ValueError(f"Blocked generated file inside ignored project folder: {relative_path}")
         root = os.path.abspath(self.project_folder)
-        target = os.path.abspath(os.path.join(root, *rel.split("/")))
+        target = os.path.abspath(os.path.join(root, *parts))
         if os.path.commonpath([root, target]) != root:
             raise ValueError(f"Blocked unsafe path outside project folder: {relative_path}")
         return target
@@ -2195,8 +3807,8 @@ class MoriceWindow(QWidget):
             rendered.append(f"<div style='white-space:pre;color:{color}'>{escaped}</div>")
         return "".join(rendered)
 
-    def _apply_project_manifest(self, reply: str) -> dict | None:
-        manifest = self._extract_project_manifest(reply)
+    def _apply_project_manifest(self, reply) -> dict | None:
+        manifest = reply if isinstance(reply, dict) else self._extract_project_manifest(reply)
         if not manifest:
             return None
         files = manifest.get("files") or []
@@ -2261,6 +3873,116 @@ class MoriceWindow(QWidget):
         )
         self.changes_panel.setVisible(self.chat_mode == "project")
 
+    def _set_workspace_view(self, kind: str):
+        clean = kind if kind in {"graph", "physics", "notebook"} else "graph"
+        self.active_workspace_kind = clean
+        for button, active in (
+            (self.graph_workspace_btn, clean == "graph"),
+            (self.physics_workspace_btn, clean == "physics"),
+            (self.notebook_workspace_btn, clean == "notebook"),
+        ):
+            button.setProperty("active", "true" if active else "false")
+            button.style().unpolish(button)
+            button.style().polish(button)
+        self.graph_canvas.setVisible(clean == "graph")
+        self.graph_equations.setVisible(clean == "graph")
+        self.graph_inspector.setVisible(clean == "graph")
+        self.physics_canvas.setVisible(clean == "physics")
+        self.physics_stats.setVisible(clean == "physics")
+        self.physics_controls_frame.setVisible(clean == "physics")
+        self.notebook_view.setVisible(clean == "notebook")
+
+    def _open_workspace(self, kind: str):
+        self.workspace_panel.setVisible(True)
+        self._set_workspace_view(kind)
+        if hasattr(self.title_bar, "workspace_btn"):
+            self.title_bar.workspace_btn.setText("Close Lab")
+
+    def _close_workspace(self):
+        self.workspace_panel.setVisible(False)
+        if hasattr(self.title_bar, "workspace_btn"):
+            self.title_bar.workspace_btn.setText("Lab")
+
+    def _refresh_workspace_artifact_list(self):
+        self.workspace_artifact_list.blockSignals(True)
+        self.workspace_artifact_list.clear()
+        for artifact in self.science_artifacts:
+            prefix = "Graph" if artifact.kind == "graph" else "Physics"
+            item = QListWidgetItem(f"{prefix}: {artifact.title}")
+            item.setData(Qt.UserRole, artifact.kind)
+            self.workspace_artifact_list.addItem(item)
+        self.workspace_artifact_list.blockSignals(False)
+        if self.science_artifacts:
+            self.workspace_artifact_list.setCurrentRow(len(self.science_artifacts) - 1)
+
+    def _on_workspace_artifact_selected(self, row: int):
+        if row < 0 or row >= len(self.science_artifacts):
+            return
+        artifact = self.science_artifacts[row]
+        self._set_workspace_view(artifact.kind)
+        if artifact.graph:
+            self.graph_canvas.set_artifact(artifact.graph)
+            self.graph_equations.setText(
+                "Equations:\n" + "\n".join(f"- {series.label}" for series in artifact.graph.series)
+            )
+        if artifact.physics:
+            self.physics_canvas.set_artifact(artifact.physics)
+            self.physics_stats.setText(
+                f"Particles: {len(artifact.physics.particles)} | FPS target: 60 | "
+                f"Collisions/sec: 0 | Speed: {self.physics_canvas.speed:g}x"
+            )
+        self.notebook_view.setPlainText(
+            "Artifact\n"
+            f"Title: {artifact.title}\n"
+            f"Kind: {artifact.kind}\n\n"
+            "Deterministic instruction JSON\n"
+            + json.dumps(artifact.instruction, indent=2)
+        )
+
+    def _add_science_artifact(self, artifact: ScienceArtifact):
+        self.science_artifacts.append(artifact)
+        self._refresh_workspace_artifact_list()
+        self._open_workspace(artifact.kind)
+
+    def _insert_chat_widget(self, widget: QWidget, force_scroll: bool = True):
+        insert_index = max(0, self.chat_list_layout.count() - 1)
+        self.chat_list_layout.insertWidget(insert_index, widget)
+        if force_scroll:
+            self.follow_latest = True
+        self._schedule_latest_scroll(force=force_scroll)
+
+    def append_science_card(self, artifact: ScienceArtifact):
+        card = QFrame()
+        card.setObjectName("ScienceActionCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        if artifact.kind == "graph":
+            title = "Graph Generated"
+            detail = f"Open Graph Workspace -> {artifact.title}"
+            target = "graph"
+        else:
+            title = "Physics Simulation Generated"
+            detail = f"Open Simulation Workspace -> {artifact.title}"
+            target = "physics"
+        button = QPushButton(f"{title}\n{detail}")
+        button.setObjectName("ScienceActionButton")
+        button.clicked.connect(lambda _checked=False, kind=target: self._open_workspace(kind))
+        layout.addWidget(button)
+        self._insert_chat_widget(card)
+
+    def _handle_science_request(self, user_input: str) -> bool:
+        if not is_science_request(user_input):
+            return False
+        artifact = build_science_artifact(user_input)
+        if not artifact:
+            return False
+        self._add_science_artifact(artifact)
+        self.append_science_card(artifact)
+        self.history.append({"role": "user", "content": user_input})
+        self.history.append({"role": "assistant", "content": f"{artifact.kind.title()} generated in workspace: {artifact.title}"})
+        return True
+
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
         should_follow = self.follow_latest or self._is_at_bottom()
         if force_scroll is None:
@@ -2305,6 +4027,7 @@ class MoriceWindow(QWidget):
         self.model_path_input.setEnabled(not is_busy)
         self.change_model_btn.setEnabled(not is_busy)
         self.clear_model_btn.setEnabled(not is_busy)
+        self.detect_gpu_btn.setEnabled((not is_busy) and not getattr(self, "_gpu_detection_busy", False))
         self.project_folder_input.setEnabled(not is_busy)
         self.project_add_btn.setEnabled(not is_busy)
         self.folder_access_btn.setEnabled(not is_busy)
@@ -2312,14 +4035,12 @@ class MoriceWindow(QWidget):
         self.access_status_btn.setEnabled(not is_busy)
         self.project_lookup_btn.setEnabled(not is_busy)
         self._refresh_send_button_state()
-        if not is_busy:
-            self.input.setFocus()
 
     def _refresh_send_button_state(self):
         queued_count = len(self.message_queue)
         has_text = bool(self.input.text().strip()) if hasattr(self, "input") else False
         can_click = has_text
-        liquid_ready = has_text and not self.is_busy
+        ready_state = has_text and not self.is_busy
         if self.is_busy:
             self.send_btn.setText(f"Queued {queued_count}" if queued_count else "Steer")
             if queued_count:
@@ -2330,8 +4051,8 @@ class MoriceWindow(QWidget):
             self.send_btn.setText("Send")
             self.input.setPlaceholderText(self._input_placeholder())
         self.send_btn.setEnabled(can_click)
-        if hasattr(self.send_btn, "set_liquid_ready"):
-            self.send_btn.set_liquid_ready(liquid_ready)
+        if hasattr(self.send_btn, "set_ready"):
+            self.send_btn.set_ready(ready_state)
         self._refresh_queue_controls()
 
     def _refresh_queue_list(self, preferred_row: int | None = None):
@@ -2492,10 +4213,12 @@ class MoriceWindow(QWidget):
             self.project_lookup_btn,
             self.title_bar,
             self.title_bar.sidebar_btn,
+            self.title_bar.workspace_btn,
             self.chat_container,
             self.input_frame,
             self.sidebar,
             self.mode_panel,
+            self.workspace_panel,
             self.changes_panel,
             self.precision_btn,
             self.save_style_btn,
@@ -2914,11 +4637,18 @@ class MoriceWindow(QWidget):
             self.append_message(MORICE_NAME, self._address(summary))
             return
 
-        project_build_request = self._is_project_build_request(user_input)
-        if project_build_request and not self.project_folder:
+        if self._handle_science_request(user_input):
+            return
+
+        retry_project_request = self._is_project_retry_request(user_input)
+        project_source_input = self.last_project_request if retry_project_request else user_input
+        project_build_request = retry_project_request or self._is_project_build_request(user_input)
+        if project_build_request and not retry_project_request:
+            self.last_project_request = user_input
+        if project_build_request and not self._ensure_project_folder_for_build():
             self.append_message(
                 MORICE_NAME,
-                self._address("Choose a work folder with the + button first, then I can create and edit the project files there."),
+                self._address("Choose a work folder with the + button, then I can create and edit the project files there."),
             )
             return
 
@@ -2956,12 +4686,13 @@ class MoriceWindow(QWidget):
         def worker():
             try:
                 self.thinking_update.emit("Checking saved response style and local context.")
-                context = retrieve_context(user_input) if should_use_context(user_input) else ""
+                context_input = project_source_input if project_build_request else user_input
+                context = retrieve_context(context_input) if should_use_context(context_input) else ""
                 web_context = ""
                 web_query = extract_web_query(user_input)
                 auto_project_web = project_build_request and self.project_lookup_mode == "online"
                 if os.getenv("MORICE_WEB", "1") == "1" and (web_query or auto_project_web):
-                    search_query = web_query or user_input
+                    search_query = web_query or project_source_input
                     if web_query:
                         self.thinking_update.emit("Searching the web because the message used @web.")
                     else:
@@ -3021,9 +4752,18 @@ class MoriceWindow(QWidget):
                     if project_build_request
                     else "Asking Hermes to compose the final answer."
                 )
+                model_user_input = user_input
+                model_history = self.history
+                if project_build_request:
+                    model_history = []
+                    model_user_input = (
+                        "Create or update the project files for this request. "
+                        "Return only the required JSON manifest with complete file contents.\n\n"
+                        f"USER_REQUEST:\n{project_source_input}"
+                    )
                 reply = chat(
-                    self.history,
-                    user_input,
+                    model_history,
+                    model_user_input,
                     extra_system=extra_system,
                     model=self.model_name or None,
                     timeout=180,
@@ -3046,7 +4786,7 @@ class MoriceWindow(QWidget):
                         repair_prompt = (
                             "Turn this project request into the required JSON file manifest only. "
                             "Include complete file contents and relative paths.\n\n"
-                            f"User request:\n{user_input}\n\n"
+                            f"User request:\n{project_source_input}\n\n"
                             f"Previous model output:\n{reply}"
                         )
                         try:
@@ -3064,15 +4804,34 @@ class MoriceWindow(QWidget):
                         except Exception as exc:  # noqa: BLE001
                             apply_error = str(exc)
 
+                    if not project_result:
+                        self.thinking_update.emit("Using MORICE's local Project fallback builder.")
+                        try:
+                            fallback_manifest = build_project_fallback_manifest(project_source_input)
+                            if fallback_manifest:
+                                project_result = self._apply_project_manifest(fallback_manifest)
+                                if project_result:
+                                    project_result["summary"] = (
+                                        project_result["summary"]
+                                        + " Built with MORICE's local fallback builder."
+                                    )
+                                    project_result["message"] += (
+                                        "\n\nNotes:\n- MORICE used its local fallback builder because the model did not return safe project JSON."
+                                    )
+                        except Exception as exc:  # noqa: BLE001
+                            apply_error = str(exc)
+
                     if project_result:
                         visible_reply = project_result["message"]
                         self.project_changes_ready.emit(project_result["summary"], project_result["diff_html"])
                     else:
                         detail = f" Error: {apply_error}" if apply_error else ""
-                        visible_reply = (
-                            "I could not safely turn that request into project files yet."
-                            f"{detail}\n\nChoose a work folder and try again with a direct build request."
+                        folder_hint = (
+                            "Choose a work folder with the + button, then try a direct build request."
+                            if not self.project_folder
+                            else "Try a more direct build request, or switch the selected model to a stronger coding GGUF."
                         )
+                        visible_reply = f"I could not safely turn that request into project files yet.{detail}\n\n{folder_hint}"
                 self.history.append({"role": "user", "content": user_input})
                 self.history.append({"role": "assistant", "content": visible_reply})
                 self.message_ready.emit(MORICE_NAME, self._address(shorten_reply(visible_reply)), False)

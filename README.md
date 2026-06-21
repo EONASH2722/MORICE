@@ -4,7 +4,7 @@
 
 # MORICE
 
-MORICE is a local desktop AI assistant with a PySide6 tinted-glass interface, offline GGUF support, notes lookup, optional web lookup, a wake listener, a real Project builder that writes files into a selected work folder, detailed structured replies, and a reorderable message queue.
+MORICE is a local desktop AI workspace for people who want an assistant that can talk, research, read notes, build files, plot equations, and run deterministic physics demos without losing the feel of a personal tool. It combines a PySide6 glass interface, offline GGUF/Ollama model support, trusted model browsing, notes lookup, optional web lookup, wake control, queued follow-up messages, Project mode file building, and an early VNext science workspace.
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license">
@@ -13,6 +13,7 @@ MORICE is a local desktop AI assistant with a PySide6 tinted-glass interface, of
   <img src="https://img.shields.io/badge/offline-GGUF-purple" alt="Offline GGUF">
   <img src="https://img.shields.io/badge/base%20AI-Hermes%203%208B-ff6b35" alt="Hermes 3 8B">
   <img src="https://img.shields.io/badge/mode-Project%20Builder-111827" alt="Project Builder">
+  <img src="https://img.shields.io/badge/VNext-Science%20Workspace-0891b2" alt="Science Workspace">
 </p>
 
 <p align="center">
@@ -25,26 +26,57 @@ MORICE is a local desktop AI assistant with a PySide6 tinted-glass interface, of
   <img src="docs/screenshots/morice-2026-chat.png" alt="MORICE chat screen" width="48%">
 </p>
 
+## Workflow Map
+
+The main MORICE modes all pass through the same intent layer, then branch into the right context source before the local model replies or applies files.
+
+<p align="center">
+  <img src="docs/morice-workflow-chain.svg" alt="MORICE Project mode, web lookup, notes lookup, and model browser workflow chain" width="100%">
+</p>
+
+## VNext Science Workspace
+
+MORICE now has the first desktop slice of a scientific workspace. Chat stays clean: when a graph or simulation is generated, chat shows a small clickable preview card and the actual visualization opens in the `Lab` workspace dock beside the conversation.
+
+<p align="center">
+  <img src="docs/screenshots/morice-vnext-graph-reference.jpg" alt="Graph reference for the MORICE VNext graph workspace" width="42%">
+</p>
+
+Current VNext desktop slice:
+
+- Deterministic Graph Engine in `morice/science_engine.py`.
+- Interactive PySide graph canvas with dark grid, zoom, pan, multiple equations, x/y-intercept callouts, extrema callouts, and point inspection.
+- Graph prompts can cover standard `y = ...` functions, multiple equations, polar `r = ...` curves, and parametric `x(t), y(t)` curves in the current desktop slice.
+- 2D particle/projectile physics canvas with gravity, bounds, collisions, pause/resume, stepping, and speed control.
+- Model-agnostic instruction shape: `simulationType`, `equations`, and `parameters`.
+- Lab workspace dock with `Graphs`, `Simulations`, and `Notebook` tabs.
+- Chat preview cards that open the right workspace view instead of rendering graphs inside chat.
+- Notebook tab stores artifact metadata and the deterministic instruction JSON for future persistent project sessions.
+
+Planned VNext engine expansion:
+
+- Plotly plus a MathJS-powered parser for the production web renderer.
+- Matter.js/Planck.js for richer 2D physics.
+- Three.js plus Rapier/Cannon-es for GPU-accelerated 3D rigid-body scenes.
+- Export to PNG, SVG, GIF, MP4, and JSON state.
+- Persistent per-project graph, simulation, file, memory, and notebook artifacts.
+
+See `docs/vnext-science-workspace.md` and the strict TypeScript scaffold in `vnext/` for the planned engine layer.
+
 ## Highlights
 
-- Tinted-glass desktop app with a centered launch composer.
-- Animated purple wave backdrop behind the starting type bar.
-- Composer drops to the bottom with a small bounce after the first prompt.
-- MORICE defaults to detailed answers with headings, body sections, examples, and next steps.
-- Wake listener can launch and wake MORICE with either two claps or magic words.
-- While MORICE is replying, use `Steer` to queue follow-up messages.
-- Open `Panel` to reorder, remove, or clear queued messages before they send.
-- Processing status is shown while MORICE works and disappears when the reply arrives.
-- One-command model installer for the Hermes 3 Llama 3.1 8B Q4_K_M GGUF used by this app.
-- In-app model picker and Ollama model-name override from the left sidebar, with model-file validation.
-- Project builder mode that turns prompts into real files in the selected work folder instead of only printing code.
-- Right-side Project changes panel with green/red diffs for files MORICE changed.
-- Project `Local mode` / `Online+local` toggle in the composer. Online+local is recommended for current docs and examples.
-- Work-folder picker, folder-limited/full access choices, and stronger coding behavior for apps, games, websites, tools, scripts, APIs, and mobile planning.
-- Typo-aware and short-form-aware command/intent handling so rough wording like `shrt frm`, `rn`, or `sory` can still be understood from context.
-- Liquid Send button animation that only fills when a message is ready to send.
-- Chat text is selectable/copyable.
-- MIT licensed so anyone can study, change, fork, and customize it.
+- Glass desktop interface with a centered launch composer, animated galaxy/wave surfaces, and a Send button that stays calm instead of using a liquid-fill animation.
+- Local-first model routing through a bundled GGUF, a selected GGUF file, or an installed Ollama model.
+- Trusted model browser with automatic GPU/VRAM detection, one-click trusted model lanes, compatibility scoring, worth scoring, official-source links, licenses, task metadata, and model-speciality summaries.
+- Project mode that reads a bounded snapshot of a selected work folder, asks the model for a strict file manifest, applies safe file writes, rescues filename-labeled markdown code blocks into editable files, falls back to a local builder when the model does not return usable project output, remembers retry requests, and shows a right-side diff panel.
+- VNext Lab workspace for graphing equations and running deterministic 2D physics previews beside chat.
+- `@web` lookup for fresh information when needed, with results passed into the local reply pipeline instead of leaving the whole chat online by default.
+- `@notes` lookup for local knowledge files, so MORICE can answer from personal documents without uploading them.
+- Wake listener that can launch or wake MORICE by saved phrase or clap pattern.
+- Message queue for follow-up steering while a long local reply is still generating.
+- Personalization panel for the user title, wake phrase, and preferred response style.
+- Typo-aware and short-form-aware intent handling, so rough wording can still land in the right workflow.
+- MIT licensed, so the project can be studied, forked, customized, and improved.
 
 ## Quick Install
 
@@ -165,20 +197,23 @@ These are practical targets for the base `Hermes-3-Llama-3.1-8B.Q4_K_M.gguf` mod
 | 16 GB | Higher context and heavier offload | Comfortable for larger code snapshots and longer replies. |
 | 24 GB+ | Larger models or multiple local tools | Room to experiment with stronger models while keeping MORICE responsive. |
 
-Tip: if your PC struggles, lower `MORICE_GPU_LAYERS`, lower `MORICE_CTX`, or switch the in-app Ollama model name to a lighter model.
+Tip: if your PC struggles, lower `MORICE_GPU_LAYERS`, lower `MORICE_CTX`, or use the in-app `Change model` feature to pick a lighter GGUF/Ollama model that fits your VRAM limit.
 
-## Change Model In App
+## Model Control
 
-Open the left sidebar with the three-line button, then use the `AI model` section.
+Open the mode panel with the RGB three-line button, then use the `AI model` section.
 
-You have two model routes:
+MORICE supports four practical model routes:
 
 - Type an Ollama model name, for example `qwen2.5-coder:7b`, `deepseek-r1:1.5b`, or your own custom Ollama model.
-- Use `Change model` to pick a local GGUF file for direct offline chat.
+- Use `Change model` -> `Files` to pick a file from your PC. The picker accepts any file, then MORICE verifies whether it is an AI model. GGUF files can be used directly by this desktop app.
+- Use `Detect GPU` to save your GPU and VRAM profile for model-fit checks.
+- Use `Change model` -> `Web` to open MORICE's custom liquid-galaxy model browser. It searches trusted Hugging Face GGUF sources and official model pages, auto-detects GPU/VRAM, preloads a best-fit lane, skips split GGUF shards that cannot install as one file, sorts results by detected GPU fit plus model worth, shows each model's speciality/source/license/task details, and displays compatibility, worth, and a run plan before install.
+- The run plan tells the user whether the model is recommended, balanced, usable, CPU-assisted, or not recommended on the detected GPU, plus context and GPU-offload guidance.
 
 MORICE validates selected files before saving them. Random files are rejected with a clear error. This desktop build can run GGUF models directly through the bundled llama runner. If a GGUF file is selected, it takes priority. Use `Clear file` to let the typed Ollama model name answer instead.
 
-Both the selected GGUF path and the typed Ollama model name are saved in MORICE settings and used on the next reply.
+After a model change, MORICE resets the local GGUF runtime/cache so the next reply loads the newly selected model cleanly. The selected GGUF path, typed Ollama model name, and detected GPU profile are saved in MORICE settings and used on the next reply/model search.
 
 ## PC App Release
 
@@ -221,10 +256,21 @@ start-wake-listener.bat
 Wake behavior:
 
 - Say the saved wake line, for example `wake up son`.
-- Or clap twice.
+- Or clap twice inside the wake window.
 - Either path launches the app if needed and sets MORICE awake automatically.
+- The listener has a wake cooldown so repeated partial voice matches or extra claps do not spam MORICE.
+- It detects both the packaged `MORICE.exe` app and manual Python runs, so it avoids launching duplicates during development.
 
 The wake line can be changed in the MORICE panel.
+
+Wake diagnostics:
+
+```bat
+python morice_wake_listener.py --self-test
+python morice_wake_listener.py --list-devices
+```
+
+To force a specific microphone, set `MORICE_AUDIO_DEVICE` to the device index or device name before starting the listener.
 
 Optional startup install:
 
@@ -232,15 +278,15 @@ Optional startup install:
 powershell -ExecutionPolicy Bypass -File install-wake-listener-startup.ps1
 ```
 
-## Detailed Replies
+## Response Style
 
-MORICE is tuned to explain in an easy, detailed style by default:
+MORICE is tuned for answers that feel useful without becoming robotic:
 
-- Direct answer first.
-- Markdown heading.
-- Clear body explanation.
-- Next heading and body.
-- Examples, tradeoffs, checks, or next steps when useful.
+- Start with the direct answer.
+- Use short headings when structure helps.
+- Explain the reason, tradeoff, or next step in plain language.
+- Include examples, checks, or commands when they move the task forward.
+- Keep personality present, but keep the work clear.
 
 If you want shorter answers, add a style in the panel such as:
 
@@ -265,21 +311,43 @@ Use the RGB three-line button on the left side of the title bar to open the mode
 - `Normal chat` for everyday questions and casual use.
 - `Project` for building apps, games, websites, tools, scripts, APIs, and mobile app plans.
 
-Project mode includes:
+Project mode is designed for real workspace changes:
 
 - A Project-only setup area that appears after clicking `Project`.
 - A `+` button for choosing or creating a work folder outside the MORICE app folder.
 - `Limited to folder`, which keeps project paths and commands inside the chosen folder and asks permission for any specific job outside it.
 - `Full access`, which treats normal requested project work as pre-approved while staying private, safe, and non-destructive.
-- Real file building: describe the app, game, website, script, or tool you want, and MORICE writes the project files into the selected work folder.
-- Existing project awareness: MORICE reads a bounded snapshot of the work folder before editing so it can update files instead of replacing blindly.
+- File building: describe the app, game, website, script, or tool you want, and MORICE writes the project files into the selected work folder.
+- If no folder is selected, MORICE prepares a safe default work folder outside the app at `~/MORICE Projects/Quick Build`.
+- Existing project awareness: MORICE reads a bounded snapshot of the work folder before editing, so it can update files instead of replacing blindly.
+- Local fallback building: if the selected model answers normally instead of returning a safe JSON file manifest, MORICE can still generate a practical starter project for common web, game, script, and tool requests.
 - A right-side `Project changes` panel that shows unified diffs with green additions and red removals after each file-building action.
 - `Local mode` uses the selected folder and local model only.
 - `Online+local` can add web context for current libraries, docs, patterns, and examples.
 - Stronger coding behavior for any requested language or framework.
 - Typo-aware intent handling, so rough wording is interpreted from chat context.
+- Safer build detection, so `chat:`, `ask:`, `question:`, and `explain:` prompts stay as conversation instead of being treated as file writes.
 - In Project mode, the composer replaces the `Personalised` button with the current access mode and adds the local/online toggle.
-- The Send button stays grey when empty or while MORICE is replying, then animates with a liquid fill when ready.
+- The Send button stays grey when empty or while MORICE is replying, then switches to a clean ready state when text can be sent.
+
+## Graphs And Simulations
+
+Use natural prompts:
+
+```text
+plot y=x^2-4x+3
+plot y=sin(x) and y=cos(x)
+simulate projectile motion
+simulate 300 particles with gravity and collisions
+```
+
+MORICE routes these to deterministic engines:
+
+```text
+chat prompt -> science intent -> instruction JSON -> graph/physics engine -> Lab workspace
+```
+
+The AI model may help reason about the problem, but rendering stays deterministic. The model does not draw directly; the app turns supported instructions into graph data or simulation state.
 
 ## Message Queue
 
@@ -293,7 +361,7 @@ Type a follow-up and press Enter or click `Steer`; it is added to the queue. Ope
 
 MORICE sends the next queued item automatically as soon as the current reply arrives.
 
-## Web Lookup
+## Web Lookup Chain
 
 Use:
 
@@ -305,7 +373,13 @@ Use:
 
 In Project mode, `Online+local` can search automatically for project context. Switch the composer toggle to `Local mode` when you want file/folder-only work.
 
-## Notes
+The chain is:
+
+```text
+@web prompt -> web search -> compact source context -> local model -> answer with source URLs
+```
+
+## Notes Chain
 
 Default notes folder:
 
@@ -314,6 +388,12 @@ D:\FOOD FOR MORICE
 ```
 
 Use `@notes` in a message to include local notes.
+
+The chain is:
+
+```text
+@notes prompt -> local notes search -> relevant snippets -> local model -> grounded answer
+```
 
 ## Useful Commands
 
@@ -329,11 +409,15 @@ Common places to edit:
 
 - UI and animations: `morice/pyside_app.py`
 - MORICE personality and reply rules: `morice/core.py`
+- Graph and physics instruction engine: `morice/science_engine.py`
 - Local model routing and token budget: `morice/llm_client.py`
+- Project fallback file builder: `morice/project_builder.py`
+- Model verification/search/VRAM scoring: `morice/model_catalog.py`
 - Wake listener sensitivity and magic words: `morice_wake_listener.py`
 - Saved personalization settings: `morice/settings.py`
 - Logo and screenshots: `morice/assets/` and `docs/screenshots/`
 - Build bundle: `MORICE.spec`
+- Future TypeScript graph/physics architecture: `vnext/`
 
 Useful environment variables:
 
@@ -352,13 +436,18 @@ Useful environment variables:
 ```text
 morice/
   pyside_app.py        Desktop UI
+  project_builder.py   Local Project mode fallback file generator
+  science_engine.py    Deterministic graph and physics artifact generator
   core.py              Personality, commands, and helper replies
   llm_client.py        Local/Ollama model routing
-  settings.py          Personalization and wake-line storage
-  web_search.py        Optional web lookup
+  model_catalog.py     Trusted model search, GPU fit scoring, and file verification
+  settings.py          Personalization, model choice, wake-line, and GPU profile storage
+  web_search.py        Optional web lookup pipeline
   assets/              Logo and bundled app assets
 docs/screenshots/      README screenshots
+docs/vnext-science-workspace.md
 scripts/               Model install and release-prep scripts
+vnext/                 Strict TypeScript future graph/physics engine scaffold
 morice_wake_listener.py
 MORICE.spec
 Modelfile
@@ -377,7 +466,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development checklist.
 
 ## Change The Model To Anything
 
-At the end of setup, remember this: the base AI is Hermes 3 8B, but you are not locked to it. In the MORICE app, open the mode panel, type any installed Ollama model name, or pick a different `.gguf` file with `Change model`. MORICE saves that choice and uses it for the next reply, so builders can customize the brain without editing code.
+The base AI is Hermes 3 8B, but MORICE is not locked to one brain. Open the mode panel, type any installed Ollama model name, pick a local GGUF with `Change model` -> `Files`, or install one through `Change model` -> `Web`. MORICE saves that choice and uses it on the next reply, so builders can change the model without editing code.
 
 ## License
 
