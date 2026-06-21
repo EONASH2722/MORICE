@@ -17,13 +17,7 @@ MORICE is a local desktop AI workspace for people who want an assistant that can
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/morice-2026-home.png" alt="MORICE centered launch screen" width="48%">
-  <img src="docs/screenshots/morice-2026-panel.png" alt="MORICE personalization panel" width="48%">
-</p>
-
-<p align="center">
-  <img src="docs/screenshots/morice-2026-queue.png" alt="MORICE chat with message queue panel" width="48%">
-  <img src="docs/screenshots/morice-2026-chat.png" alt="MORICE chat screen" width="48%">
+  <img src="docs/screenshots/morice-2026-queue.png" alt="MORICE message queue panel" width="52%">
 </p>
 
 ## Workflow Map
@@ -37,10 +31,6 @@ The main MORICE modes all pass through the same intent layer, then branch into t
 ## VNext Science Workspace
 
 MORICE now has the first desktop slice of a scientific workspace. Chat stays clean: when a graph or simulation is generated, chat shows a small clickable preview card and the actual visualization opens in the `Lab` workspace dock beside the conversation.
-
-<p align="center">
-  <img src="docs/screenshots/morice-vnext-graph-reference.jpg" alt="Graph reference for the MORICE VNext graph workspace" width="42%">
-</p>
 
 Current VNext desktop slice:
 
@@ -415,7 +405,7 @@ Common places to edit:
 - Model verification/search/VRAM scoring: `morice/model_catalog.py`
 - Wake listener sensitivity and magic words: `morice_wake_listener.py`
 - Saved personalization settings: `morice/settings.py`
-- Logo and screenshots: `morice/assets/` and `docs/screenshots/`
+- Logo and queue screenshot: `morice/assets/` and `docs/screenshots/`
 - Build bundle: `MORICE.spec`
 - Future TypeScript graph/physics architecture: `vnext/`
 
@@ -423,7 +413,7 @@ Useful environment variables:
 
 - `MORICE_GGUF_PATH` sets a specific GGUF path.
 - `MORICE_MODEL` sets an Ollama model name and bypasses the GGUF default.
-- `MORICE_MAX_TOKENS` controls reply length. Default: `900`.
+- `MORICE_MAX_TOKENS` controls reply length. Default: `4096`.
 - `MORICE_LLAMA_SERVER` set to `1` to use bundled llama-server.
 - `MORICE_CTX` sets context length.
 - `MORICE_GPU_LAYERS` sets GPU layers.
@@ -444,7 +434,7 @@ morice/
   settings.py          Personalization, model choice, wake-line, and GPU profile storage
   web_search.py        Optional web lookup pipeline
   assets/              Logo and bundled app assets
-docs/screenshots/      README screenshots
+docs/screenshots/      Queue-system README screenshot
 docs/vnext-science-workspace.md
 scripts/               Model install and release-prep scripts
 vnext/                 Strict TypeScript future graph/physics engine scaffold

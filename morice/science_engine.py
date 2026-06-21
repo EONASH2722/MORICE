@@ -191,12 +191,35 @@ def _normalize_expression(expr: str, variable: str = "x") -> str:
     return clean
 
 
+def _clean_expression_candidate(candidate: str) -> str:
+    clean = (candidate or "").strip()
+    clean = clean.replace("\u00b2", "^2").replace("\u00b3", "^3").replace("\u2212", "-")
+    clean = re.sub(r"^(?:y|f\s*\(\s*x\s*\))\s*=\s*", "", clean, flags=re.IGNORECASE).strip()
+    clean = re.split(
+        r"\.\s*(?:show|include|including|with|also|then|and|local|graph|derivative|area|inflection)\b",
+        clean,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+    clean = re.split(
+        r"\s+(?:show|include|including|with|also\s+show|then\s+show)\b",
+        clean,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+    clean = re.sub(r"^(?:plot|graph|draw|show)\s+", "", clean, flags=re.IGNORECASE).strip()
+    clean = clean.strip(" \t\r\n.;:,!?")
+    return re.sub(r"\s+", " ", clean)
+
+
 def _extract_equations(text: str) -> list[str]:
     raw = (text or "").strip()
     raw = raw.replace("\u00b2", "^2").replace("\u00b3", "^3")
     pieces: list[str] = []
     for match in re.finditer(r"y\s*=\s*([^,;\n]+)", raw, flags=re.IGNORECASE):
-        pieces.append(match.group(1).strip())
+        candidate = _clean_expression_candidate(match.group(1))
+        if candidate:
+            pieces.append(candidate)
     if pieces:
         return pieces[:6]
 
@@ -206,7 +229,7 @@ def _extract_equations(text: str) -> list[str]:
         candidate = piece.strip()
         if not candidate:
             continue
-        candidate = re.sub(r"^y\s*=\s*", "", candidate, flags=re.IGNORECASE).strip()
+        candidate = _clean_expression_candidate(candidate)
         if re.search(r"\bx\b|sin|cos|tan|log|sqrt|exp|\^", candidate, flags=re.IGNORECASE):
             pieces.append(candidate)
     return pieces[:6] or ["x^2"]

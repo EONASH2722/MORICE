@@ -14,13 +14,13 @@ from .llama_server import ensure_server
 DEFAULT_MODEL = os.getenv("MORICE_MODEL", "").strip()
 DEFAULT_BASE_URL = os.getenv("MORICE_OLLAMA_URL", "http://localhost:11434")
 DEFAULT_GGUF = os.getenv("MORICE_GGUF_PATH", "").strip()
-DEFAULT_CTX = int(os.getenv("MORICE_CTX", "4096"))
+DEFAULT_CTX = int(os.getenv("MORICE_CTX", "8192"))
 DEFAULT_GPU_LAYERS = int(os.getenv("MORICE_GPU_LAYERS", "0"))
 DEFAULT_CHAT_FORMAT = os.getenv("MORICE_CHAT_FORMAT", "").strip() or None
 DEFAULT_THREADS = int(os.getenv("MORICE_THREADS", str(max(1, (os.cpu_count() or 4) - 2))))
 DEFAULT_BATCH = int(os.getenv("MORICE_BATCH", "64"))
 DEFAULT_USE_SERVER = os.getenv("MORICE_LLAMA_SERVER", "1") == "1"
-DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "900"))
+DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "4096"))
 _OLLAMA_PROCESS = None
 
 

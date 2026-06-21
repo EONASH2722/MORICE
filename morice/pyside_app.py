@@ -205,7 +205,29 @@ def _enable_acrylic(hwnd: int):
 
 
 def _icon_path() -> str:
-    return os.path.join(os.path.dirname(__file__), "assets", "morice_logo.ico")
+    candidates = []
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", "")
+        exe_dir = os.path.dirname(sys.executable)
+        if meipass:
+            candidates.append(os.path.join(meipass, "morice", "assets", "morice_logo.ico"))
+        candidates.append(os.path.join(exe_dir, "morice", "assets", "morice_logo.ico"))
+        candidates.append(os.path.join(exe_dir, "_internal", "morice", "assets", "morice_logo.ico"))
+    candidates.append(os.path.join(os.path.dirname(__file__), "assets", "morice_logo.ico"))
+    for candidate in candidates:
+        if candidate and os.path.exists(candidate):
+            return candidate
+    return candidates[-1]
+
+
+def _set_windows_app_id() -> None:
+    if os.name != "nt":
+        return
+    try:
+        app_id = "EONASH2722.MORICE.Desktop"
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception:
+        pass
 
 
 _UI_FONTS_LOADED = False
@@ -1744,15 +1766,18 @@ class TitleBar(QFrame):
         layout.addWidget(title)
         layout.addStretch(1)
 
-        self.min_btn = QPushButton("_")
+        self.min_btn = QPushButton("−")
+        self.min_btn.setToolTip("Minimize")
         self.min_btn.setObjectName("TitleButton")
         self.min_btn.clicked.connect(self._parent.showMinimized)
 
-        self.max_btn = QPushButton("[]")
+        self.max_btn = QPushButton("□")
+        self.max_btn.setToolTip("Maximize")
         self.max_btn.setObjectName("TitleButton")
         self.max_btn.clicked.connect(self._toggle_maximize)
 
         self.close_btn = QPushButton("X")
+        self.close_btn.setToolTip("Close")
         self.close_btn.setObjectName("TitleClose")
         self.close_btn.clicked.connect(self._parent.close)
 
@@ -1761,10 +1786,25 @@ class TitleBar(QFrame):
         layout.addWidget(self.close_btn)
 
     def _toggle_maximize(self):
-        if self._parent.isMaximized():
+        if getattr(self._parent, "_custom_maximized", False):
             self._parent.showNormal()
+            normal_geometry = getattr(self._parent, "_normal_geometry", None)
+            if normal_geometry is not None:
+                self._parent.setGeometry(normal_geometry)
+            self._parent._custom_maximized = False
+            self.max_btn.setText("□")
+            self.max_btn.setToolTip("Maximize")
         else:
-            self._parent.showMaximized()
+            self._parent._normal_geometry = self._parent.geometry()
+            screen = QApplication.screenAt(QCursor.pos()) or self._parent.screen() or QApplication.primaryScreen()
+            if screen:
+                self._parent.showNormal()
+                self._parent.setGeometry(screen.availableGeometry().adjusted(6, 6, -6, -6))
+            else:
+                self._parent.showMaximized()
+            self._parent._custom_maximized = True
+            self.max_btn.setText("❐")
+            self.max_btn.setToolTip("Restore")
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1799,10 +1839,18 @@ class MoriceWindow(QWidget):
         self.setWindowTitle(f"{MORICE_NAME} Glass Chat")
         self.resize(980, 640)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setWindowFlags(self.windowFlags() | Qt.FramelessWindowHint)
+        self.setWindowFlags(
+            Qt.Window
+            | Qt.FramelessWindowHint
+            | Qt.WindowMinimizeButtonHint
+            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowCloseButtonHint
+        )
         icon_path = _icon_path()
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
+        self._normal_geometry = None
+        self._custom_maximized = False
 
         self.history = []
         self.awake = os.getenv("MORICE_START_AWAKE", "").strip() == "1"
@@ -1814,6 +1862,7 @@ class MoriceWindow(QWidget):
         self.follow_latest = True
         self._auto_scrolling = False
         self._last_scroll_max = 0
+        self._user_scroll_guard_until = 0.0
         self.first_user_message = ""
         self.user_messages: list[str] = []
         self.is_busy = False
@@ -3555,6 +3604,12 @@ class MoriceWindow(QWidget):
             "ui",
             "website",
         }
+        file_like_target = bool(
+            re.search(
+                r"\b[\w.-]+\.(?:bat|c|cpp|cs|css|go|html|java|js|json|jsx|kt|md|php|py|rb|rs|sh|swift|ts|tsx|txt|xml|ya?ml)\b",
+                lowered,
+            )
+        )
         question_words = {
             "how",
             "what",
@@ -3569,9 +3624,14 @@ class MoriceWindow(QWidget):
         has_action = any(key in lowered for key in action_words)
         has_project_target = any(key in lowered for key in project_words)
         has_direct_build = any(key in lowered for key in direct_build_words)
-        if has_action and has_project_target:
+        if has_action and (has_project_target or file_like_target):
             return True
-        if has_direct_build and len(lowered.split()) >= 2 and not any(lowered.startswith(word) for word in question_words):
+        if (
+            has_direct_build
+            and file_like_target
+            and len(lowered.split()) >= 2
+            and not any(lowered.startswith(word) for word in question_words)
+        ):
             return True
         if has_action and any(marker in lowered for marker in {"this folder", "the project", "my project", "these files"}):
             return True
@@ -3972,6 +4032,8 @@ class MoriceWindow(QWidget):
         self._insert_chat_widget(card)
 
     def _handle_science_request(self, user_input: str) -> bool:
+        if self.chat_mode == "project":
+            return False
         if not is_science_request(user_input):
             return False
         artifact = build_science_artifact(user_input)
@@ -3979,9 +4041,29 @@ class MoriceWindow(QWidget):
             return False
         self._add_science_artifact(artifact)
         self.append_science_card(artifact)
-        self.history.append({"role": "user", "content": user_input})
-        self.history.append({"role": "assistant", "content": f"{artifact.kind.title()} generated in workspace: {artifact.title}"})
         return True
+
+    def _science_reply_context(self) -> str:
+        if not self.science_artifacts:
+            return ""
+        artifact = self.science_artifacts[-1]
+        if artifact.kind == "graph" and artifact.graph:
+            equations = ", ".join(series.label for series in artifact.graph.series)
+            return (
+                "MORICE has already generated an interactive graph in the Lab workspace for this user prompt. "
+                f"Graph title: {artifact.title}. Equations: {equations}. "
+                "Give the user the written math/science explanation, key points, and how to inspect the visual. "
+                "Do not output placeholder text like [Graph of ...] and do not claim you cannot show the graph."
+            )
+        if artifact.kind == "physics" and artifact.physics:
+            return (
+                "MORICE has already generated a live physics simulation in the Lab workspace for this user prompt. "
+                f"Simulation title: {artifact.title}. Type: {artifact.physics.simulation_type}. "
+                f"Particles: {len(artifact.physics.particles)}. "
+                "Give the user the written physics explanation, what the simulation shows, and how to inspect it. "
+                "Do not output placeholder text like [Simulation of ...] and do not claim you cannot show the simulation."
+            )
+        return ""
 
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
         should_follow = self.follow_latest or self._is_at_bottom()
@@ -4441,6 +4523,9 @@ class MoriceWindow(QWidget):
     def _on_scroll_range_change(self, _minimum: int, maximum: int):
         bar = self.scroll.verticalScrollBar()
         old_max = self._last_scroll_max
+        if time.monotonic() < self._user_scroll_guard_until:
+            self._last_scroll_max = maximum
+            return
         was_following = self.follow_latest or bar.value() >= old_max - 48
         self._last_scroll_max = maximum
         if was_following:
@@ -4478,6 +4563,9 @@ class MoriceWindow(QWidget):
 
     def eventFilter(self, source, event):
         if event.type() == QEvent.Wheel:
+            if hasattr(self, "scroll") and (source is self.scroll.viewport() or source is self.chat_list):
+                self._user_scroll_guard_until = time.monotonic() + 0.75
+                QTimer.singleShot(0, self._sync_scroll_follow_state)
             return False
         if hasattr(self, "input_frame") and source in self._composer_widgets():
             if event.type() in (QEvent.Enter, QEvent.FocusIn):
@@ -4486,6 +4574,9 @@ class MoriceWindow(QWidget):
             elif event.type() in (QEvent.Leave, QEvent.FocusOut):
                 QTimer.singleShot(0, self._refresh_input_hover_from_cursor)
         return super().eventFilter(source, event)
+
+    def _sync_scroll_follow_state(self):
+        self.follow_latest = self._is_at_bottom()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -4637,8 +4728,8 @@ class MoriceWindow(QWidget):
             self.append_message(MORICE_NAME, self._address(summary))
             return
 
-        if self._handle_science_request(user_input):
-            return
+        science_visual_ready = self._handle_science_request(user_input)
+        science_visual_context = self._science_reply_context() if science_visual_ready else ""
 
         retry_project_request = self._is_project_retry_request(user_input)
         project_source_input = self.last_project_request if retry_project_request else user_input
@@ -4678,7 +4769,11 @@ class MoriceWindow(QWidget):
                 else (
                     "Local Project mode: using the selected folder and local model to build files."
                     if project_build_request
-                    else "Full offline mode: asking the local Hermes engine only."
+                    else (
+                        "Normal chat VNext: visual is open in Lab, now writing the explanation."
+                        if science_visual_ready
+                        else "Full offline mode: asking the local Hermes engine only."
+                    )
                 )
             )
         )
@@ -4712,6 +4807,9 @@ class MoriceWindow(QWidget):
                         self.thinking_update.emit("Reading the work folder so edits can be applied directly.")
                         extra_system += "\n\n" + self._project_snapshot()
                         extra_system += "\n\n" + self._project_manifest_instruction()
+                elif science_visual_context:
+                    self.thinking_update.emit("Normal chat VNext: using the generated Lab visual as context.")
+                    extra_system += "\n\n" + science_visual_context
                 response_style = self.response_style.strip()
                 if response_style:
                     extra_system += (
@@ -4834,7 +4932,7 @@ class MoriceWindow(QWidget):
                         visible_reply = f"I could not safely turn that request into project files yet.{detail}\n\n{folder_hint}"
                 self.history.append({"role": "user", "content": user_input})
                 self.history.append({"role": "assistant", "content": visible_reply})
-                self.message_ready.emit(MORICE_NAME, self._address(shorten_reply(visible_reply)), False)
+                self.message_ready.emit(MORICE_NAME, self._address(visible_reply), False)
             except Exception as exc:  # noqa: BLE001
                 self.message_ready.emit(MORICE_NAME, self._address(f"I hit an app error: {exc}"), False)
 
@@ -4865,9 +4963,11 @@ class MoriceWindow(QWidget):
 
 
 def run_app():
+    _set_windows_app_id()
     app = QApplication(sys.argv)
     _load_ui_fonts()
     app.setApplicationName("MORICE")
+    app.setOrganizationName("EONASH2722")
     icon_path = _icon_path()
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
