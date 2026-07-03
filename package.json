@@ -1,0 +1,14 @@
+{
+  "name": "morice-desktop",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Morice desktop app powered by the local Hermes Ollama engine.",
+  "main": "desktop/main.js",
+  "scripts": {
+    "start": "electron .",
+    "server": "node server.js"
+  },
+  "devDependencies": {
+    "electron": "^38.4.0"
+  }
+}

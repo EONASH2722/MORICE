@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Morice</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="chat" aria-label="Morice chat">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Local Hermes engine</p>
+            <h1>Morice</h1>
+          </div>
+          <div class="status" id="status">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="statusText">Starting</span>
+          </div>
+        </header>
+
+        <div class="messages" id="messages" aria-live="polite"></div>
+
+        <form class="composer" id="composer">
+          <textarea
+            id="messageInput"
+            rows="1"
+            autocomplete="off"
+            spellcheck="true"
+            placeholder="Message Morice"
+            aria-label="Message Morice"
+          ></textarea>
+          <button class="send" id="sendButton" type="submit" title="Send message" aria-label="Send message">
+            <span aria-hidden="true">Send</span>
+          </button>
+        </form>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
