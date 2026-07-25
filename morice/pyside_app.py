@@ -11,7 +11,18 @@ import time
 import subprocess
 from ctypes import wintypes
 
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QSize, QTimer, Signal, QEvent
+from PySide6.QtCore import (
+    Qt,
+    QParallelAnimationGroup,
+    QPropertyAnimation,
+    QEasingCurve,
+    QPoint,
+    QRect,
+    QSize,
+    QTimer,
+    Signal,
+    QEvent,
+)
 from PySide6.QtGui import (
     QFont,
     QFontDatabase,
@@ -348,39 +359,20 @@ class LiquidGalaxyFrame(QFrame):
         self.setObjectName("ModelGalaxySurface")
         self.setMouseTracking(True)
         self._phase = 0.0
-        self._cursor = QPoint(-900, -900)
-        self._cursor_active = False
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._advance)
-        self._timer.start(32)
+        self._timer.start(40)
 
     def watch(self, root: QWidget):
-        for widget in [root, *root.findChildren(QWidget)]:
-            widget.setMouseTracking(True)
-            widget.installEventFilter(self)
+        # Keep the model browser surface lightweight. The visual is a slow wave,
+        # not a cursor-tracking effect, so it does not need filters on every child.
+        root.setMouseTracking(True)
 
     def _advance(self):
+        if not self.isVisible() or self.window().isMinimized():
+            return
         self._phase = (self._phase + 0.045) % (math.pi * 2)
         self.update()
-
-    def eventFilter(self, source, event):
-        if event.type() == QEvent.MouseMove and isinstance(source, QWidget):
-            try:
-                pos = event.position().toPoint()
-            except AttributeError:
-                pos = event.pos()
-            self._cursor = source.mapTo(self, pos)
-            self._cursor_active = True
-            self.update()
-        elif event.type() == QEvent.Leave and source is self:
-            self._cursor_active = False
-            self.update()
-        return super().eventFilter(source, event)
-
-    def leaveEvent(self, event):
-        self._cursor_active = False
-        self.update()
-        super().leaveEvent(event)
 
     def paintEvent(self, event):  # noqa: ARG002
         painter = QPainter(self)
@@ -405,14 +397,6 @@ class LiquidGalaxyFrame(QFrame):
             size = 1 + (i % 3)
             painter.setBrush(QColor(160, 210, 255, alpha))
             painter.drawEllipse(x, y, size, size)
-
-        if self._cursor_active:
-            glow_radius = max(width, height) * 0.46
-            glow = QRadialGradient(self._cursor, glow_radius)
-            glow.setColorAt(0.0, QColor(142, 86, 255, 92))
-            glow.setColorAt(0.32, QColor(72, 190, 220, 48))
-            glow.setColorAt(1.0, QColor(0, 0, 0, 0))
-            painter.fillRect(rect, QBrush(glow))
 
         wave = QPainterPath()
         wave.moveTo(0, height)
@@ -1222,6 +1206,8 @@ class ComposerStageFrame(QFrame):
         self._wave_timer.start(45)
 
     def _advance_wave(self):
+        if not self.isVisible() or self.window().isMinimized():
+            return
         self._wave_phase = (self._wave_phase + 0.16) % (math.pi * 2)
         self.update()
 
@@ -1383,8 +1369,13 @@ class SendButton(QPushButton):
         super().__init__(text)
         self.setObjectName("SendButton")
         self.setCursor(Qt.PointingHandCursor)
+        self._ready = False
 
     def set_ready(self, ready: bool):
+        ready = bool(ready)
+        if ready == self._ready:
+            return
+        self._ready = ready
         self.setProperty("ready", "true" if ready else "false")
         self.style().unpolish(self)
         self.style().polish(self)
@@ -1852,8 +1843,13 @@ class MoriceWindow(QWidget):
         self.composer_centered = True
         self._input_hovered = False
         self.input_glow: QGraphicsDropShadowEffect | None = None
+        self._input_glow_animation: QParallelAnimationGroup | None = None
+        self._input_glow_target: tuple[int, int] | None = None
         self._composer_anim: QPropertyAnimation | None = None
         self._dock_placeholder: QWidget | None = None
+        self._panel_anims: dict[QWidget, QPropertyAnimation] = {}
+        self._panel_target_visibility: dict[QWidget, bool] = {}
+        self._motion_enabled = os.getenv("MORICE_REDUCE_MOTION", "").strip().lower() not in {"1", "true", "yes"}
         self.message_queue: list[str] = []
         self.settings = load_settings()
         self.response_style = self.settings.get("response_style", "").strip()
@@ -3204,6 +3200,111 @@ class MoriceWindow(QWidget):
     def _input_placeholder(self) -> str:
         return f"{self.user_title}: type here..."
 
+    def _track_animation(self, animation):
+        """Keep transient Qt animations alive until their finished signal fires."""
+        if not hasattr(self, "_anims"):
+            return animation
+        self._anims.append(animation)
+        animation.finished.connect(lambda: self._anims.remove(animation) if animation in self._anims else None)
+        return animation
+
+    def _animate_panel_visibility(self, panel: QWidget, visible: bool):
+        """Fade a side panel without leaving layout space behind after it closes."""
+        self._panel_target_visibility[panel] = visible
+        running = self._panel_anims.pop(panel, None)
+        if running is not None:
+            running.stop()
+            if running in self._anims:
+                self._anims.remove(running)
+
+        effect = panel.graphicsEffect()
+        if not isinstance(effect, QGraphicsOpacityEffect):
+            effect = QGraphicsOpacityEffect(panel)
+            panel.setGraphicsEffect(effect)
+
+        if not self._motion_enabled or not self.isVisible():
+            panel.setVisible(visible)
+            effect.setOpacity(1.0)
+            return
+
+        if visible:
+            was_visible = panel.isVisible()
+            panel.setVisible(True)
+            start = effect.opacity() if was_visible else 0.0
+            end = 1.0
+        else:
+            if not panel.isVisible():
+                effect.setOpacity(1.0)
+                return
+            start = effect.opacity()
+            end = 0.0
+
+        if abs(start - end) < 0.01:
+            panel.setVisible(visible)
+            effect.setOpacity(1.0)
+            return
+
+        animation = QPropertyAnimation(effect, b"opacity", self)
+        animation.setDuration(180)
+        animation.setStartValue(start)
+        animation.setEndValue(end)
+        animation.setEasingCurve(QEasingCurve.OutCubic if visible else QEasingCurve.InCubic)
+
+        def finish():
+            if self._panel_anims.get(panel) is not animation:
+                return
+            self._panel_anims.pop(panel, None)
+            if not visible:
+                panel.setVisible(False)
+            effect.setOpacity(1.0)
+
+        animation.finished.connect(finish)
+        self._panel_anims[panel] = animation
+        self._track_animation(animation).start()
+
+    def _animate_input_glow(self, blur_radius: int, alpha: int):
+        if self.input_glow is None:
+            return
+        target = (blur_radius, alpha)
+        if target == self._input_glow_target:
+            return
+        self._input_glow_target = target
+
+        if self._input_glow_animation is not None:
+            self._input_glow_animation.stop()
+            if self._input_glow_animation in self._anims:
+                self._anims.remove(self._input_glow_animation)
+            self._input_glow_animation = None
+
+        target_color = QColor(178, 96, 255, alpha)
+        if not self._motion_enabled or not self.isVisible() or not hasattr(self, "_anims"):
+            self.input_glow.setBlurRadius(blur_radius)
+            self.input_glow.setColor(target_color)
+            return
+
+        group = QParallelAnimationGroup(self)
+        blur = QPropertyAnimation(self.input_glow, b"blurRadius", group)
+        blur.setDuration(180)
+        blur.setStartValue(self.input_glow.blurRadius())
+        blur.setEndValue(blur_radius)
+        blur.setEasingCurve(QEasingCurve.OutCubic)
+
+        color = QPropertyAnimation(self.input_glow, b"color", group)
+        color.setDuration(180)
+        color.setStartValue(self.input_glow.color())
+        color.setEndValue(target_color)
+        color.setEasingCurve(QEasingCurve.OutCubic)
+
+        group.addAnimation(blur)
+        group.addAnimation(color)
+        group.finished.connect(
+            lambda: setattr(self, "_input_glow_animation", None)
+            if self._input_glow_animation is group
+            else None
+        )
+        self._input_glow_animation = group
+        self._track_animation(group).start()
+
     def _refresh_name_dependent_text(self):
         if hasattr(self, "hero_label"):
             self.hero_label.setText(f"{MORICE_NAME}, what shall we do, {self.user_title}?")
@@ -3211,13 +3312,13 @@ class MoriceWindow(QWidget):
             self.input.setPlaceholderText(self._input_placeholder())
 
     def toggle_mode_panel(self):
-        is_visible = not self.mode_panel.isVisible()
-        self.mode_panel.setVisible(is_visible)
+        is_visible = not self._panel_target_visibility.get(self.mode_panel, self.mode_panel.isVisible())
+        self._animate_panel_visibility(self.mode_panel, is_visible)
         self.title_bar.mode_btn.setToolTip("Close mode panel" if is_visible else "Open mode panel")
 
     def toggle_sidebar(self):
-        is_visible = not self.sidebar.isVisible()
-        self.sidebar.setVisible(is_visible)
+        is_visible = not self._panel_target_visibility.get(self.sidebar, self.sidebar.isVisible())
+        self._animate_panel_visibility(self.sidebar, is_visible)
         self.title_bar.sidebar_btn.setText("Close" if is_visible else "Panel")
 
     def toggle_workspace_panel(self):
@@ -3534,7 +3635,7 @@ class MoriceWindow(QWidget):
         is_project = self.chat_mode == "project"
         self._set_project_details_visible(is_project)
         if not is_project:
-            self.changes_panel.setVisible(False)
+            self._animate_panel_visibility(self.changes_panel, False)
         self.personalization_btn.setVisible(not is_project)
         self.access_status_btn.setVisible(is_project)
         self.project_lookup_btn.setVisible(is_project)
@@ -4064,7 +4165,7 @@ class MoriceWindow(QWidget):
             diff_html
             or "<span style='color:rgba(255,255,255,0.64)'>No visible file diff for this action.</span>"
         )
-        self.changes_panel.setVisible(self.chat_mode == "project")
+        self._animate_panel_visibility(self.changes_panel, self.chat_mode == "project")
         self._refresh_project_actions()
 
     def _toggle_changes_minimized(self):
@@ -4157,13 +4258,13 @@ class MoriceWindow(QWidget):
         self.notebook_view.setVisible(clean == "notebook")
 
     def _open_workspace(self, kind: str):
-        self.workspace_panel.setVisible(True)
+        self._animate_panel_visibility(self.workspace_panel, True)
         self._set_workspace_view(kind)
         if hasattr(self.title_bar, "workspace_btn"):
             self.title_bar.workspace_btn.setText("Close Lab")
 
     def _close_workspace(self):
-        self.workspace_panel.setVisible(False)
+        self._animate_panel_visibility(self.workspace_panel, False)
         if hasattr(self.title_bar, "workspace_btn"):
             self.title_bar.workspace_btn.setText("Lab")
 
@@ -4294,14 +4395,15 @@ class MoriceWindow(QWidget):
         insert_index = max(0, self.chat_list_layout.count() - 1)
         self.chat_list_layout.insertWidget(insert_index, bubble)
 
-        anim = QPropertyAnimation(opacity, b"opacity")
-        anim.setDuration(250)
-        anim.setStartValue(0.0)
-        anim.setEndValue(1.0)
-        anim.setEasingCurve(QEasingCurve.OutCubic)
-        anim.finished.connect(lambda: self._anims.remove(anim) if anim in self._anims else None)
-        self._anims.append(anim)
-        anim.start()
+        if self._motion_enabled and self.isVisible():
+            anim = QPropertyAnimation(opacity, b"opacity", bubble)
+            anim.setDuration(180)
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            self._track_animation(anim).start()
+        else:
+            opacity.setOpacity(1.0)
 
         self._schedule_latest_scroll(force=force_scroll)
 
@@ -4430,6 +4532,16 @@ class MoriceWindow(QWidget):
         self.thinking_bubble = ThinkingBubble(detail)
         insert_index = max(0, self.chat_list_layout.count() - 1)
         self.chat_list_layout.insertWidget(insert_index, self.thinking_bubble)
+        if self._motion_enabled and self.isVisible():
+            opacity = QGraphicsOpacityEffect(self.thinking_bubble)
+            opacity.setOpacity(0.0)
+            self.thinking_bubble.setGraphicsEffect(opacity)
+            anim = QPropertyAnimation(opacity, b"opacity", self.thinking_bubble)
+            anim.setDuration(160)
+            anim.setStartValue(0.0)
+            anim.setEndValue(1.0)
+            anim.setEasingCurve(QEasingCurve.OutCubic)
+            self._track_animation(anim).start()
         self._schedule_latest_scroll(force=True)
         QTimer.singleShot(
             12000,
@@ -4542,9 +4654,13 @@ class MoriceWindow(QWidget):
             return
 
         self.composer_centered = centered
-        is_active = self.input.hasFocus()
-        self.input_frame.setProperty("centered", "true" if centered else "false")
-        self.input_frame.setProperty("hovered", "true" if is_active else "false")
+        is_interacting = self.input.hasFocus() or self._input_hovered
+        centered_state = "true" if centered else "false"
+        hovered_state = "true" if is_interacting else "false"
+        centered_changed = self.input_frame.property("centered") != centered_state
+        hovered_changed = self.input_frame.property("hovered") != hovered_state
+        self.input_frame.setProperty("centered", centered_state)
+        self.input_frame.setProperty("hovered", hovered_state)
         self.input_frame.setMaximumWidth(820 if centered else 16777215)
 
         if self.input_glow is None:
@@ -4553,17 +4669,20 @@ class MoriceWindow(QWidget):
             self.input_frame.setGraphicsEffect(self.input_glow)
 
         if centered:
-            blur_radius = 124
-            alpha = 238
+            blur_radius = 104 if is_interacting else 86
+            alpha = 228 if is_interacting else 190
         else:
-            blur_radius = 66 if is_active else 46
-            alpha = 190 if is_active else 126
-        self.input_glow.setBlurRadius(blur_radius)
-        self.input_glow.setColor(QColor(178, 96, 255, alpha))
+            blur_radius = 60 if is_interacting else 40
+            alpha = 184 if is_interacting else 112
+        self._animate_input_glow(blur_radius, alpha)
 
-        for widget in self._composer_widgets():
-            widget.style().unpolish(widget)
-            widget.style().polish(widget)
+        if centered_changed:
+            for widget in self._composer_widgets():
+                widget.style().unpolish(widget)
+                widget.style().polish(widget)
+        elif hovered_changed:
+            self.input_frame.style().unpolish(self.input_frame)
+            self.input_frame.style().polish(self.input_frame)
 
         if not getattr(self, "_composer_filters_installed", False):
             for widget in self._composer_widgets():
@@ -4597,7 +4716,19 @@ class MoriceWindow(QWidget):
 
         self._dock_composer_animated()
 
+    def _cancel_composer_animation(self, finish: bool = False):
+        animation = self._composer_anim
+        if animation is None:
+            return
+        self._composer_anim = None
+        animation.stop()
+        if animation in self._anims:
+            self._anims.remove(animation)
+        if finish:
+            self._finish_composer_dock(self._dock_placeholder)
+
     def _dock_composer_immediate(self):
+        self._cancel_composer_animation()
         self._return_panel_button_to_titlebar()
         self.center_input_layout.removeWidget(self.input_frame)
         self.bottom_input_layout.addWidget(self.input_frame)
@@ -4610,6 +4741,7 @@ class MoriceWindow(QWidget):
         self._schedule_latest_scroll(force=True)
 
     def _dock_composer_animated(self):
+        self._cancel_composer_animation(finish=True)
         start_rect = QRect(self.input_frame.mapTo(self, QPoint(0, 0)), self.input_frame.size())
         self._return_panel_button_to_titlebar()
         self.center_input_layout.removeWidget(self.input_frame)
@@ -4639,8 +4771,8 @@ class MoriceWindow(QWidget):
         self._configure_input_bar(centered=False)
 
         fall_anim = QPropertyAnimation(self.input_frame, b"geometry", self)
-        fall_anim.setDuration(820)
-        fall_anim.setEasingCurve(QEasingCurve.InOutCubic)
+        fall_anim.setDuration(640)
+        fall_anim.setEasingCurve(QEasingCurve.InCubic)
         fall_anim.setStartValue(start_rect)
 
         distance_y = target_rect.y() - start_rect.y()
@@ -4648,16 +4780,16 @@ class MoriceWindow(QWidget):
         early_width = start_rect.width() + int((target_rect.width() - start_rect.width()) * 0.25)
         early_x = start_rect.x() + int((target_rect.x() - start_rect.x()) * 0.2)
         fall_anim.setKeyValueAt(
-            0.38,
+            0.46,
             QRect(early_x, early_y, early_width, target_rect.height()),
         )
         fall_anim.setKeyValueAt(
-            0.68,
-            QRect(target_rect.x() - 16, target_rect.y() + 22, target_rect.width(), target_rect.height()),
+            0.74,
+            QRect(target_rect.x() - 10, target_rect.y() + 13, target_rect.width(), target_rect.height()),
         )
         fall_anim.setKeyValueAt(
-            0.82,
-            QRect(target_rect.x() + 12, target_rect.y() - 10, target_rect.width(), target_rect.height()),
+            0.88,
+            QRect(target_rect.x() + 6, target_rect.y() - 5, target_rect.width(), target_rect.height()),
         )
         fall_anim.setKeyValueAt(
             0.92,
@@ -4793,6 +4925,10 @@ class MoriceWindow(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if self._composer_anim is not None:
+            # A layout target can move while the window is being resized. Finish
+            # the transition cleanly instead of animating toward stale geometry.
+            self._cancel_composer_animation(finish=True)
         if hasattr(self, "window_resize_grip"):
             margin = 4
             self.window_resize_grip.move(
