@@ -147,6 +147,8 @@ def wants_graph(text: str) -> bool:
     lowered = (text or "").lower()
     if "polar" in lowered or "parametric" in lowered or re.search(r"\br\s*=", text or "", flags=re.IGNORECASE):
         return True
+    if re.search(r"\b(?:y|f\s*\(\s*x\s*\))\s*=", text or "", flags=re.IGNORECASE):
+        return True
     return any(marker in lowered for marker in {"plot", "graph", "chart", "curve", "function"}) and (
         "=" in lowered or "sin" in lowered or "cos" in lowered or "x" in lowered
     )

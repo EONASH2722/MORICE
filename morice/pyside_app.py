@@ -8,6 +8,7 @@ import math
 import re
 import difflib
 import time
+import subprocess
 from ctypes import wintypes
 
 from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QRect, QSize, QTimer, Signal, QEvent
@@ -41,6 +42,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QProgressBar,
+    QSizeGrip,
     QSizePolicy,
     QTextEdit,
 )
@@ -53,6 +55,7 @@ from .core import (
     summon_response,
     is_acknowledgement,
     wants_help,
+    wants_model_identity,
     help_text,
     father_identity_response,
     wants_web_capability,
@@ -102,6 +105,14 @@ from .model_catalog import (
     verify_ai_model_file,
 )
 from .project_builder import build_project_fallback_manifest
+from .project_runtime import (
+    ProjectValidationError,
+    build_launch_plan,
+    build_run_script,
+    detect_python_requirements,
+    launch_project,
+    validate_project_file,
+)
 from .science_engine import GraphArtifact, PhysicsArtifact, ScienceArtifact, build_science_artifact, is_science_request
 from .settings import (
     DEFAULT_SETTINGS,
@@ -1376,38 +1387,11 @@ class SendButton(QPushButton):
         super().__init__(text)
         self.setObjectName("SendButton")
         self.setCursor(Qt.PointingHandCursor)
-        self._is_ready = False
 
     def set_ready(self, ready: bool):
-        if self._is_ready == ready:
-            return
-        self._is_ready = ready
         self.setProperty("ready", "true" if ready else "false")
-        self.update()
-
-    def paintEvent(self, event):  # noqa: ARG002
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
-        rect = self.rect().adjusted(1, 1, -1, -1)
-        radius = 12
-        clip = QPainterPath()
-        clip.addRoundedRect(rect, radius, radius)
-
-        painter.setPen(Qt.NoPen)
-        if self._is_ready and self.isEnabled():
-            painter.setBrush(QColor(104, 72, 194, 230))
-        else:
-            painter.setBrush(QColor(72, 72, 80, 170))
-        painter.drawPath(clip)
-
-        border = QColor(215, 190, 255, 128) if self._is_ready and self.isEnabled() else QColor(255, 255, 255, 24)
-        painter.setPen(QPen(border, 1))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawPath(clip)
-
-        painter.setPen(QColor(255, 255, 255, 244) if self.isEnabled() else QColor(255, 255, 255, 92))
-        painter.setFont(self.font())
-        painter.drawText(rect, Qt.AlignCenter, self.text())
+        self.style().unpolish(self)
+        self.style().polish(self)
 
 
 class GraphCanvas(QWidget):
@@ -1837,7 +1821,8 @@ class MoriceWindow(QWidget):
         super().__init__()
         _load_ui_fonts()
         self.setWindowTitle(f"{MORICE_NAME} Glass Chat")
-        self.resize(980, 640)
+        self.setMinimumSize(860, 580)
+        self.resize(1240, 760)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setWindowFlags(
             Qt.Window
@@ -1909,6 +1894,9 @@ class MoriceWindow(QWidget):
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(12)
         root.addLayout(body, stretch=1)
+        self.window_resize_grip = QSizeGrip(self)
+        self.window_resize_grip.setObjectName("WindowResizeGrip")
+        self.window_resize_grip.setToolTip("Resize MORICE window")
 
         self.mode_panel = QFrame()
         self.mode_panel.setObjectName("ModePanel")
@@ -2142,9 +2130,6 @@ class MoriceWindow(QWidget):
         workspace_layout.addWidget(self.physics_controls_frame)
         workspace_layout.addWidget(self.notebook_view, stretch=1)
 
-        body.addWidget(self.workspace_panel)
-        self.workspace_panel.setVisible(False)
-
         content_layout = QVBoxLayout()
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(12)
@@ -2191,15 +2176,35 @@ class MoriceWindow(QWidget):
         content_layout.addWidget(chat_container, stretch=1)
         chat_container.setVisible(False)
 
+        # Keep the live graph/simulation workspace beside the conversation instead of hiding it in the chat flow.
+        body.addWidget(self.workspace_panel)
+        self.workspace_panel.setVisible(False)
+
         self.changes_panel = QFrame()
         self.changes_panel.setObjectName("ProjectChangesPanel")
-        self.changes_panel.setFixedWidth(390)
+        self.changes_panel.setFixedWidth(400)
+        self.changes_minimized = False
+        self.changes_expanded = False
         changes_layout = QVBoxLayout(self.changes_panel)
         changes_layout.setContentsMargins(14, 14, 14, 14)
         changes_layout.setSpacing(10)
 
-        changes_title = QLabel("Project changes")
-        changes_title.setObjectName("ProjectChangesTitle")
+        changes_header = QHBoxLayout()
+        changes_header.setContentsMargins(0, 0, 0, 0)
+        changes_header.setSpacing(6)
+        self.changes_title = QLabel("Project changes")
+        self.changes_title.setObjectName("ProjectChangesTitle")
+        self.changes_minimize_btn = QPushButton("_")
+        self.changes_minimize_btn.setObjectName("ChangesIconButton")
+        self.changes_minimize_btn.setToolTip("Minimize project changes")
+        self.changes_minimize_btn.clicked.connect(self._toggle_changes_minimized)
+        self.changes_expand_btn = QPushButton("[]")
+        self.changes_expand_btn.setObjectName("ChangesIconButton")
+        self.changes_expand_btn.setToolTip("Widen project changes")
+        self.changes_expand_btn.clicked.connect(self._toggle_changes_width)
+        changes_header.addWidget(self.changes_title, stretch=1)
+        changes_header.addWidget(self.changes_minimize_btn)
+        changes_header.addWidget(self.changes_expand_btn)
 
         self.changes_summary = QLabel("Build something in Project mode to see file changes here.")
         self.changes_summary.setObjectName("ProjectChangesSummary")
@@ -2210,9 +2215,32 @@ class MoriceWindow(QWidget):
         self.changes_view.setReadOnly(True)
         self.changes_view.setAcceptRichText(True)
 
-        changes_layout.addWidget(changes_title)
-        changes_layout.addWidget(self.changes_summary)
-        changes_layout.addWidget(self.changes_view, stretch=1)
+        self.changes_content = QWidget()
+        changes_content_layout = QVBoxLayout(self.changes_content)
+        changes_content_layout.setContentsMargins(0, 0, 0, 0)
+        changes_content_layout.setSpacing(10)
+        self.changes_verify_btn = QPushButton("Verify project")
+        self.changes_verify_btn.setObjectName("ProjectActionButton")
+        self.changes_verify_btn.setToolTip("Validate the source files in the selected project folder")
+        self.changes_verify_btn.clicked.connect(self._verify_project)
+        self.changes_run_btn = QPushButton("Run project")
+        self.changes_run_btn.setObjectName("ProjectActionButton")
+        self.changes_run_btn.setToolTip("Run the project using its verified local entry point")
+        self.changes_run_btn.clicked.connect(self._run_project)
+        self.changes_action_status = QLabel("No runnable project detected yet.")
+        self.changes_action_status.setObjectName("ProjectChangesSummary")
+        self.changes_action_status.setWordWrap(True)
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 0, 0, 0)
+        action_row.setSpacing(8)
+        action_row.addWidget(self.changes_verify_btn)
+        action_row.addWidget(self.changes_run_btn)
+        changes_content_layout.addWidget(self.changes_summary)
+        changes_content_layout.addWidget(self.changes_view, stretch=1)
+        changes_content_layout.addLayout(action_row)
+        changes_content_layout.addWidget(self.changes_action_status)
+        changes_layout.addLayout(changes_header)
+        changes_layout.addWidget(self.changes_content, stretch=1)
         body.addWidget(self.changes_panel)
         self.changes_panel.setVisible(False)
 
@@ -2704,6 +2732,39 @@ class MoriceWindow(QWidget):
                 font-size: 17px;
                 font-weight: 900;
             }
+            #ChangesIconButton {
+                min-width: 28px;
+                max-width: 28px;
+                min-height: 28px;
+                max-height: 28px;
+                padding: 0;
+                background: rgba(52,40,76,0.9);
+                color: rgba(246,242,255,0.92);
+                border-radius: 6px;
+                border: 1px solid rgba(184,144,255,0.28);
+                font-weight: 900;
+            }
+            #ChangesIconButton:hover {
+                background: rgba(112,70,184,0.94);
+                border: 1px solid rgba(220,192,255,0.55);
+            }
+            #ProjectActionButton {
+                background: rgba(46,72,94,0.9);
+                color: rgba(240,250,255,0.94);
+                border-radius: 8px;
+                border: 1px solid rgba(126,210,245,0.28);
+                padding: 8px 10px;
+                font-weight: 800;
+            }
+            #ProjectActionButton:hover {
+                background: rgba(66,106,138,0.96);
+                border: 1px solid rgba(160,232,255,0.5);
+            }
+            #ProjectActionButton:disabled {
+                background: rgba(42,44,50,0.62);
+                color: rgba(230,230,230,0.42);
+                border-color: rgba(255,255,255,0.07);
+            }
             #ProjectChangesSummary {
                 color: rgba(165,225,195,0.82);
                 font-size: 12px;
@@ -2884,12 +2945,20 @@ class MoriceWindow(QWidget):
                 border: 1px solid rgba(208,165,255,0.6);
             }
             #SendButton {
+                background: rgba(72,72,80,0.78);
                 color: #fff;
                 border-radius: 12px;
                 padding: 10px 18px;
-                border: none;
+                border: 1px solid rgba(255,255,255,0.10);
                 min-width: 82px;
                 font-weight: 700;
+            }
+            #SendButton[ready="true"] {
+                background: rgba(104,72,194,0.92);
+                border: 1px solid rgba(215,190,255,0.58);
+            }
+            #SendButton[ready="true"]:hover {
+                background: rgba(122,84,220,0.96);
             }
             #SendButton[personalized="true"] {
                 border: 1px solid rgba(202,170,255,0.36);
@@ -3280,21 +3349,22 @@ class MoriceWindow(QWidget):
         clean_name = normalize_model_name(self.model_name_input.text())
         if self.model_name_input.text() != clean_name:
             self.model_name_input.setText(clean_name)
-        if clean_name == self.model_name:
+        replaced_file = bool(clean_name and self.model_path)
+        if clean_name == self.model_name and not replaced_file:
             return
         old_name = self.model_name
         self.model_name = clean_name
+        if replaced_file:
+            self.model_path = ""
+            self.model_path_input.setText(self._model_display_text())
+            self.model_path_input.setToolTip("Using the selected Ollama model")
         self._save_project_settings()
         self._refresh_mode_panel()
-        if old_name != self.model_name and not self.model_path:
+        if old_name != self.model_name or replaced_file:
             reset_model_runtime()
         if self.model_name:
-            if self.model_path:
-                self.mode_status.setText(
-                    f"Ollama model saved: {self.model_name}. Clear the GGUF file when you want Ollama to answer."
-                )
-            else:
-                self.mode_status.setText(f"Ollama model saved: {self.model_name}. MORICE will use it next.")
+            replacement = " It replaced the selected GGUF file." if replaced_file else ""
+            self.mode_status.setText(f"Ollama model saved: {self.model_name}. MORICE will use it next.{replacement}")
         else:
             self.mode_status.setText("Ollama model name cleared. MORICE will use the selected or bundled GGUF.")
 
@@ -3332,17 +3402,21 @@ class MoriceWindow(QWidget):
             return False
 
         changed = clean_path != self.model_path
+        replaced_name = self.model_name
         self.model_path = clean_path
+        if replaced_name:
+            self.model_name = ""
+            self.model_name_input.clear()
         self.model_path_input.setText(self._model_display_text())
         fit_message = self._model_fit_message(clean_path)
         self.model_path_input.setToolTip(f"{self.model_path}\n{fit_message}")
         self._save_project_settings()
         self._refresh_mode_panel()
-        if changed:
+        if changed or replaced_name:
             reset_model_runtime()
-        override_note = " GGUF has priority over the typed Ollama model." if self.model_name else ""
+        replacement = " It replaced the selected Ollama model." if replaced_name else ""
         self.mode_status.setText(
-            f"{source}: {verification.message} MORICE will use it on the next reply.{override_note} {fit_message}"
+            f"{source}: {verification.message} MORICE will use it on the next reply.{replacement} {fit_message}"
         )
         return True
 
@@ -3537,8 +3611,10 @@ class MoriceWindow(QWidget):
             "desktop apps, and mobile app planning in any language or framework the user asks for. "
             "Silently correct obvious typos, short forms, and missing words from context, for example treating 'shrt "
             "frm' as 'short form' and 'sory' as 'sorry' when the conversation makes that clear. "
-            "When the user asks to build something, produce a complete, practical result: file tree, exact file names, "
-            "code blocks for important files, install/run commands, verification steps, and the next action. "
+            "When the user asks to build something, produce complete, practical source files that can run locally. "
+            "Do not pretend a text file is a compiled app and never propose or emit fake .exe, .dll, .apk, .msi, or archive files. "
+            "Prefer dependency-light HTML/CSS/JavaScript for browser games and apps. For Python, include a requirements.txt "
+            "only for real third-party imports and make the source run with a normal Python installation. "
             "Use clean architecture, readable names, validation, useful error handling, responsive UI guidance, and "
             "testing notes where appropriate. If information is missing, choose strong defaults and mention the "
             "assumption briefly instead of stopping.\n\n"
@@ -3731,6 +3807,8 @@ class MoriceWindow(QWidget):
             "Every file path must be relative to the work folder. Include complete file contents, not snippets. "
             "When editing an existing file, include the full updated file content. "
             "Do not return a commands-only manifest; create or update at least one practical file whenever the request asks to build. "
+            "Never create .exe, .dll, .msi, .apk, .zip, or another compiled/binary artifact. MORICE writes runnable source files only. "
+            "For a browser app, create a complete index.html. For a Python app, create a complete .py entry point and requirements.txt when packages are needed. "
             "Do not wrap the JSON in markdown. Do not include explanations outside the JSON."
         )
 
@@ -3876,8 +3954,8 @@ class MoriceWindow(QWidget):
             raise ValueError("No work folder selected.")
         os.makedirs(self.project_folder, exist_ok=True)
 
-        changed = []
-        diff_parts = []
+        staged_files: list[tuple[str, str, str]] = []
+        file_contents: dict[str, str] = {}
         for item in files[:80]:
             if not isinstance(item, dict):
                 continue
@@ -3888,6 +3966,24 @@ class MoriceWindow(QWidget):
             if len(content) > 2_000_000:
                 raise ValueError(f"Refused very large generated file: {relative_path}")
             target = self._project_target_path(relative_path)
+            validate_project_file(relative_path, content)
+            staged_files.append((relative_path, content, target))
+            file_contents[relative_path] = content
+
+        if not staged_files:
+            raise ProjectValidationError("The project response did not contain any valid source files.")
+
+        requirements = detect_python_requirements(file_contents)
+        has_requirements = any(os.path.basename(path).lower() == "requirements.txt" for path in file_contents)
+        if requirements and not has_requirements:
+            requirements_content = "\n".join(requirements) + "\n"
+            target = self._project_target_path("requirements.txt")
+            validate_project_file("requirements.txt", requirements_content)
+            staged_files.append(("requirements.txt", requirements_content, target))
+
+        changed = []
+        diff_parts = []
+        for relative_path, content, target in staged_files:
             os.makedirs(os.path.dirname(target), exist_ok=True)
             old = ""
             if os.path.exists(target):
@@ -3895,6 +3991,17 @@ class MoriceWindow(QWidget):
                     old = handle.read()
             if old == content:
                 continue
+            with open(target, "w", encoding="utf-8", newline="") as handle:
+                handle.write(content)
+            changed.append(relative_path)
+            diff_parts.append(self._diff_html(relative_path, old, content))
+
+        run_script = build_run_script(self.project_folder, requirements)
+        if run_script and not os.path.exists(os.path.join(self.project_folder, run_script[0])):
+            relative_path, content = run_script
+            target = self._project_target_path(relative_path)
+            old = ""
+            validate_project_file(relative_path, content)
             with open(target, "w", encoding="utf-8", newline="") as handle:
                 handle.write(content)
             changed.append(relative_path)
@@ -3932,6 +4039,77 @@ class MoriceWindow(QWidget):
             or "<span style='color:rgba(255,255,255,0.64)'>No visible file diff for this action.</span>"
         )
         self.changes_panel.setVisible(self.chat_mode == "project")
+        self._refresh_project_actions()
+
+    def _toggle_changes_minimized(self):
+        self.changes_minimized = not self.changes_minimized
+        self.changes_content.setVisible(not self.changes_minimized)
+        self.changes_title.setVisible(not self.changes_minimized)
+        self.changes_minimize_btn.setText("+" if self.changes_minimized else "_")
+        self.changes_minimize_btn.setToolTip("Restore project changes" if self.changes_minimized else "Minimize project changes")
+        self.changes_panel.setFixedWidth(54 if self.changes_minimized else (620 if self.changes_expanded else 400))
+
+    def _toggle_changes_width(self):
+        if self.changes_minimized:
+            self._toggle_changes_minimized()
+        self.changes_expanded = not self.changes_expanded
+        self.changes_panel.setFixedWidth(620 if self.changes_expanded else 400)
+        self.changes_expand_btn.setText("<>" if self.changes_expanded else "[]")
+        self.changes_expand_btn.setToolTip("Use normal width" if self.changes_expanded else "Widen project changes")
+
+    def _refresh_project_actions(self):
+        plan = build_launch_plan(self.project_folder)
+        if plan:
+            self.changes_run_btn.setEnabled(True)
+            self.changes_run_btn.setText(plan.label)
+            self.changes_action_status.setText(f"Verified entry point available: {os.path.basename(plan.target)}")
+        else:
+            self.changes_run_btn.setEnabled(False)
+            self.changes_run_btn.setText("Run project")
+            self.changes_action_status.setText("No runnable entry point detected. Create index.html, main.py, or run.bat.")
+        self.changes_verify_btn.setEnabled(bool(self.project_folder and os.path.isdir(self.project_folder)))
+
+    def _verify_project(self):
+        if not self.project_folder or not os.path.isdir(self.project_folder):
+            self.changes_action_status.setText("Choose a project folder before verification.")
+            return
+        failures = []
+        checked = 0
+        for dirpath, dirnames, filenames in os.walk(self.project_folder):
+            dirnames[:] = [name for name in dirnames if name not in PROJECT_IGNORED_DIRS]
+            for filename in filenames:
+                full_path = os.path.join(dirpath, filename)
+                relative_path = os.path.relpath(full_path, self.project_folder).replace("\\", "/")
+                if os.path.splitext(relative_path)[1].lower() not in PROJECT_TEXT_EXTENSIONS | {".bat"}:
+                    continue
+                try:
+                    with open(full_path, "r", encoding="utf-8", errors="replace") as handle:
+                        validate_project_file(relative_path, handle.read())
+                    checked += 1
+                except (OSError, ProjectValidationError) as exc:
+                    failures.append(f"{relative_path}: {exc}")
+        if failures:
+            self.changes_action_status.setText("Verification failed: " + failures[0])
+        else:
+            self.changes_action_status.setText(f"Verified {checked} source file(s).")
+        plan = build_launch_plan(self.project_folder)
+        if plan:
+            self.changes_run_btn.setEnabled(True)
+            self.changes_run_btn.setText(plan.label)
+            if not failures:
+                self.changes_action_status.setText(f"Verified {checked} source file(s). Entry point: {os.path.basename(plan.target)}")
+        else:
+            self.changes_run_btn.setEnabled(False)
+
+    def _run_project(self):
+        plan = build_launch_plan(self.project_folder)
+        if not plan:
+            self.changes_action_status.setText("No verified project entry point is available to run.")
+            return
+        try:
+            self.changes_action_status.setText(launch_project(plan))
+        except (OSError, ProjectValidationError) as exc:
+            self.changes_action_status.setText(f"Could not run project: {exc}")
 
     def _set_workspace_view(self, kind: str):
         clean = kind if kind in {"graph", "physics", "notebook"} else "graph"
@@ -4064,6 +4242,15 @@ class MoriceWindow(QWidget):
                 "Do not output placeholder text like [Simulation of ...] and do not claim you cannot show the simulation."
             )
         return ""
+
+    def _science_ready_reply(self) -> str:
+        artifact = self.science_artifacts[-1] if self.science_artifacts else None
+        if artifact and artifact.kind == "graph" and artifact.graph:
+            equations = ", ".join(series.label for series in artifact.graph.series)
+            return f"I rendered {artifact.title} in the Lab graph workspace. Equations: {equations}. Use the Graphs tab to inspect the curve and hover over points for values."
+        if artifact and artifact.kind == "physics" and artifact.physics:
+            return f"I started {artifact.title} in the Lab simulation workspace with {len(artifact.physics.particles)} particles. Use Pause, Resume, Step, and 2x to inspect the live motion."
+        return "I created the live visual in the Lab workspace."
 
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
         should_follow = self.follow_latest or self._is_at_bottom()
@@ -4580,6 +4767,13 @@ class MoriceWindow(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if hasattr(self, "window_resize_grip"):
+            margin = 4
+            self.window_resize_grip.move(
+                max(0, self.width() - self.window_resize_grip.width() - margin),
+                max(0, self.height() - self.window_resize_grip.height() - margin),
+            )
+            self.window_resize_grip.raise_()
         self._schedule_latest_scroll()
 
     def on_send(self):
@@ -4671,6 +4865,10 @@ class MoriceWindow(QWidget):
             self.append_message(MORICE_NAME, self._address(help_text()))
             return
 
+        if wants_model_identity(user_input):
+            self.append_message(MORICE_NAME, self._address(self._model_status_line()))
+            return
+
         if wants_precision_on(user_input):
             self._set_precision_state(True)
             self.append_message(MORICE_NAME, self._address("Precision mode enabled."))
@@ -4703,7 +4901,9 @@ class MoriceWindow(QWidget):
             self.append_message(MORICE_NAME, f"{self.user_title}, here is the script.\n{html_cube_movement_script()}")
             return
 
-        if not self.math_steps_mode and not wants_steps_detail(user_input):
+        # A simulation prompt can contain a bare number (for example, "80 particles").
+        # Keep it out of the quick-math path so the live physics workspace receives it.
+        if not self.math_steps_mode and not wants_steps_detail(user_input) and not is_science_request(user_input):
             math_result = compute_math(user_input)
             if math_result is not None:
                 self.append_message(MORICE_NAME, self._address(shorten_reply(math_result)))
@@ -4729,7 +4929,10 @@ class MoriceWindow(QWidget):
             return
 
         science_visual_ready = self._handle_science_request(user_input)
-        science_visual_context = self._science_reply_context() if science_visual_ready else ""
+        if science_visual_ready:
+            self.append_message(MORICE_NAME, self._address(self._science_ready_reply()))
+            return
+        science_visual_context = ""
 
         retry_project_request = self._is_project_retry_request(user_input)
         project_source_input = self.last_project_request if retry_project_request else user_input

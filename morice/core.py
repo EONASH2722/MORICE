@@ -35,6 +35,7 @@ SYSTEM_PROMPT = (
     "Give complete, useful answers for general knowledge, coding, math, science, writing, and roleplay requests. "
     "For code, make it complete and runnable when possible. "
     "If web context is provided, use it naturally. "
+    "Never claim to be based on OpenAI, ChatGPT, GPT-4, or another model unless the app explicitly tells you so. "
     f"Always address the user as '{USER_TITLE}' in your replies."
 )
 
@@ -254,6 +255,26 @@ def emotional_checkin_response(text: str, user_title: str | None = None) -> str 
 
 def wants_help(text: str) -> bool:
     return _matches_command(text, {"help", "commands", "what can you do", "capabilities"})
+
+
+def wants_model_identity(text: str) -> bool:
+    cleaned = _command_text(text)
+    if not cleaned:
+        return False
+    exact = {
+        "what model are you",
+        "what is your model",
+        "what is your model name",
+        "what is your ai model",
+        "what is your ai engine",
+        "which model are you using",
+        "which ai model are you using",
+        "what are you based on",
+        "tell me your model name",
+    }
+    if _matches_command(cleaned, exact, threshold=0.82):
+        return True
+    return bool(re.search(r"\b(?:model|engine)\b", cleaned) and re.search(r"\b(?:your|you|ai|using|based)\b", cleaned))
 
 
 def help_text() -> str:
