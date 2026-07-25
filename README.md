@@ -52,6 +52,15 @@ Current VNext desktop runtime:
 
 See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, capability limits, and extension rules. The strict TypeScript engine in `vnext/` includes the coordinator, renderer manager, Plotly adapter, cache, and deterministic 2D/3D particle-state core.
 
+### Verified Live Renders
+
+These captures come from the running Windows app after the renderer artifacts passed validation. The graph shows independently checked calculus landmarks; the pendulum uses a 30-degree initial angle and physical gravity metadata.
+
+<p align="center">
+  <img src="docs/screenshots/morice-vnext-graph.png" alt="MORICE interactive cubic graph with validated landmarks" width="49%">
+  <img src="docs/screenshots/morice-vnext-physics.png" alt="MORICE live pendulum simulation with interactive controls" width="49%">
+</p>
+
 ## Highlights
 
 - Glass desktop interface with a centered launch composer, animated galaxy/wave surfaces, and a Send button that stays calm instead of using a liquid-fill animation.
@@ -64,9 +73,46 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 - `@notes` lookup for local knowledge files, so MORICE can answer from personal documents without uploading them.
 - Wake listener that can launch or wake MORICE by saved phrase or clap pattern.
 - Message queue for follow-up steering while a long local reply is still generating.
-- Personalization panel for the user title, wake phrase, and preferred response style.
+- Personalization and appearance panel for the user title, wake phrase, response style, emoji amount, dark/light theme, and built-in or user-added fonts.
 - Typo-aware and short-form-aware intent handling, so rough wording can still land in the right workflow.
+- Verified capability answers: questions such as `what all rendering can you do` return a complete implemented-feature inventory instead of an improvised model reply.
 - MIT licensed, so the project can be studied, forked, customized, and improved.
+
+## Desktop Workspace
+
+MORICE now includes a persistent, resizable `Tools` dock and a `Ctrl+K` command palette. This desktop layer is separate from VNext: it organizes conversations and local computer tools while the existing inline renderer continues to own graphs and simulations.
+
+- `Dashboard`: recent chats, recent files, and focused quick actions.
+- `Files`: bounded local filename search plus safe text, JSON, image, and PDF previews; downloads have their own sub-tab.
+- `Activity`: timeline, queued tasks, live local logs, and an in-memory clipboard history that is never written to the session file.
+- `Tools`: CPU/GPU/RAM/storage/network/battery status, persistent local notes, an embedded browser when Qt WebEngine is available, local audio/video playback, and Windows media controls.
+- Appearance: dark and light themes, a user-selectable accent, built-in font choices, validated local TTF/OTF/TTC fonts, three emoji levels, stable glass panels, compact native-style window controls, and motion that respects `MORICE_REDUCE_MOTION`.
+- Workspace continuity: atomic session saves restore bounded chat history, notes, recent items, panel visibility, theme, accent, and monitor-safe window geometry.
+- Safety: file search is read-only and skips dependency/system folders; closing another application always requires explicit confirmation; unsupported previews fail honestly.
+
+Useful commands:
+
+```text
+/workspace
+/system
+/find project-name
+/open "C:\path\to\file.txt"
+/folder "C:\path\to\folder"
+/site example.com
+/launch notepad
+/close-app notepad
+/screenshot
+/play-pause
+/next
+/previous
+/volume-up
+/volume-down
+/mute
+/theme light
+/new-window
+```
+
+See [`docs/desktop-workspace.md`](docs/desktop-workspace.md) for architecture, persistence, safety boundaries, and testing details.
 
 ## Quick Install
 
@@ -291,8 +337,11 @@ Open `Panel` to change:
 - What MORICE calls you. Default: `All Father`.
 - The wake line.
 - The reply style.
+- Emoji amount: `None`, `Medium`, or `Expressive`.
+- Theme: `Dark` or `Light`.
+- App font: choose an installed option or load your own `.ttf`, `.otf`, or `.ttc` file.
 
-The chosen name updates the launch prompt, input placeholder, start/wake messages, and how MORICE addresses you in replies.
+The chosen name updates the launch prompt, input placeholder, start/wake messages, and how MORICE addresses you in replies. Appearance preferences persist locally. A custom font is validated by Qt before MORICE accepts it; invalid or non-font files are rejected.
 
 ## Modes
 
@@ -338,6 +387,8 @@ chat prompt -> visualization decision -> renderer selection -> deterministic dat
 ```
 
 The AI model may help reason about the problem, but it never draws directly. The renderer manager turns supported instructions into graph data or simulation state, validates that output, and only then inserts a live workspace into chat. Unsupported or failed renderers display an explicit error instead of an imaginary screenshot or placeholder.
+
+The representative rendering-accuracy matrix currently passes 10/10 cases across Cartesian, implicit, polar, parametric, and surface graphs; projectile, pendulum, and 3D particle physics; VSEPR chemistry; and directed networking diagrams.
 
 ## Message Queue
 
@@ -406,7 +457,7 @@ Common places to edit:
 - Model verification/search/VRAM scoring: `morice/model_catalog.py`
 - Wake listener sensitivity and magic words: `morice_wake_listener.py`
 - Saved personalization settings: `morice/settings.py`
-- Logo and queue screenshot: `morice/assets/` and `docs/screenshots/`
+- Logo and verified UI captures: `morice/assets/` and `docs/screenshots/`
 - Build bundle: `MORICE.spec`
 - Strict TypeScript renderer core and tests: `vnext/`
 
@@ -437,7 +488,7 @@ morice/
   settings.py          Personalization, model choice, wake-line, and GPU profile storage
   web_search.py        Optional web lookup pipeline
   assets/              Logo and bundled app assets
-docs/screenshots/      Queue-system README screenshot
+docs/screenshots/      Verified queue, graph, and physics UI captures
 docs/vnext-science-workspace.md
 scripts/               Model install and release-prep scripts
 vnext/                 Strict TypeScript coordinator, cache, graph adapter, and physics core

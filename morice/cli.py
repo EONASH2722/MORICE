@@ -43,12 +43,19 @@ from .web_search import search_web
 import os
 from .knowledge import search_notes
 from .vision import describe_image
+from .capabilities import (
+    capability_answer,
+    detect_capability_topic,
+    emoji_preference_instruction,
+)
+from .settings import load_settings, normalize_emoji_level
 
 
 EXIT_WORDS = {"exit", "quit"}
 
 
 def run_cli():
+    emoji_level = normalize_emoji_level(load_settings().get("emoji_level", ""))
     if should_preload():
         print(f"{MORICE_NAME} loading knowledge from {KB_DIR} ...")
         try:
@@ -159,6 +166,14 @@ def run_cli():
             print(f"{MORICE_NAME}: {enforce_father('Understood.')}")
             continue
 
+        capability_topic = detect_capability_topic(user_input)
+        if capability_topic:
+            print(
+                f"{MORICE_NAME}: "
+                f"{enforce_father(capability_answer(capability_topic, emoji_level))}"
+            )
+            continue
+
         if wants_help(user_input):
             print(f"{MORICE_NAME}: {enforce_father(help_text())}")
             continue
@@ -257,14 +272,15 @@ def run_cli():
                 web_context = search_web(web_query)
                 if not web_context:
                     web_context = "Web lookup returned no results."
-        extra_system = ""
+        extra_system = emoji_preference_instruction(emoji_level)
         if pending_image_context:
             lowered = pending_image_context.lower()
             if any(key in lowered for key in {"not available", "not found", "could not open"}):
                 print(f"{MORICE_NAME}: {enforce_father(pending_image_context)}")
                 pending_image_context = ""
                 continue
-            extra_system = (
+            extra_system += (
+                "\n\n"
                 "Image context (best effort, may be incomplete):\n"
                 f"{pending_image_context}"
             )

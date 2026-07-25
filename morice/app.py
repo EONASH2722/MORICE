@@ -31,6 +31,12 @@ from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_cont
 from .llm_client import chat
 from .web_search import search_web
 import os
+from .capabilities import (
+    capability_answer,
+    detect_capability_topic,
+    emoji_preference_instruction,
+)
+from .settings import load_settings, normalize_emoji_level
 
 
 class MoriceApp(tk.Tk):
@@ -49,6 +55,9 @@ class MoriceApp(tk.Tk):
         self.awake = True
         self.last_notes_hits = []
         self.last_notes_term = ""
+        self.emoji_level = normalize_emoji_level(
+            load_settings().get("emoji_level", "")
+        )
 
         self.text = tk.Text(
             self,
@@ -157,6 +166,16 @@ class MoriceApp(tk.Tk):
             self.append_message(MORICE_NAME, enforce_father("Understood."))
             return
 
+        capability_topic = detect_capability_topic(user_input)
+        if capability_topic:
+            self.append_message(
+                MORICE_NAME,
+                enforce_father(
+                    capability_answer(capability_topic, self.emoji_level)
+                ),
+            )
+            return
+
         if wants_web_capability(user_input):
             if os.getenv("MORICE_WEB", "1") == "1":
                 self.append_message(
@@ -220,9 +239,10 @@ class MoriceApp(tk.Tk):
             web_query = extract_web_query(user_input)
             if web_query:
                 web_context = search_web(web_query)
-        extra_system = ""
+        extra_system = emoji_preference_instruction(self.emoji_level)
         if context:
-            extra_system = (
+            extra_system += (
+                "\n\n"
                 "Use the following local notes when relevant. "
                 "If they don't apply, ignore them.\n\n"
                 f"{context}"

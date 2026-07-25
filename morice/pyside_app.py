@@ -31,6 +31,7 @@ from PySide6.QtGui import (
     QFontDatabase,
     QBrush,
     QColor,
+    QDesktopServices,
     QIcon,
     QCursor,
     QPainter,
@@ -72,6 +73,10 @@ from PySide6.QtWidgets import (
     QTreeWidget,
     QTreeWidgetItem,
     QStackedWidget,
+    QSplitter,
+    QMessageBox,
+    QColorDialog,
+    QStyle,
 )
 
 from .core import (
@@ -143,6 +148,37 @@ from .project_runtime import (
 from .science_engine import GraphArtifact, GraphSurface, PhysicsArtifact, ScienceArtifact, is_science_request
 from .domain_engine import DiagramArtifact, MoleculeArtifact, atom_color
 from .visualization import VisualizationManager, VisualizationResult
+from .capabilities import (
+    capability_answer,
+    detect_capability_topic,
+    emoji_preference_instruction,
+)
+from .desktop_assistant import (
+    DesktopAction,
+    close_application,
+    collect_system_snapshot,
+    execute_desktop_action,
+    parse_desktop_command,
+    search_files,
+)
+from .ui_system import (
+    THEMES,
+    AnimationEngine,
+    normalize_accent,
+    normalize_theme,
+    premium_theme_stylesheet,
+)
+from .ui_workspace import (
+    AssistantHub,
+    CommandPalette,
+    NotificationToast,
+    install_command_shortcut,
+)
+from .workspace_state import (
+    WorkspaceState,
+    load_workspace_state,
+    save_workspace_state,
+)
 from .settings import (
     DEFAULT_SETTINGS,
     load_settings,
@@ -154,6 +190,9 @@ from .settings import (
     normalize_project_lookup_mode,
     normalize_gpu_name,
     normalize_gpu_vram_mb,
+    normalize_emoji_level,
+    normalize_font_family,
+    normalize_custom_font_path,
     normalize_user_title,
     normalize_wake_phrase,
     normalize_response_style,
@@ -271,6 +310,8 @@ def _set_windows_app_id() -> None:
 
 
 _UI_FONTS_LOADED = False
+_ACTIVE_UI_FONT_FAMILY = "Segoe UI"
+_ACTIVE_UI_THEME = "dark"
 
 
 def _load_ui_fonts():
@@ -286,6 +327,8 @@ def _load_ui_fonts():
         os.path.join(font_dir, "segoeui.ttf"),
         os.path.join(font_dir, "segoeuib.ttf"),
         os.path.join(font_dir, "segoeuii.ttf"),
+        os.path.join(font_dir, "seguiemj.ttf"),
+        os.path.join(font_dir, "seguisym.ttf"),
     ]
     loaded_family = ""
     for font_path in font_paths:
@@ -301,6 +344,43 @@ def _load_ui_fonts():
     if loaded_family:
         app.setFont(QFont(loaded_family, 10))
     _UI_FONTS_LOADED = True
+
+
+def register_ui_font_file(path: str) -> str:
+    font_path = normalize_custom_font_path(path)
+    if not font_path or not os.path.isfile(font_path):
+        return ""
+    font_id = QFontDatabase.addApplicationFont(font_path)
+    if font_id < 0:
+        return ""
+    families = QFontDatabase.applicationFontFamilies(font_id)
+    return normalize_font_family(families[0]) if families else ""
+
+
+def available_ui_font_families(selected_family: str = "") -> list[str]:
+    installed = {
+        normalize_font_family(family)
+        for family in QFontDatabase.families()
+        if normalize_font_family(family)
+    }
+    preferred = (
+        "Segoe UI",
+        "Inter",
+        "Arial",
+        "Calibri",
+        "Verdana",
+        "Georgia",
+        "Tahoma",
+        "Times New Roman",
+        "Cascadia Code",
+    )
+    families = [family for family in preferred if family in installed]
+    selected = normalize_font_family(selected_family)
+    if selected in installed and selected not in families:
+        families.append(selected)
+    if not families:
+        families.append(QApplication.font().family() or DEFAULT_SETTINGS["font_family"])
+    return families
 
 
 class ModelSourceDialog(QDialog):
@@ -339,7 +419,6 @@ class ModelSourceDialog(QDialog):
             QDialog {
                 background: #111018;
                 color: #f4f0ff;
-                font-family: "Segoe UI";
             }
             #ModelDialogTitle {
                 font-size: 18px;
@@ -688,7 +767,6 @@ class ModelWebBrowserDialog(QDialog):
             QDialog {
                 background: #050711;
                 color: #f6f1ff;
-                font-family: "Segoe UI";
             }
             #ModelGalaxySurface {
                 border-radius: 16px;
@@ -1132,6 +1210,11 @@ class ModelWebBrowserDialog(QDialog):
 
 def _inline_markdown_to_rich_text(text: str) -> str:
     safe = html.escape(text, quote=False)
+    safe = re.sub(
+        r"([\u2600-\u27bf\U0001f300-\U0001faff]\ufe0f?)",
+        r'<span style="font-family: Segoe UI Emoji;">\1</span>',
+        safe,
+    )
     safe = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", safe)
     safe = re.sub(r"\*\*([^*\n][\s\S]*?[^*\n])\*\*", r"<b>\1</b>", safe)
     safe = re.sub(r"__([^_\n][\s\S]*?[^_\n])__", r"<b>\1</b>", safe)
@@ -1248,6 +1331,12 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
         self.page().setBackgroundColor(QColor(0, 0, 0, 0))
         self.loadFinished.connect(lambda _ok: QTimer.singleShot(0, self._measure_content))
         source = json.dumps(message or "", ensure_ascii=False).replace("</", "<\\/")
+        tokens = THEMES[normalize_theme(_ACTIVE_UI_THEME)]
+        font_family = normalize_font_family(_ACTIVE_UI_FONT_FAMILY)
+        font_css = font_family.replace("\\", "\\\\").replace('"', '\\"')
+        code_background = "rgba(5, 7, 12, .82)" if tokens.name == "dark" else "rgba(225, 231, 236, .92)"
+        quote_color = "#cbd5e5" if tokens.name == "dark" else "#526171"
+        table_border = "rgba(255,255,255,.16)" if tokens.name == "dark" else "rgba(22,27,34,.18)"
         document = f"""<!doctype html>
 <html>
 <head>
@@ -1255,8 +1344,10 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
   <link rel="stylesheet" href="katex.min.css">
   <link rel="stylesheet" href="github-dark.min.css">
   <style>
-    html, body {{ margin: 0; padding: 0; background: transparent; color: #edf1f8;
-      font: 15px/1.58 "Inter", "Segoe UI", sans-serif; letter-spacing: 0; }}
+    :root {{ --ui-font: "{font_css}"; --text: {tokens.text}; --muted: {quote_color};
+      --code-bg: {code_background}; --table-border: {table_border}; }}
+    html, body {{ margin: 0; padding: 0; background: transparent; color: var(--text);
+      font: 15px/1.58 var(--ui-font), "Segoe UI Emoji", "Segoe UI", sans-serif; letter-spacing: 0; }}
     body {{ overflow-x: hidden; overflow-y: auto; }}
     p {{ margin: 0 0 10px; }}
     h1, h2, h3, h4 {{ margin: 12px 0 7px; line-height: 1.25; }}
@@ -1266,12 +1357,12 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
     code {{ font-family: "Cascadia Code", Consolas, monospace; font-size: 0.94em; }}
     :not(pre) > code {{ background: rgba(119, 92, 190, .18); border: 1px solid
       rgba(153, 119, 229, .22); padding: 2px 5px; border-radius: 4px; }}
-    pre {{ overflow-x: auto; padding: 12px; background: rgba(5, 7, 12, .82);
+    pre {{ overflow-x: auto; padding: 12px; background: var(--code-bg);
       border: 1px solid rgba(153, 119, 229, .28); border-radius: 6px; }}
-    blockquote {{ margin: 8px 0; padding: 2px 12px; color: #cbd5e5;
+    blockquote {{ margin: 8px 0; padding: 2px 12px; color: var(--muted);
       border-left: 3px solid #8c64e8; }}
     table {{ width: 100%; border-collapse: collapse; margin: 9px 0; }}
-    th, td {{ border: 1px solid rgba(255,255,255,.16); padding: 7px 9px;
+    th, td {{ border: 1px solid var(--table-border); padding: 7px 9px;
       text-align: left; }}
     th {{ background: rgba(68, 91, 158, .28); }}
     .katex-display {{ overflow-x: auto; overflow-y: hidden; padding: 7px 0; }}
@@ -1303,6 +1394,37 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
 </html>"""
         self.setHtml(document, QUrl.fromLocalFile(_web_assets_path() + os.sep))
 
+    def apply_appearance(self, theme: str, font_family: str):
+        if QWebEngineView is None:
+            return
+        tokens = THEMES[normalize_theme(theme)]
+        family = normalize_font_family(font_family)
+        code_background = (
+            "rgba(5, 7, 12, .82)"
+            if tokens.name == "dark"
+            else "rgba(225, 231, 236, .92)"
+        )
+        quote_color = "#cbd5e5" if tokens.name == "dark" else "#526171"
+        table_border = (
+            "rgba(255,255,255,.16)"
+            if tokens.name == "dark"
+            else "rgba(22,27,34,.18)"
+        )
+        values = {
+            "--ui-font": family,
+            "--text": tokens.text,
+            "--muted": quote_color,
+            "--code-bg": code_background,
+            "--table-border": table_border,
+        }
+        payload = json.dumps(values, ensure_ascii=False)
+        self.page().runJavaScript(
+            "const values="
+            + payload
+            + "; for (const [key,value] of Object.entries(values)) "
+            + "document.documentElement.style.setProperty(key,value);"
+        )
+
     def _measure_content(self):
         if QWebEngineView is None:
             return
@@ -1324,10 +1446,15 @@ class ComposerStageFrame(QFrame):
     def __init__(self):
         super().__init__()
         self.setObjectName("ComposerStage")
+        self.theme_name = "dark"
         self._wave_phase = 0.0
         self._wave_timer = QTimer(self)
         self._wave_timer.timeout.connect(self._advance_wave)
         self._wave_timer.start(45)
+
+    def set_theme(self, theme: str):
+        self.theme_name = "light" if theme == "light" else "dark"
+        self.update()
 
     def _advance_wave(self):
         if not self.isVisible() or self.window().isMinimized():
@@ -1342,7 +1469,12 @@ class ComposerStageFrame(QFrame):
         width = max(1, rect.width())
         height = max(1, rect.height())
 
-        painter.fillRect(rect, QColor(7, 7, 12, 232))
+        painter.fillRect(
+            rect,
+            QColor(238, 242, 245, 246)
+            if self.theme_name == "light"
+            else QColor(7, 7, 12, 232),
+        )
         painter.setPen(Qt.NoPen)
 
         start_y = int(height * 0.34)
@@ -1411,7 +1543,7 @@ class ThinkingBubble(QFrame):
         super().__init__()
         self.setObjectName("ThinkingBubble")
         self._visible = True
-        self._lines: list[str] = []
+        self._stages: list[tuple[str, str]] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
@@ -1453,13 +1585,45 @@ class ThinkingBubble(QFrame):
         detail = (detail or "").strip()
         if not detail:
             return
-        if self._lines and self._lines[-1] == detail:
+        stage = self._stage_for_detail(detail)
+        if self._stages and self._stages[-1] == (stage, detail):
             return
-        self._lines.append(detail)
-        self.detail_label.setText("\n".join(f"{index + 1}. {line}" for index, line in enumerate(self._lines)))
+        if self._stages and self._stages[-1][0] == stage:
+            self._stages[-1] = (stage, detail)
+        else:
+            self._stages.append((stage, detail))
+        self._stages = self._stages[-7:]
+        lines: list[str] = []
+        for index, (label, text) in enumerate(self._stages):
+            state = "[active]" if index == len(self._stages) - 1 else "[done]"
+            lines.append(f"{state} {label}")
+            lines.append(f"         {text}")
+        self.detail_label.setText("\n".join(lines))
+
+    @staticmethod
+    def _stage_for_detail(detail: str) -> str:
+        lowered = detail.lower()
+        if any(word in lowered for word in ("received", "request", "message")):
+            return "Understanding request"
+        if any(word in lowered for word in ("context", "notes", "reading", "search")):
+            return "Gathering context"
+        if any(word in lowered for word in ("mode", "rules", "folder", "plan")):
+            return "Planning"
+        if any(word in lowered for word in ("applying", "files", "execut", "command")):
+            return "Executing"
+        if any(word in lowered for word in ("render", "visual", "prepare")):
+            return "Preparing output"
+        if any(word in lowered for word in ("asking", "generating", "compose", "qwen")):
+            return "Generating response"
+        return "Finalizing"
 
     def finish(self):
-        self.set_detail("Done. Reply is shown below.")
+        self._stages.append(("Complete", "The result is ready below."))
+        lines: list[str] = []
+        for label, text in self._stages[-7:]:
+            lines.append(f"[done] {label}")
+            lines.append(f"         {text}")
+        self.detail_label.setText("\n".join(lines))
         self.toggle.setText("Processing done")
         self.dot.setProperty("done", "true")
         self.dot.style().unpolish(self.dot)
@@ -3801,6 +3965,20 @@ class TitleBar(QFrame):
         self.workspace_btn.setObjectName("SidebarButton")
         self.workspace_btn.clicked.connect(self._parent.toggle_workspace_panel)
 
+        self.hub_btn = QPushButton("Tools")
+        self.hub_btn.setObjectName("SidebarButton")
+        self.hub_btn.setToolTip("Open workspace tools")
+        self.hub_btn.clicked.connect(self._parent.toggle_assistant_hub)
+
+        self.command_btn = QPushButton()
+        self.command_btn.setObjectName("TitleButton")
+        self.command_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_FileDialogContentsView)
+        )
+        self.command_btn.setToolTip("Command palette (Ctrl+K)")
+        self.command_btn.setFixedWidth(34)
+        self.command_btn.clicked.connect(self._parent.open_command_palette)
+
         logo = QLabel()
         logo.setObjectName("TitleLogo")
         icon = QIcon(_icon_path())
@@ -3814,23 +3992,53 @@ class TitleBar(QFrame):
         layout.addWidget(self.mode_btn)
         layout.addWidget(self.sidebar_btn)
         layout.addWidget(self.workspace_btn)
+        layout.addWidget(self.hub_btn)
         layout.addWidget(logo)
         layout.addWidget(title)
         layout.addStretch(1)
 
-        self.min_btn = QPushButton("-")
+        self.command_btn.setAccessibleName("Open command palette")
+        layout.addWidget(self.command_btn)
+
+        self.theme_btn = QPushButton()
+        self.theme_btn.setObjectName("TitleButton")
+        self.theme_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_DialogResetButton)
+        )
+        self.theme_btn.setToolTip("Toggle light or dark theme")
+        self.theme_btn.setAccessibleName("Toggle theme")
+        self.theme_btn.setFixedWidth(34)
+        self.theme_btn.clicked.connect(self._parent.toggle_theme)
+        layout.addWidget(self.theme_btn)
+
+        self.min_btn = QPushButton()
         self.min_btn.setToolTip("Minimize")
         self.min_btn.setObjectName("TitleButton")
-        self.min_btn.clicked.connect(self._parent.showMinimized)
+        self.min_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_TitleBarMinButton)
+        )
+        self.min_btn.setAccessibleName("Minimize")
+        self.min_btn.setFixedWidth(34)
+        self.min_btn.clicked.connect(self._parent.animate_minimize)
 
-        self.max_btn = QPushButton("[]")
+        self.max_btn = QPushButton()
         self.max_btn.setToolTip("Maximize")
         self.max_btn.setObjectName("TitleButton")
+        self.max_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_TitleBarMaxButton)
+        )
+        self.max_btn.setAccessibleName("Maximize")
+        self.max_btn.setFixedWidth(34)
         self.max_btn.clicked.connect(self._toggle_maximize)
 
-        self.close_btn = QPushButton("X")
+        self.close_btn = QPushButton()
         self.close_btn.setToolTip("Close")
         self.close_btn.setObjectName("TitleClose")
+        self.close_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_TitleBarCloseButton)
+        )
+        self.close_btn.setAccessibleName("Close")
+        self.close_btn.setFixedWidth(34)
         self.close_btn.clicked.connect(self._parent.close)
 
         layout.addWidget(self.min_btn)
@@ -3842,9 +4050,13 @@ class TitleBar(QFrame):
             self._parent.showNormal()
             normal_geometry = getattr(self._parent, "_normal_geometry", None)
             if normal_geometry is not None:
-                self._parent.setGeometry(normal_geometry)
+                self._parent.animation_engine.geometry(
+                    self._parent, normal_geometry, duration=220
+                )
             self._parent._custom_maximized = False
-            self.max_btn.setText("[]")
+            self.max_btn.setIcon(
+                QApplication.style().standardIcon(QStyle.SP_TitleBarMaxButton)
+            )
             self.max_btn.setToolTip("Maximize")
         else:
             self._parent._normal_geometry = self._parent.geometry()
@@ -3856,11 +4068,15 @@ class TitleBar(QFrame):
                 # Frameless translucent windows can extend below the taskbar
                 # when native maximize margins are guessed by Windows. Using
                 # the available geometry keeps every bottom control visible.
-                self._parent.setGeometry(screen.availableGeometry())
+                self._parent.animation_engine.geometry(
+                    self._parent, screen.availableGeometry(), duration=220
+                )
             else:
                 self._parent.showMaximized()
             self._parent._custom_maximized = True
-            self.max_btn.setText("[ ]")
+            self.max_btn.setIcon(
+                QApplication.style().standardIcon(QStyle.SP_TitleBarNormalButton)
+            )
             self.max_btn.setToolTip("Restore")
 
     def mousePressEvent(self, event):
@@ -3875,8 +4091,46 @@ class TitleBar(QFrame):
             event.accept()
 
     def mouseReleaseEvent(self, event):
+        was_dragging = self._drag_active
         self._drag_active = False
+        if was_dragging and event.button() == Qt.LeftButton:
+            self._snap_to_edge(event.globalPosition().toPoint())
         event.accept()
+
+    def _snap_to_edge(self, position: QPoint):
+        screen = QApplication.screenAt(position) or QApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        threshold = 18
+        if abs(position.y() - available.top()) <= threshold:
+            if not getattr(self._parent, "_custom_maximized", False):
+                self._toggle_maximize()
+            return
+        left_edge = abs(position.x() - available.left()) <= threshold
+        right_edge = abs(position.x() - available.right()) <= threshold
+        if not left_edge and not right_edge:
+            return
+        if available.width() // 2 < self._parent.minimumWidth():
+            if not getattr(self._parent, "_custom_maximized", False):
+                self._toggle_maximize()
+            return
+        self._parent.showNormal()
+        self._parent._custom_maximized = False
+        self._parent._normal_geometry = self._parent.geometry()
+        half = QRect(
+            available.left()
+            if left_edge
+            else available.left() + available.width() // 2,
+            available.top(),
+            available.width() // 2,
+            available.height(),
+        )
+        self._parent.animation_engine.geometry(self._parent, half, duration=220)
+        self.max_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_TitleBarMaxButton)
+        )
+        self.max_btn.setToolTip("Maximize")
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -3892,6 +4146,9 @@ class MoriceWindow(QWidget):
     gpu_detected = Signal(object)
     visualization_progress = Signal(str, str, str, int)
     visualization_finished = Signal(object)
+    system_snapshot_ready = Signal(object)
+    file_search_ready = Signal(object)
+    desktop_action_ready = Signal(str, bool)
 
     def __init__(self):
         super().__init__()
@@ -3918,7 +4175,16 @@ class MoriceWindow(QWidget):
         self._normal_geometry = None
         self._custom_maximized = False
 
-        self.history = []
+        self._session_enabled = (
+            os.getenv("MORICE_DISABLE_SESSION", "").strip().lower()
+            not in {"1", "true", "yes"}
+        )
+        self.workspace_state = (
+            load_workspace_state() if self._session_enabled else WorkspaceState()
+        )
+        self.current_theme = normalize_theme(self.workspace_state.theme)
+        self.accent_color = normalize_accent(self.workspace_state.accent)
+        self.history = list(self.workspace_state.history)
         self.awake = os.getenv("MORICE_START_AWAKE", "").strip() == "1"
         self.last_notes_hits = []
         self.last_notes_term = ""
@@ -3929,8 +4195,8 @@ class MoriceWindow(QWidget):
         self._auto_scrolling = False
         self._last_scroll_max = 0
         self._user_scroll_guard_until = 0.0
-        self.first_user_message = ""
-        self.user_messages: list[str] = []
+        self.user_messages: list[str] = list(self.workspace_state.user_messages)
+        self.first_user_message = self.user_messages[0] if self.user_messages else ""
         self.is_busy = False
         self.thinking_bubble: ThinkingBubble | None = None
         self._thinking_token = 0
@@ -3944,11 +4210,40 @@ class MoriceWindow(QWidget):
         self._panel_anims: dict[QWidget, QPropertyAnimation] = {}
         self._panel_target_visibility: dict[QWidget, bool] = {}
         self._motion_enabled = os.getenv("MORICE_REDUCE_MOTION", "").strip().lower() not in {"1", "true", "yes"}
+        self.animation_engine = AnimationEngine(self, enabled=self._motion_enabled)
+        self._child_windows: list[MoriceWindow] = []
+        self._closing_after_animation = False
+        self._open_animation_played = False
         self.message_queue: list[str] = []
+        self.clipboard_history: list[str] = []
         self.settings = load_settings()
         self.response_style = self.settings.get("response_style", "").strip()
         self.wake_phrase = normalize_wake_phrase(self.settings.get("wake_phrase", ""))
         self.user_title = normalize_user_title(self.settings.get("user_title", ""))
+        self.emoji_level = normalize_emoji_level(
+            self.settings.get("emoji_level", "")
+        )
+        self.font_family = normalize_font_family(
+            self.settings.get("font_family", "")
+        )
+        self.custom_font_path = normalize_custom_font_path(
+            self.settings.get("custom_font_path", "")
+        )
+        registered_custom_family = register_ui_font_file(self.custom_font_path)
+        installed_fonts = {
+            family.casefold(): family for family in QFontDatabase.families()
+        }
+        if self.font_family.casefold() not in installed_fonts:
+            self.font_family = (
+                registered_custom_family
+                or installed_fonts.get("segoe ui")
+                or QApplication.font().family()
+                or DEFAULT_SETTINGS["font_family"]
+            )
+        application = QApplication.instance()
+        if application is not None:
+            point_size = application.font().pointSize()
+            application.setFont(QFont(self.font_family, point_size if point_size > 0 else 10))
         self.chat_mode = normalize_chat_mode(self.settings.get("chat_mode", ""))
         self.project_folder = normalize_project_folder(self.settings.get("project_folder", ""))
         self.project_access = normalize_project_access(self.settings.get("project_access", ""))
@@ -3987,6 +4282,9 @@ class MoriceWindow(QWidget):
         self.gpu_detected.connect(self._on_gpu_detected)
         self.visualization_progress.connect(self._on_visualization_progress)
         self.visualization_finished.connect(self._on_visualization_finished)
+        self.system_snapshot_ready.connect(self._on_system_snapshot_ready)
+        self.file_search_ready.connect(self._on_file_search_ready)
+        self.desktop_action_ready.connect(self._on_desktop_action_ready)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
@@ -3997,8 +4295,13 @@ class MoriceWindow(QWidget):
 
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(12)
+        body.setSpacing(0)
         root.addLayout(body, stretch=1)
+        self.workspace_splitter = QSplitter(Qt.Horizontal)
+        self.workspace_splitter.setObjectName("WorkspaceSplitter")
+        self.workspace_splitter.setChildrenCollapsible(False)
+        self.workspace_splitter.setHandleWidth(6)
+        body.addWidget(self.workspace_splitter)
         self.window_resize_grip = QSizeGrip(self)
         self.window_resize_grip.setObjectName("WindowResizeGrip")
         self.window_resize_grip.setToolTip("Resize MORICE window")
@@ -4138,7 +4441,7 @@ class MoriceWindow(QWidget):
         mode_layout.addWidget(self.mode_status)
         mode_layout.addStretch(1)
 
-        body.addWidget(self.mode_panel)
+        self.workspace_splitter.addWidget(self.mode_panel)
         self.mode_panel.setVisible(False)
 
         self.workspace_panel = QFrame()
@@ -4274,7 +4577,10 @@ class MoriceWindow(QWidget):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(12)
         self.content_layout = content_layout
-        body.addLayout(content_layout, stretch=1)
+        self.content_host = QWidget()
+        self.content_host.setObjectName("ContentHost")
+        self.content_host.setLayout(content_layout)
+        self.workspace_splitter.addWidget(self.content_host)
 
         chat_container = QFrame()
         chat_container.setObjectName("ChatContainer")
@@ -4317,7 +4623,7 @@ class MoriceWindow(QWidget):
         chat_container.setVisible(False)
 
         # Keep the live graph/simulation workspace beside the conversation instead of hiding it in the chat flow.
-        body.addWidget(self.workspace_panel)
+        self.workspace_splitter.addWidget(self.workspace_panel)
         self.workspace_panel.setVisible(False)
 
         self.changes_panel = QFrame()
@@ -4483,13 +4789,21 @@ class MoriceWindow(QWidget):
         changes_layout.addLayout(changes_header)
         changes_layout.addWidget(self.changes_content, stretch=1)
         self._set_project_workspace_tab(1)
-        body.addWidget(self.changes_panel)
+        self.workspace_splitter.addWidget(self.changes_panel)
         self.changes_panel.setVisible(False)
 
         self.sidebar = QFrame()
         self.sidebar.setObjectName("SidebarPanel")
         self.sidebar.setFixedWidth(340)
-        sidebar_layout = QVBoxLayout(self.sidebar)
+        sidebar_shell_layout = QVBoxLayout(self.sidebar)
+        sidebar_shell_layout.setContentsMargins(0, 0, 0, 0)
+        self.sidebar_scroll = QScrollArea()
+        self.sidebar_scroll.setObjectName("SidebarScroll")
+        self.sidebar_scroll.setWidgetResizable(True)
+        self.sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.sidebar_content = QFrame()
+        self.sidebar_content.setObjectName("SidebarContent")
+        sidebar_layout = QVBoxLayout(self.sidebar_content)
         sidebar_layout.setContentsMargins(16, 16, 16, 16)
         sidebar_layout.setSpacing(12)
 
@@ -4552,6 +4866,48 @@ class MoriceWindow(QWidget):
         self.style_status.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         self.style_status.setFocusPolicy(Qt.StrongFocus)
 
+        appearance_label = QLabel("Appearance")
+        appearance_label.setObjectName("SidebarSectionLabel")
+
+        theme_label = QLabel("Theme")
+        theme_label.setObjectName("StyleLabel")
+        self.theme_select = QComboBox()
+        self.theme_select.setObjectName("AppearanceSelect")
+        self.theme_select.addItem("Dark", "dark")
+        self.theme_select.addItem("Light", "light")
+        self.theme_select.setCurrentIndex(1 if self.current_theme == "light" else 0)
+        self.theme_select.currentIndexChanged.connect(self._on_theme_selection_changed)
+
+        emoji_label = QLabel("Emoji amount")
+        emoji_label.setObjectName("StyleLabel")
+        self.emoji_select = QComboBox()
+        self.emoji_select.setObjectName("AppearanceSelect")
+        self.emoji_select.addItem("None", "none")
+        self.emoji_select.addItem("Medium", "medium")
+        self.emoji_select.addItem("Expressive", "expressive")
+        emoji_index = self.emoji_select.findData(self.emoji_level)
+        self.emoji_select.setCurrentIndex(max(0, emoji_index))
+        self.emoji_select.currentIndexChanged.connect(self._on_emoji_selection_changed)
+
+        font_label = QLabel("App font")
+        font_label.setObjectName("StyleLabel")
+        self.font_select = QComboBox()
+        self.font_select.setObjectName("AppearanceSelect")
+        for family in available_ui_font_families(self.font_family):
+            self.font_select.addItem(family, family)
+        selected_font_index = self.font_select.findData(self.font_family)
+        self.font_select.setCurrentIndex(max(0, selected_font_index))
+        self.font_select.currentIndexChanged.connect(self._on_font_selection_changed)
+
+        add_font_btn = QPushButton("Add your own")
+        add_font_btn.setObjectName("QueueButton")
+        add_font_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_DialogOpenButton)
+        )
+        add_font_btn.setToolTip("Load a local TTF, OTF, or TTC font")
+        add_font_btn.clicked.connect(self._choose_custom_font)
+        self.add_font_btn = add_font_btn
+
         queue_label = QLabel("Message queue")
         queue_label.setObjectName("StyleLabel")
 
@@ -4600,13 +4956,40 @@ class MoriceWindow(QWidget):
         sidebar_layout.addLayout(style_buttons)
         sidebar_layout.addWidget(self.style_status)
         sidebar_layout.addSpacing(8)
+        sidebar_layout.addWidget(appearance_label)
+        sidebar_layout.addWidget(theme_label)
+        sidebar_layout.addWidget(self.theme_select)
+        sidebar_layout.addWidget(emoji_label)
+        sidebar_layout.addWidget(self.emoji_select)
+        sidebar_layout.addWidget(font_label)
+        sidebar_layout.addWidget(self.font_select)
+        sidebar_layout.addWidget(self.add_font_btn)
+        sidebar_layout.addSpacing(8)
         sidebar_layout.addWidget(queue_label)
         sidebar_layout.addWidget(self.queue_list)
         sidebar_layout.addLayout(queue_buttons)
         sidebar_layout.addStretch(1)
+        self.sidebar_scroll.setWidget(self.sidebar_content)
+        sidebar_shell_layout.addWidget(self.sidebar_scroll)
 
-        body.addWidget(self.sidebar)
+        self.workspace_splitter.addWidget(self.sidebar)
         self.sidebar.setVisible(False)
+
+        self.assistant_hub = AssistantHub(self)
+        self.assistant_hub.command_requested.connect(self._on_workspace_command)
+        self.assistant_hub.notes_changed.connect(self._on_workspace_notes_changed)
+        self.assistant_hub.visibility_requested.connect(self._set_assistant_hub_visible)
+        self.workspace_splitter.addWidget(self.assistant_hub)
+        self.assistant_hub.setVisible(False)
+        clipboard = QApplication.clipboard()
+        clipboard.dataChanged.connect(self._capture_clipboard_entry)
+        QTimer.singleShot(0, self._capture_clipboard_entry)
+        self.workspace_splitter.setStretchFactor(0, 0)
+        self.workspace_splitter.setStretchFactor(1, 1)
+        self.workspace_splitter.setStretchFactor(2, 0)
+        self.workspace_splitter.setStretchFactor(3, 0)
+        self.workspace_splitter.setStretchFactor(4, 0)
+        self.workspace_splitter.setStretchFactor(5, 0)
 
         input_frame = QFrame()
         input_frame.setObjectName("InputFrame")
@@ -5454,33 +5837,91 @@ class MoriceWindow(QWidget):
             }
             """
         )
+        self._base_stylesheet = self.styleSheet()
+        self.command_palette = CommandPalette(self)
+        self.command_palette.action_requested.connect(self._execute_palette_command)
+        self.command_shortcut = install_command_shortcut(self, self.command_palette)
+        self.notification_toast = NotificationToast(self)
+        self._apply_theme()
         self._update_style_badge()
         self._refresh_queue_list()
         self._refresh_mode_panel()
         self._refresh_gpu_profile_ui()
         self._set_workspace_view("graph")
         self._refresh_send_button_state()
-
-        if should_preload():
-            try:
-                chunk_count = load_knowledge()
-            except MemoryError:
-                chunk_count = 0
-            if chunk_count:
-                self.append_message(MORICE_NAME, f"Loaded {chunk_count} knowledge chunks from {KB_DIR}.")
-            else:
-                self.append_message(MORICE_NAME, f"No knowledge files loaded from {KB_DIR}.")
-        else:
-            self.append_message(MORICE_NAME, "Knowledge is on-demand. Use @notes to include your files.")
-        if self.awake:
-            self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {self.user_title}.")
-        else:
-            self.append_message(
-                MORICE_NAME,
-                f"{MORICE_NAME} is asleep, {self.user_title}. Type '{self.wake_phrase}' to wake me.",
+        self.assistant_hub.set_notes(self.workspace_state.notes)
+        self._refresh_workspace_hub()
+        self.assistant_hub.tabs.setCurrentIndex(
+            min(
+                self.assistant_hub.tabs.count() - 1,
+                self.workspace_state.active_workspace_tab,
             )
+        )
+        self.mode_panel.setVisible(self.workspace_state.mode_panel_visible)
+        self.sidebar.setVisible(self.workspace_state.sidebar_visible)
+        self.assistant_hub.setVisible(self.workspace_state.assistant_hub_visible)
+        self.title_bar.hub_btn.setText(
+            "Close Tools" if self.assistant_hub.isVisible() else "Tools"
+        )
+        if len(self.workspace_state.geometry) == 4:
+            x, y, width, height = self.workspace_state.geometry
+            target = QRect(x, y, max(860, width), max(580, height))
+            screen = QApplication.primaryScreen()
+            if screen is not None:
+                available = screen.availableGeometry()
+                target.setWidth(min(target.width(), available.width()))
+                target.setHeight(min(target.height(), available.height()))
+                if not target.intersects(available):
+                    target.moveTopLeft(
+                        available.topLeft() + QPoint(32, 32)
+                    )
+                target.moveLeft(
+                    max(
+                        available.left(),
+                        min(target.left(), available.right() - target.width() + 1),
+                    )
+                )
+                target.moveTop(
+                    max(
+                        available.top(),
+                        min(target.top(), available.bottom() - target.height() + 1),
+                    )
+                )
+            self.setGeometry(target)
+
+        restored_history = bool(self.history)
+        if restored_history:
+            for entry in self.history:
+                role = entry.get("role", "")
+                content = entry.get("content", "")
+                if role == "user":
+                    self.append_message(self.user_title, content, is_user=True, force_scroll=False)
+                elif role == "assistant":
+                    self.append_message(MORICE_NAME, self._address(content), force_scroll=False)
+            self._dock_composer_immediate()
+        else:
+            if should_preload():
+                try:
+                    chunk_count = load_knowledge()
+                except MemoryError:
+                    chunk_count = 0
+                if chunk_count:
+                    self.append_message(MORICE_NAME, f"Loaded {chunk_count} knowledge chunks from {KB_DIR}.")
+                else:
+                    self.append_message(MORICE_NAME, f"No knowledge files loaded from {KB_DIR}.")
+            else:
+                self.append_message(MORICE_NAME, "Knowledge is on-demand. Use @notes to include your files.")
+            if self.awake:
+                self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {self.user_title}.")
+            else:
+                self.append_message(
+                    MORICE_NAME,
+                    f"{MORICE_NAME} is asleep, {self.user_title}. Type '{self.wake_phrase}' to wake me.",
+                )
 
         QTimer.singleShot(200, self._post_init)
+        if self.workspace_state.maximized:
+            QTimer.singleShot(240, self.title_bar._toggle_maximize)
         if not self.gpu_profile.detected or self.gpu_profile.vram_mb <= 0:
             QTimer.singleShot(650, lambda: self._detect_gpu_profile(auto=True))
         self.wake_signal_timer = QTimer(self)
@@ -5527,6 +5968,635 @@ class MoriceWindow(QWidget):
     def _input_placeholder(self) -> str:
         return f"{self.user_title}: type here..."
 
+    def _apply_theme(self):
+        global _ACTIVE_UI_FONT_FAMILY, _ACTIVE_UI_THEME
+        _ACTIVE_UI_FONT_FAMILY = self.font_family
+        _ACTIVE_UI_THEME = self.current_theme
+        application = QApplication.instance()
+        if application is not None:
+            point_size = application.font().pointSize()
+            application.setFont(
+                QFont(self.font_family, point_size if point_size > 0 else 10)
+            )
+        base = getattr(self, "_base_stylesheet", self.styleSheet())
+        self.setStyleSheet(
+            base
+            + "\n"
+            + premium_theme_stylesheet(
+                self.current_theme, self.accent_color, self.font_family
+            )
+        )
+        if hasattr(self, "command_palette"):
+            self.command_palette.setStyleSheet(
+                premium_theme_stylesheet(
+                    self.current_theme, self.accent_color, self.font_family
+                )
+            )
+        if hasattr(self, "composer_stage"):
+            self.composer_stage.set_theme(self.current_theme)
+        if hasattr(self, "theme_select"):
+            self.theme_select.blockSignals(True)
+            self.theme_select.setCurrentIndex(
+                max(0, self.theme_select.findData(self.current_theme))
+            )
+            self.theme_select.blockSignals(False)
+        for rich_view in self.findChildren(RichContentView):
+            rich_view.apply_appearance(self.current_theme, self.font_family)
+
+    def toggle_theme(self):
+        requested = "light" if self.current_theme == "dark" else "dark"
+        self._set_theme(requested)
+
+    def _set_theme(self, theme: str, notify: bool = True):
+        requested = normalize_theme(theme)
+        if requested == self.current_theme:
+            self._apply_theme()
+            return
+        self.current_theme = requested
+        self._apply_theme()
+        self._record_activity(
+            "Theme changed", self.current_theme.title(), category="appearance"
+        )
+        if notify:
+            self._show_notification(
+                f"{self.current_theme.title()} theme enabled.", "success"
+            )
+        self._save_workspace_session()
+
+    def _on_theme_selection_changed(self, _index: int):
+        requested = self.theme_select.currentData()
+        if requested:
+            self._set_theme(str(requested))
+
+    def _save_appearance_settings(self):
+        self.settings["emoji_level"] = self.emoji_level
+        self.settings["font_family"] = self.font_family
+        self.settings["custom_font_path"] = self.custom_font_path
+        save_settings(self.settings)
+
+    def _on_emoji_selection_changed(self, _index: int):
+        self.emoji_level = normalize_emoji_level(self.emoji_select.currentData())
+        self._save_appearance_settings()
+        self.style_status.setText(
+            f"Emoji amount saved: {self.emoji_level.title()}."
+        )
+        self._record_activity(
+            "Emoji preference changed",
+            self.emoji_level.title(),
+            category="appearance",
+        )
+
+    def _on_font_selection_changed(self, _index: int):
+        family = normalize_font_family(self.font_select.currentData())
+        if not family:
+            return
+        self.font_family = family
+        self._save_appearance_settings()
+        self._apply_theme()
+        self.style_status.setText(f"App font changed to {self.font_family}.")
+        self._record_activity(
+            "Font changed", self.font_family, category="appearance"
+        )
+
+    def _choose_custom_font(self):
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Add a MORICE font",
+            os.path.dirname(self.custom_font_path)
+            if self.custom_font_path
+            else os.path.expanduser("~"),
+            "Font files (*.ttf *.otf *.ttc)",
+        )
+        if not path:
+            return
+        family = register_ui_font_file(path)
+        if not family:
+            self.style_status.setText(
+                "That file is not a valid TTF, OTF, or TTC font."
+            )
+            self._show_notification("MORICE could not load that font file.", "error")
+            return
+        self.custom_font_path = normalize_custom_font_path(path)
+        self.font_family = family
+        index = self.font_select.findData(family)
+        if index < 0:
+            self.font_select.addItem(family, family)
+            index = self.font_select.findData(family)
+        self.font_select.blockSignals(True)
+        self.font_select.setCurrentIndex(index)
+        self.font_select.blockSignals(False)
+        self._save_appearance_settings()
+        self._apply_theme()
+        self.style_status.setText(f"Custom font loaded: {family}.")
+        self._show_notification(f"{family} is now active.", "success")
+        self._record_activity(
+            "Custom font loaded",
+            os.path.basename(self.custom_font_path),
+            category="appearance",
+        )
+
+    def _choose_accent_color(self):
+        selected = QColorDialog.getColor(
+            QColor(self.accent_color),
+            self,
+            "Choose MORICE accent color",
+        )
+        if not selected.isValid():
+            return
+        self.accent_color = normalize_accent(selected.name())
+        self._apply_theme()
+        self._record_activity(
+            "Accent changed", self.accent_color, category="appearance"
+        )
+        self._save_workspace_session()
+
+    def open_command_palette(self):
+        self.command_palette.open_palette()
+
+    def animate_minimize(self):
+        if not self._motion_enabled:
+            self.showMinimized()
+            return
+
+        def minimize():
+            self.showMinimized()
+            self.setWindowOpacity(1.0)
+
+        self.animation_engine.window_opacity(
+            self, 0.0, duration=130, finished=minimize
+        )
+
+    def toggle_assistant_hub(self):
+        target = not self._panel_target_visibility.get(
+            self.assistant_hub, self.assistant_hub.isVisible()
+        )
+        self._set_assistant_hub_visible(target)
+
+    def _set_assistant_hub_visible(self, visible: bool):
+        self._animate_panel_visibility(self.assistant_hub, visible)
+        self.title_bar.hub_btn.setText("Close Tools" if visible else "Tools")
+        if visible:
+            self._refresh_workspace_hub()
+
+    def _refresh_workspace_hub(self):
+        if not hasattr(self, "assistant_hub"):
+            return
+        self.assistant_hub.set_recent(
+            self.workspace_state.recent_chats,
+            self.workspace_state.recent_files,
+        )
+        self.assistant_hub.set_activity(self.workspace_state.activity)
+        self.assistant_hub.set_tasks(self.message_queue, self.is_busy)
+        self.assistant_hub.set_clipboard_history(self.clipboard_history)
+        self._refresh_downloads()
+
+    def _capture_clipboard_entry(self):
+        clipboard = QApplication.clipboard()
+        text = clipboard.text().replace("\x00", "").strip()[:20_000]
+        if not text:
+            return
+        self.clipboard_history = [
+            text,
+            *[item for item in self.clipboard_history if item != text],
+        ][:30]
+        if hasattr(self, "assistant_hub"):
+            self.assistant_hub.set_clipboard_history(self.clipboard_history)
+
+    def _refresh_downloads(self):
+        if not hasattr(self, "assistant_hub"):
+            return
+        directory = os.path.join(os.path.expanduser("~"), "Downloads")
+        files: list[tuple[float, str]] = []
+        try:
+            for entry in os.scandir(directory):
+                if entry.is_file():
+                    try:
+                        modified = entry.stat().st_mtime
+                    except OSError:
+                        modified = 0.0
+                    files.append((modified, entry.path))
+        except OSError:
+            files = []
+        files.sort(reverse=True)
+        self.assistant_hub.set_downloads(path for _modified, path in files[:80])
+
+    def _record_activity(
+        self, title: str, detail: str = "", category: str = "general"
+    ):
+        self.workspace_state.add_activity(title, detail, category)
+        self._refresh_workspace_hub()
+
+    def _show_notification(
+        self, message: str, severity: str = "info", timeout_ms: int = 4200
+    ):
+        if hasattr(self, "notification_toast"):
+            self.notification_toast.show_message(message, severity, timeout_ms)
+
+    def _on_workspace_notes_changed(self, notes: str):
+        self.workspace_state.notes = notes[:200_000]
+        self._save_workspace_session()
+
+    def _save_workspace_session(self):
+        if not self._session_enabled:
+            return
+        geometry = self._normal_geometry if self._custom_maximized else self.geometry()
+        self.workspace_state.theme = self.current_theme
+        self.workspace_state.accent = self.accent_color
+        self.workspace_state.geometry = [
+            geometry.x(),
+            geometry.y(),
+            geometry.width(),
+            geometry.height(),
+        ]
+        self.workspace_state.maximized = bool(
+            self.isMaximized() or self._custom_maximized
+        )
+        self.workspace_state.active_workspace_tab = (
+            self.assistant_hub.tabs.currentIndex()
+            if hasattr(self, "assistant_hub")
+            else 0
+        )
+        self.workspace_state.mode_panel_visible = bool(
+            hasattr(self, "mode_panel") and self.mode_panel.isVisible()
+        )
+        self.workspace_state.sidebar_visible = bool(
+            hasattr(self, "sidebar") and self.sidebar.isVisible()
+        )
+        self.workspace_state.assistant_hub_visible = bool(
+            hasattr(self, "assistant_hub") and self.assistant_hub.isVisible()
+        )
+        self.workspace_state.history = list(self.history[-160:])
+        self.workspace_state.user_messages = list(self.user_messages[-160:])
+        self.workspace_state.notes = (
+            self.assistant_hub.notes.toPlainText()[:200_000]
+            if hasattr(self, "assistant_hub")
+            else self.workspace_state.notes
+        )
+        try:
+            save_workspace_state(self.workspace_state)
+        except OSError as exc:
+            self._show_notification(f"Session could not be saved: {exc}", "error")
+
+    def _execute_palette_command(self, command: str):
+        self._on_workspace_command(command, None)
+
+    def _on_workspace_command(self, command: str, argument: object = None):
+        if command == "workspace":
+            self.toggle_assistant_hub()
+            return
+        if command == "new-chat":
+            self._start_new_chat()
+            return
+        if command == "project":
+            self._set_chat_mode("project")
+            return
+        if command == "normal-chat":
+            self._set_chat_mode("normal")
+            return
+        if command == "open-file":
+            self._choose_workspace_file()
+            return
+        if command == "open-media":
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Open local media",
+                os.path.expanduser("~"),
+                "Media (*.mp3 *.wav *.flac *.m4a *.mp4 *.webm *.mkv *.mov *.avi);;All files (*.*)",
+            )
+            if path:
+                succeeded, detail = self.assistant_hub.open_media(path)
+                if succeeded:
+                    self.workspace_state.add_recent_file(path)
+                    self._record_activity("Media opened", path, "media")
+                self._show_notification(
+                    detail, "success" if succeeded else "error"
+                )
+            return
+        if command == "find-files-from-hub":
+            query = self.assistant_hub.file_query.text().strip()
+            if query:
+                self._start_file_search(query)
+            return
+        if command == "find-files":
+            query = str(argument or "").strip()
+            if query:
+                self._start_file_search(query)
+            else:
+                self._set_assistant_hub_visible(True)
+                self.assistant_hub.show_tab("Files")
+                self.assistant_hub.file_query.setFocus()
+            return
+        if command == "system":
+            self._refresh_system_snapshot()
+            return
+        if command == "screenshot":
+            self._capture_desktop_screenshot()
+            return
+        if command == "theme":
+            self.toggle_theme()
+            return
+        if command == "accent":
+            self._choose_accent_color()
+            return
+        if command in {"notes", "browser", "media"}:
+            self._set_assistant_hub_visible(True)
+            self.assistant_hub.show_tab(command.title())
+            return
+        if command == "new-window":
+            self._open_new_window()
+            return
+        if command == "clear-activity":
+            self.workspace_state.activity.clear()
+            self._refresh_workspace_hub()
+            self._save_workspace_session()
+            return
+        if command == "resume-chat":
+            self.input.setText(str(argument or ""))
+            self.input.setFocus()
+            return
+        if command == "preview-file":
+            self._preview_workspace_file(str(argument or ""))
+            return
+        if command == "open-path":
+            path = str(argument or "")
+            if path:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            return
+        if command == "open-downloads":
+            downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+            QDesktopServices.openUrl(QUrl.fromLocalFile(downloads))
+            return
+        if command == "refresh-downloads":
+            self._refresh_downloads()
+            self.assistant_hub.show_tab("Files")
+            if self.assistant_hub.files_subtabs is not None:
+                self.assistant_hub.files_subtabs.setCurrentIndex(1)
+            return
+        if command == "restore-clipboard":
+            text = str(argument or "")
+            if text:
+                QApplication.clipboard().setText(text)
+                self._show_notification("Copied back to the clipboard.", "success")
+            return
+        if command in {"browser-go", "browser-navigate"}:
+            address = (
+                self.assistant_hub.browser_address.text().strip()
+                if command == "browser-go"
+                else str(argument or "").strip()
+            )
+            self.assistant_hub.navigate_browser(address)
+            self._record_activity("Website opened", address, "browser")
+            return
+        if command == "media":
+            self._execute_desktop_action_async(
+                DesktopAction("media", argument=str(argument or "play-pause"))
+            )
+
+    def _start_new_chat(self):
+        if self.is_busy:
+            self._show_notification(
+                "Wait for the current response before clearing this chat.", "error"
+            )
+            return
+        for index in reversed(range(self.chat_list_layout.count())):
+            item = self.chat_list_layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is not None and widget is not self._bottom_spacer:
+                self.chat_list_layout.removeWidget(widget)
+                widget.deleteLater()
+        self.history.clear()
+        self.user_messages.clear()
+        self.first_user_message = ""
+        self.science_artifacts.clear()
+        self._refresh_workspace_artifact_list()
+        self.append_message(
+            MORICE_NAME,
+            f"New chat ready, {self.user_title}.",
+            force_scroll=True,
+        )
+        self._record_activity("New chat", category="chat")
+        self._save_workspace_session()
+
+    def _choose_workspace_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open a file in MORICE",
+            os.path.expanduser("~"),
+            "All files (*.*)",
+        )
+        if path:
+            self._preview_workspace_file(path)
+
+    def _preview_workspace_file(self, path: str):
+        if not path:
+            return
+        self._set_assistant_hub_visible(True)
+        succeeded, detail = self.assistant_hub.preview_file(path)
+        if os.path.isfile(path):
+            self.workspace_state.add_recent_file(path)
+            self._record_activity(
+                "File previewed", os.path.abspath(path), category="files"
+            )
+            self._save_workspace_session()
+        self._show_notification(detail, "success" if succeeded else "error")
+
+    def _file_search_roots(self) -> list[str]:
+        home = os.path.expanduser("~")
+        roots = [
+            os.path.join(home, "Desktop"),
+            os.path.join(home, "Documents"),
+            os.path.join(home, "Downloads"),
+        ]
+        if self.project_folder:
+            roots.insert(0, self.project_folder)
+        return [root for root in roots if os.path.isdir(root)]
+
+    def _start_file_search(self, query: str):
+        self._set_assistant_hub_visible(True)
+        self.assistant_hub.show_tab("Files")
+        self.assistant_hub.file_results.clear()
+        self.assistant_hub.file_results.addItem("Searching...")
+        roots = self._file_search_roots()
+
+        def worker():
+            try:
+                result = search_files(query, roots)
+            except Exception:  # noqa: BLE001
+                result = []
+            self.file_search_ready.emit({"query": query, "paths": result})
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_file_search_ready(self, result: object):
+        data = result if isinstance(result, dict) else {}
+        query = str(data.get("query", ""))
+        paths = list(data.get("paths", []))
+        self.assistant_hub.set_file_results(paths)
+        self._record_activity(
+            "File search",
+            f"{query}: {len(paths)} result(s)",
+            category="files",
+        )
+        self._show_notification(f"Found {len(paths)} file(s) for {query}.")
+
+    def _refresh_system_snapshot(self):
+        self._set_assistant_hub_visible(True)
+        self.assistant_hub.show_tab("System")
+        self.assistant_hub.system_summary.setText("Reading system information...")
+
+        def worker():
+            try:
+                snapshot = collect_system_snapshot()
+            except Exception as exc:  # noqa: BLE001
+                snapshot = exc
+            self.system_snapshot_ready.emit(snapshot)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_system_snapshot_ready(self, snapshot: object):
+        if isinstance(snapshot, Exception):
+            self.assistant_hub.system_summary.setText(str(snapshot))
+            self._show_notification(
+                f"System status failed: {snapshot}", "error"
+            )
+            return
+        gpu = ""
+        if getattr(self, "gpu_profile", None) is not None:
+            gpu = (
+                f"{self.gpu_profile.name} "
+                f"({self.gpu_profile.vram_mb / 1024:.1f} GB VRAM)"
+                if self.gpu_profile.detected and self.gpu_profile.vram_mb > 0
+                else self.gpu_profile.name
+            )
+        self.assistant_hub.set_system_snapshot(snapshot, gpu)
+        self._record_activity("System status refreshed", category="system")
+
+    def _capture_desktop_screenshot(self):
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            self._show_notification("No display is available to capture.", "error")
+            return
+        target_dir = os.path.join(
+            os.path.expanduser("~"), "Pictures", "MORICE Screenshots"
+        )
+        os.makedirs(target_dir, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        target = os.path.join(target_dir, f"MORICE-{stamp}.png")
+        pixmap = screen.grabWindow(0)
+        if pixmap.isNull() or not pixmap.save(target, "PNG"):
+            self._show_notification("The screenshot could not be saved.", "error")
+            return
+        self.workspace_state.add_recent_file(target)
+        self._record_activity("Screenshot captured", target, "system")
+        self._refresh_workspace_hub()
+        self._save_workspace_session()
+        self._show_notification(f"Screenshot saved to {target}", "success", 7000)
+
+    def _open_new_window(self):
+        window = MoriceWindow()
+        window.setAttribute(Qt.WA_DeleteOnClose, True)
+        window.destroyed.connect(
+            lambda: self._child_windows.remove(window)
+            if window in self._child_windows
+            else None
+        )
+        self._child_windows.append(window)
+        window.show()
+        self._record_activity("New MORICE window opened", category="workspace")
+
+    def _execute_desktop_action_async(self, action: DesktopAction):
+        def worker():
+            try:
+                message = execute_desktop_action(action)
+                self.desktop_action_ready.emit(message, True)
+            except Exception as exc:  # noqa: BLE001
+                self.desktop_action_ready.emit(str(exc), False)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_desktop_action_ready(self, message: str, succeeded: bool):
+        self.append_message(MORICE_NAME, self._address(message), force_scroll=True)
+        self._record_activity(
+            "Desktop action completed" if succeeded else "Desktop action failed",
+            message,
+            category="desktop",
+        )
+        self._show_notification(message, "success" if succeeded else "error")
+
+    def _handle_desktop_command(self, user_input: str) -> bool:
+        action = parse_desktop_command(user_input)
+        if action is None:
+            return False
+        if action.kind == "unknown":
+            self.animation_engine.shake(self.input_frame)
+            self.append_message(
+                MORICE_NAME,
+                self._address(
+                    "Unknown command. Try /system, /find, /open, /site, "
+                    "/screenshot, /workspace, /theme, /new-window, or a media command."
+                ),
+            )
+            return True
+        if action.kind == "system":
+            self._refresh_system_snapshot()
+            self.append_message(
+                MORICE_NAME,
+                self._address("System status is opening in Tools."),
+            )
+            return True
+        if action.kind == "find":
+            self._start_file_search(action.argument)
+            self.append_message(
+                MORICE_NAME,
+                self._address(f"Searching local folders for {action.argument}."),
+            )
+            return True
+        if action.kind == "workspace":
+            self.toggle_assistant_hub()
+            return True
+        if action.kind == "theme":
+            requested = normalize_theme(action.argument) if action.argument else ""
+            if requested and requested != self.current_theme:
+                self.current_theme = requested
+                self._apply_theme()
+                self._save_workspace_session()
+            elif not action.argument:
+                self.toggle_theme()
+            self.append_message(
+                MORICE_NAME,
+                self._address(f"{self.current_theme.title()} theme is active."),
+            )
+            return True
+        if action.kind == "new-window":
+            self._open_new_window()
+            return True
+        if action.kind == "screenshot":
+            self._capture_desktop_screenshot()
+            return True
+        if action.kind == "close-app":
+            choice = QMessageBox.question(
+                self,
+                "Confirm application close",
+                f"Close {action.target}? Unsaved work in that application may be lost.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if choice != QMessageBox.Yes:
+                self.append_message(MORICE_NAME, self._address("Close cancelled."))
+                return True
+
+            def close_worker():
+                try:
+                    message = close_application(action.target)
+                    self.desktop_action_ready.emit(message, True)
+                except Exception as exc:  # noqa: BLE001
+                    self.desktop_action_ready.emit(str(exc), False)
+
+            threading.Thread(target=close_worker, daemon=True).start()
+            return True
+        self._execute_desktop_action_async(action)
+        return True
+
     def _track_animation(self, animation):
         """Keep transient Qt animations alive until their finished signal fires."""
         if not hasattr(self, "_anims"):
@@ -5536,58 +6606,9 @@ class MoriceWindow(QWidget):
         return animation
 
     def _animate_panel_visibility(self, panel: QWidget, visible: bool):
-        """Fade a side panel without leaving layout space behind after it closes."""
+        """Route panel transitions through the shared animation engine."""
         self._panel_target_visibility[panel] = visible
-        running = self._panel_anims.pop(panel, None)
-        if running is not None:
-            running.stop()
-            if running in self._anims:
-                self._anims.remove(running)
-
-        effect = panel.graphicsEffect()
-        if not isinstance(effect, QGraphicsOpacityEffect):
-            effect = QGraphicsOpacityEffect(panel)
-            panel.setGraphicsEffect(effect)
-
-        if not self._motion_enabled or not self.isVisible():
-            panel.setVisible(visible)
-            effect.setOpacity(1.0)
-            return
-
-        if visible:
-            was_visible = panel.isVisible()
-            panel.setVisible(True)
-            start = effect.opacity() if was_visible else 0.0
-            end = 1.0
-        else:
-            if not panel.isVisible():
-                effect.setOpacity(1.0)
-                return
-            start = effect.opacity()
-            end = 0.0
-
-        if abs(start - end) < 0.01:
-            panel.setVisible(visible)
-            effect.setOpacity(1.0)
-            return
-
-        animation = QPropertyAnimation(effect, b"opacity", self)
-        animation.setDuration(180)
-        animation.setStartValue(start)
-        animation.setEndValue(end)
-        animation.setEasingCurve(QEasingCurve.OutCubic if visible else QEasingCurve.InCubic)
-
-        def finish():
-            if self._panel_anims.get(panel) is not animation:
-                return
-            self._panel_anims.pop(panel, None)
-            if not visible:
-                panel.setVisible(False)
-            effect.setOpacity(1.0)
-
-        animation.finished.connect(finish)
-        self._panel_anims[panel] = animation
-        self._track_animation(animation).start()
+        self.animation_engine.fade(panel, visible, duration=180)
 
     def _animate_input_glow(self, blur_radius: int, alpha: int):
         if self.input_glow is None:
@@ -5737,6 +6758,9 @@ class MoriceWindow(QWidget):
         self.mode_status.setText(f"{label} saved for Project mode.")
 
     def _save_project_settings(self):
+        self.settings["emoji_level"] = self.emoji_level
+        self.settings["font_family"] = self.font_family
+        self.settings["custom_font_path"] = self.custom_font_path
         self.settings["chat_mode"] = self.chat_mode
         self.settings["project_folder"] = self.project_folder
         self.settings["project_access"] = self.project_access
@@ -6541,6 +7565,12 @@ class MoriceWindow(QWidget):
         self._set_project_workspace_tab(1)
         self._refresh_project_tree()
         self._refresh_project_actions()
+        self._record_activity(
+            "Project files updated",
+            summary or self.project_folder,
+            category="project",
+        )
+        self._save_workspace_session()
 
     def _set_project_workspace_tab(self, index: int):
         if not hasattr(self, "project_workspace_stack"):
@@ -7041,6 +8071,10 @@ class MoriceWindow(QWidget):
             )
             self.history.append({"role": "assistant", "content": reply})
             self.append_message(MORICE_NAME, self._address(reply))
+            self._record_activity(
+                "Visualization failed", message, category="visualization"
+            )
+            self._save_workspace_session()
             return
 
         artifact = result.artifact
@@ -7058,12 +8092,22 @@ class MoriceWindow(QWidget):
             card.set_error(message)
             self.history.append({"role": "assistant", "content": message})
             self.append_message(MORICE_NAME, self._address(message))
+            self._record_activity(
+                "Visualization rejected", message, category="visualization"
+            )
+            self._save_workspace_session()
             return
 
         self._replace_chat_widget(card, workspace)
         reply = self._science_ready_reply(artifact, result)
         self.history.append({"role": "assistant", "content": reply})
         self.append_message(MORICE_NAME, self._address(reply))
+        self._record_activity(
+            "Visualization rendered",
+            f"{artifact.kind}: {artifact.title}",
+            category="visualization",
+        )
+        self._save_workspace_session()
 
     def _science_ready_reply(
         self,
@@ -7161,6 +8205,10 @@ class MoriceWindow(QWidget):
         self.style_input.setEnabled(not is_busy)
         self.title_input.setEnabled(not is_busy)
         self.wake_input.setEnabled(not is_busy)
+        self.theme_select.setEnabled(not is_busy)
+        self.emoji_select.setEnabled(not is_busy)
+        self.font_select.setEnabled(not is_busy)
+        self.add_font_btn.setEnabled(not is_busy)
         self.save_style_btn.setEnabled(not is_busy)
         self.clear_style_btn.setEnabled(not is_busy)
         self.normal_mode_btn.setEnabled(not is_busy)
@@ -7177,6 +8225,8 @@ class MoriceWindow(QWidget):
         self.access_status_btn.setEnabled(not is_busy)
         self.project_lookup_btn.setEnabled(not is_busy)
         self._refresh_send_button_state()
+        if hasattr(self, "assistant_hub"):
+            self.assistant_hub.set_tasks(self.message_queue, self.is_busy)
 
     def _refresh_send_button_state(self):
         queued_count = len(self.message_queue)
@@ -7210,6 +8260,8 @@ class MoriceWindow(QWidget):
         if self.message_queue:
             self.queue_list.setCurrentRow(max(0, min(current_row, len(self.message_queue) - 1)))
         self._refresh_queue_controls()
+        if hasattr(self, "assistant_hub"):
+            self.assistant_hub.set_tasks(self.message_queue, self.is_busy)
 
     def _refresh_queue_controls(self):
         if not hasattr(self, "queue_list"):
@@ -7314,12 +8366,29 @@ class MoriceWindow(QWidget):
         self.thinking_bubble.deleteLater()
         self.thinking_bubble = None
 
+    def _remove_thinking_widget(self, bubble: ThinkingBubble):
+        if self.thinking_bubble is bubble:
+            self._remove_thinking()
+
     def _finish_thinking(self):
         self._remove_thinking()
 
     def _on_message_ready(self, author: str, message: str, is_user: bool = False):
-        self._remove_thinking()
+        completed_bubble = self.thinking_bubble
+        if completed_bubble is not None:
+            completed_bubble.finish()
         self.append_message(author, message, is_user=is_user, force_scroll=True)
+        if completed_bubble is not None:
+            QTimer.singleShot(
+                220,
+                lambda bubble=completed_bubble: self._remove_thinking_widget(bubble),
+            )
+        self._record_activity(
+            "Response completed",
+            " ".join(message.split())[:240],
+            category="chat",
+        )
+        self._save_workspace_session()
         self._set_busy(False)
         QTimer.singleShot(120, self._send_queued_message_if_ready)
 
@@ -7366,11 +8435,13 @@ class MoriceWindow(QWidget):
             self.title_bar,
             self.title_bar.sidebar_btn,
             self.title_bar.workspace_btn,
+            self.title_bar.hub_btn,
             self.chat_container,
             self.input_frame,
             self.sidebar,
             self.mode_panel,
             self.workspace_panel,
+            self.assistant_hub,
             self.changes_panel,
             self.precision_btn,
             self.save_style_btn,
@@ -7681,7 +8752,40 @@ class MoriceWindow(QWidget):
                 max(0, self.height() - self.window_resize_grip.height() - margin),
             )
             self.window_resize_grip.raise_()
+        if hasattr(self, "notification_toast") and self.notification_toast.isVisible():
+            margin = 28
+            self.notification_toast.move(
+                max(margin, self.width() - self.notification_toast.width() - margin),
+                margin,
+            )
+            self.notification_toast.raise_()
         self._schedule_latest_scroll()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._open_animation_played or not self._motion_enabled:
+            return
+        self._open_animation_played = True
+        self.setWindowOpacity(0.0)
+        QTimer.singleShot(
+            0,
+            lambda: self.animation_engine.window_opacity(
+                self, 1.0, duration=180
+            ),
+        )
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() != QEvent.WindowStateChange:
+            return
+        old_state = event.oldState()
+        if (
+            old_state & Qt.WindowMinimized
+            and not self.isMinimized()
+            and self._motion_enabled
+        ):
+            self.setWindowOpacity(0.0)
+            self.animation_engine.window_opacity(self, 1.0, duration=150)
 
     def on_send(self):
         if self.is_busy:
@@ -7695,6 +8799,12 @@ class MoriceWindow(QWidget):
         self._dock_composer()
         self.append_message(self.user_title, user_input, is_user=True, force_scroll=True)
         self.user_messages.append(user_input)
+        self.workspace_state.add_recent_chat(user_input)
+        self._record_activity(
+            "Message sent",
+            " ".join(user_input.split())[:240],
+            category="chat",
+        )
         if not self.first_user_message:
             self.first_user_message = user_input
 
@@ -7711,6 +8821,10 @@ class MoriceWindow(QWidget):
 
         if not self.awake:
             self.append_message(MORICE_NAME, f"I am asleep, {self.user_title}. Say '{self.wake_phrase}'.")
+            return
+
+        if self._handle_desktop_command(user_input):
+            self._save_workspace_session()
             return
 
         summon_message = summon_response(user_input, self.user_title)
@@ -7766,6 +8880,16 @@ class MoriceWindow(QWidget):
 
         if is_acknowledgement(user_input):
             self.append_message(MORICE_NAME, self._address("Understood."))
+            return
+
+        capability_topic = detect_capability_topic(user_input)
+        if capability_topic:
+            self.append_message(
+                MORICE_NAME,
+                self._address(
+                    capability_answer(capability_topic, self.emoji_level)
+                ),
+            )
             return
 
         if wants_help(user_input):
@@ -7902,6 +9026,9 @@ class MoriceWindow(QWidget):
                 extra_system = (
                     f"Saved name preference from the user: address the user as '{self.user_title}'. "
                     "Do not call the user 'All Father' unless that is the saved name preference."
+                )
+                extra_system += "\n\n" + emoji_preference_instruction(
+                    self.emoji_level
                 )
                 if self.chat_mode == "project":
                     self.thinking_update.emit("Project builder mode: applying workspace, access, and coding rules.")
@@ -8064,7 +9191,24 @@ class MoriceWindow(QWidget):
         self.precision_btn.style().polish(self.precision_btn)
 
     def closeEvent(self, event):
+        self._save_workspace_session()
+        if (
+            self._motion_enabled
+            and self.isVisible()
+            and not self._closing_after_animation
+        ):
+            self._closing_after_animation = True
+            event.ignore()
+            self.setEnabled(False)
+            self.animation_engine.fade(
+                self,
+                False,
+                duration=160,
+                finished=self.close,
+            )
+            return
         self.visualization_manager.shutdown()
+        self.animation_engine.stop_all()
         super().closeEvent(event)
 
 

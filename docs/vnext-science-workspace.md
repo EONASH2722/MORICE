@@ -104,6 +104,12 @@ contours, piecewise functions, surfaces, physics configuration, replay, 2D/3D
 state, molecular angles, inline widget replacement, exports, honest failures,
 Project Mode safety, desktop identity, and long-answer continuation.
 
+`tests/test_rendering_accuracy_matrix.py` adds a representative ten-case
+contract across Cartesian, implicit, polar, parametric, and surface graphs;
+projectile, pendulum, and 3D particle physics; VSEPR chemistry; and directed
+network diagrams. Each case validates numeric or structural truth rather than
+only checking that an artifact object exists.
+
 The TypeScript suite covers prompt coordination, piecewise parsing,
 capability selection, artifact caching, fail-closed behavior, deterministic
 particle state, bounds, and real 3D depth.

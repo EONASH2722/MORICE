@@ -572,7 +572,10 @@ def _build_polar_artifact(text: str) -> ScienceArtifact | None:
     theta_values = np.linspace(0, math.tau * 2, 1000)
     palette = ["#64d8ff", "#a77cff", "#7cf7b5", "#ff8db3", "#ffd166", "#f97068"]
     series: list[GraphSeries] = []
-    for index, expression in enumerate(matches[:6]):
+    for index, raw_expression in enumerate(matches[:6]):
+        expression = _clean_expression_candidate(raw_expression)
+        if not expression:
+            continue
         try:
             r_values = _evaluate_expression(expression, theta_values, variable="theta")
         except Exception:
@@ -607,8 +610,10 @@ def _build_parametric_artifact(text: str) -> ScienceArtifact | None:
     y_match = re.search(r"\by\s*(?:\(t\))?\s*=\s*([^,;\n]+)", text, flags=re.IGNORECASE)
     if not x_match or not y_match:
         return None
-    x_expression = x_match.group(1).strip()
-    y_expression = y_match.group(1).strip()
+    x_expression = _clean_expression_candidate(x_match.group(1))
+    y_expression = _clean_expression_candidate(y_match.group(1))
+    if not x_expression or not y_expression:
+        return None
     t_values = np.linspace(0, math.tau, 800)
     try:
         x_values = _evaluate_expression(x_expression, t_values, variable="t")
@@ -706,6 +711,16 @@ def _build_implicit_artifact(text: str) -> ScienceArtifact | None:
     raw = (text or "").replace("²", "^2").replace("³", "^3").replace("−", "-")
     if re.search(r"\b(?:y|z|r)\s*=", raw, flags=re.IGNORECASE):
         return None
+    raw = re.sub(
+        r"^\s*(?:(?:please|kindly)\s+)?"
+        r"(?:plot|graph|draw|show|render)\s+"
+        r"(?:(?:the|an?)\s+)?"
+        r"(?:(?:implicit|equation|curve)\s+)*",
+        "",
+        raw,
+        count=1,
+        flags=re.IGNORECASE,
+    )
     match = re.search(
         r"(?:plot|graph|draw|show|render)?\s*"
         r"([A-Za-z0-9_.()+\-*/^ ]*[xy][A-Za-z0-9_.()+\-*/^ ]*)"

@@ -6,6 +6,9 @@ DEFAULT_SETTINGS = {
     "response_style": "",
     "wake_phrase": "wake up son",
     "user_title": "All Father",
+    "emoji_level": "medium",
+    "font_family": "Segoe UI",
+    "custom_font_path": "",
     "chat_mode": "normal",
     "project_folder": "",
     "project_access": "folder",
@@ -31,6 +34,41 @@ def normalize_user_title(value: str) -> str:
     text = " ".join((value or "").strip().split())
     text = "".join(ch for ch in text if ch not in "\r\n\t")
     return text[:42] or DEFAULT_SETTINGS["user_title"]
+
+
+def normalize_emoji_level(value: str) -> str:
+    text = str(value or "").strip().lower()
+    aliases = {
+        "off": "none",
+        "no": "none",
+        "minimal": "none",
+        "balanced": "medium",
+        "normal": "medium",
+        "well": "expressive",
+        "many": "expressive",
+        "high": "expressive",
+    }
+    text = aliases.get(text, text)
+    return text if text in {"none", "medium", "expressive"} else DEFAULT_SETTINGS["emoji_level"]
+
+
+def normalize_font_family(value: str) -> str:
+    text = " ".join(str(value or "").strip().split())
+    text = "".join(
+        ch for ch in text if ch not in "\r\n\t\x00{};\"'"
+    ).strip()
+    return text[:100] or DEFAULT_SETTINGS["font_family"]
+
+
+def normalize_custom_font_path(value: str) -> str:
+    text = str(value or "").strip().strip('"')
+    if not text:
+        return DEFAULT_SETTINGS["custom_font_path"]
+    text = "".join(ch for ch in text if ch not in "\r\n\t\x00")
+    path = os.path.abspath(os.path.expanduser(text))
+    if os.path.splitext(path)[1].lower() not in {".ttf", ".otf", ".ttc"}:
+        return DEFAULT_SETTINGS["custom_font_path"]
+    return path[:500]
 
 
 def normalize_chat_mode(value: str) -> str:
@@ -123,6 +161,11 @@ def load_settings() -> dict:
     settings["response_style"] = normalize_response_style(settings.get("response_style", ""))
     settings["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
     settings["user_title"] = normalize_user_title(settings.get("user_title", ""))
+    settings["emoji_level"] = normalize_emoji_level(settings.get("emoji_level", ""))
+    settings["font_family"] = normalize_font_family(settings.get("font_family", ""))
+    settings["custom_font_path"] = normalize_custom_font_path(
+        settings.get("custom_font_path", "")
+    )
     settings["chat_mode"] = normalize_chat_mode(settings.get("chat_mode", ""))
     settings["project_folder"] = normalize_project_folder(settings.get("project_folder", ""))
     settings["project_access"] = normalize_project_access(settings.get("project_access", ""))
@@ -140,6 +183,11 @@ def save_settings(settings: dict) -> None:
     clean["response_style"] = normalize_response_style(settings.get("response_style", ""))
     clean["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
     clean["user_title"] = normalize_user_title(settings.get("user_title", ""))
+    clean["emoji_level"] = normalize_emoji_level(settings.get("emoji_level", ""))
+    clean["font_family"] = normalize_font_family(settings.get("font_family", ""))
+    clean["custom_font_path"] = normalize_custom_font_path(
+        settings.get("custom_font_path", "")
+    )
     clean["chat_mode"] = normalize_chat_mode(settings.get("chat_mode", ""))
     clean["project_folder"] = normalize_project_folder(settings.get("project_folder", ""))
     clean["project_access"] = normalize_project_access(settings.get("project_access", ""))

@@ -178,19 +178,10 @@ def enforce_father(reply: str, user_title: str | None = None) -> str:
 def shorten_reply(reply: str) -> str:
     if not reply:
         return reply
-    text = reply.strip()
-    if "```" in text:
-        return text
-    if "\n" in text:
-        return text
-    if len(text) <= 2200:
-        return text
-    sentences = re.split(r"(?<=[.!?])\s+", text)
-    if len(sentences) > 8:
-        return " ".join(sentences[:8]).strip()
-    if len(text) > 2600:
-        return text[:2600].rstrip() + "..."
-    return text
+    # Long model answers are intentionally preserved. The chat surface scrolls,
+    # and cutting a one-line response at an arbitrary sentence produced
+    # incomplete answers for detailed user prompts.
+    return reply.strip()
 
 
 def summon_response(text: str, user_title: str | None = None) -> str | None:
