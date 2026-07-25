@@ -4,6 +4,13 @@
 import os
 
 project_dir = os.path.abspath(SPECPATH)
+model_candidates = [
+    os.path.join(project_dir, 'Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf'),
+    os.path.join(project_dir, 'qwen2.5-coder-7b-instruct-q4_k_m.gguf'),
+]
+bundled_model = next((path for path in model_candidates if os.path.isfile(path)), None)
+if not bundled_model:
+    raise SystemExit('Install a Qwen2.5 Coder 7B GGUF before packaging MORICE.')
 
 a = Analysis(
     [os.path.join(project_dir, 'morice_app_launcher.py')],
@@ -12,7 +19,7 @@ a = Analysis(
     datas=[
         (os.path.join(project_dir, 'morice', 'assets', 'morice_logo.ico'), 'morice\\assets'),
         (os.path.join(project_dir, 'morice', 'assets', 'morice_logo.png'), 'morice\\assets'),
-        (os.path.join(project_dir, 'Hermes-3-Llama-3.1-8B.Q4_K_M.gguf'), 'morice\\assets'),
+        (bundled_model, 'morice\\assets'),
         (os.path.join(project_dir, 'morice', 'assets', 'llama-bin'), 'morice\\assets\\llama-bin'),
         (os.path.join(project_dir, 'morice', 'assets', 'OCR_NOTES.md'), 'morice\\assets'),
     ],

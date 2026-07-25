@@ -9,10 +9,10 @@ $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $ModelPath.Trim()) {
-    $ModelPath = Join-Path $RepoRoot "Hermes-3-Llama-3.1-8B.Q4_K_M.gguf"
+    $ModelPath = Join-Path $RepoRoot "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
 }
 if (-not $OutDir.Trim()) {
-    $OutDir = Join-Path $RepoRoot "release\model-hermes-3-llama-3.1-8b-q4-k-m"
+    $OutDir = Join-Path $RepoRoot "release\model-qwen2.5-coder-7b-instruct-q4-k-m"
 }
 
 $ModelPath = [System.IO.Path]::GetFullPath($ModelPath)
@@ -87,4 +87,4 @@ $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -En
 
 Write-Host "Model release files are ready in: $OutDir"
 Write-Host "Upload every file in that folder to the GitHub release:"
-Write-Host "https://github.com/EONASH2722/MORICE/releases/tag/model-hermes-3-llama-3.1-8b-q4-k-m"
+Write-Host "https://github.com/EONASH2722/MORICE/releases/tag/model-qwen2.5-coder-7b-instruct-q4-k-m"

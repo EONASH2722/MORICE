@@ -22,6 +22,8 @@ DEFAULT_BATCH = int(os.getenv("MORICE_BATCH", "64"))
 DEFAULT_USE_SERVER = os.getenv("MORICE_LLAMA_SERVER", "1") == "1"
 DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "4096"))
 _OLLAMA_PROCESS = None
+DEFAULT_BUNDLED_GGUF = "Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf"
+OFFICIAL_QWEN_GGUF = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
 
 
 def reset_model_runtime() -> None:
@@ -221,8 +223,10 @@ def _resolve_gguf_path(override_path=None, requested_model: str = "", explicit_m
     if DEFAULT_GGUF and os.path.exists(DEFAULT_GGUF):
         return DEFAULT_GGUF
     candidates = [
-        _project_path("Hermes-3-Llama-3.1-8B.Q4_K_M.gguf"),
-        _asset_path("Hermes-3-Llama-3.1-8B.Q4_K_M.gguf"),
+        _project_path(DEFAULT_BUNDLED_GGUF),
+        _asset_path(DEFAULT_BUNDLED_GGUF),
+        _project_path(OFFICIAL_QWEN_GGUF),
+        _asset_path(OFFICIAL_QWEN_GGUF),
     ]
     if DEFAULT_MODEL and not _is_stale_llama_model(DEFAULT_MODEL):
         return ""
@@ -335,7 +339,7 @@ def _try_ollama_messages(base_url, messages, model, timeout, temperature, top_p)
 
 def _friendly_local_timeout_reply() -> str:
     return (
-        "Hermes took too long on that one, All Father. I kept MORICE alive. "
+        "Qwen took too long on that one, All Father. I kept MORICE alive. "
         "Try sending a shorter prompt, turning Precision off, or letting the queued message run next."
     )
 

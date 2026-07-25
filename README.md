@@ -11,7 +11,7 @@ MORICE is a local desktop AI workspace for people who want an assistant that can
   <img src="https://img.shields.io/badge/python-3.12+-3776ab" alt="Python 3.12+">
   <img src="https://img.shields.io/badge/UI-PySide6-41cd52" alt="PySide6">
   <img src="https://img.shields.io/badge/offline-GGUF-purple" alt="Offline GGUF">
-  <img src="https://img.shields.io/badge/base%20AI-Hermes%203%208B-ff6b35" alt="Hermes 3 8B">
+  <img src="https://img.shields.io/badge/base%20AI-Qwen2.5%20Coder%207B-0f766e" alt="Qwen2.5 Coder 7B">
   <img src="https://img.shields.io/badge/mode-Project%20Builder-111827" alt="Project Builder">
   <img src="https://img.shields.io/badge/VNext-Science%20Workspace-0891b2" alt="Science Workspace">
 </p>
@@ -111,7 +111,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install-model.ps1
 The installer places this file in the repo root:
 
 ```text
-Hermes-3-Llama-3.1-8B.Q4_K_M.gguf
+qwen2.5-coder-7b-instruct-q4_k_m.gguf
 ```
 
 The script tries the MORICE GitHub model release first, then falls back to the public Hugging Face GGUF if the release asset is not available yet. You can also set:
@@ -142,13 +142,13 @@ dist\MORICE\MORICE.exe
 
 ## Model Distribution
 
-MORICE uses:
+The packaged build prefers the local Qwen model you selected. This workspace package uses:
 
 ```text
-Hermes-3-Llama-3.1-8B.Q4_K_M.gguf
+Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf
 ```
 
-The model is not committed into normal Git history because GitHub blocks normal files above 100 MiB and this GGUF is about 4.9 GB. Use:
+The normal open-source installer downloads the official compatible Qwen file named `qwen2.5-coder-7b-instruct-q4_k_m.gguf`; MORICE will use either file. Models are not committed into normal Git history because GitHub blocks normal files above 100 MiB. Use:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install-model.ps1
@@ -160,23 +160,23 @@ Maintainers can prepare split GitHub Release assets with:
 powershell -ExecutionPolicy Bypass -File scripts\prepare-model-release.ps1
 ```
 
-Upload every generated file from `release\model-hermes-3-llama-3.1-8b-q4-k-m` to this release tag:
+Upload every generated file from `release\model-qwen2.5-coder-7b-instruct-q4-k-m` to this release tag:
 
 ```text
-model-hermes-3-llama-3.1-8b-q4-k-m
+model-qwen2.5-coder-7b-instruct-q4-k-m
 ```
 
 The model release is available here:
 
 ```text
-https://github.com/EONASH2722/MORICE/releases/tag/model-hermes-3-llama-3.1-8b-q4-k-m
+https://github.com/EONASH2722/MORICE/releases/tag/model-qwen2.5-coder-7b-instruct-q4-k-m
 ```
 
 `install-model.ps1` installs the model directly from that MORICE GitHub release.
 
-## Hermes 3 8B VRAM Guide
+## Qwen2.5 Coder 7B VRAM Guide
 
-These are practical targets for the base `Hermes-3-Llama-3.1-8B.Q4_K_M.gguf` model. Exact speed depends on your CPU, GPU, driver, context length, and how many layers you offload.
+These are practical targets for the base Qwen2.5 Coder 7B Q4_K_M model. The packaged desktop build uses the selected local Qwen GGUF; the installer downloads the official Qwen Q4_K_M file. Exact speed depends on your CPU, GPU, driver, context length, and how many layers you offload.
 
 | VRAM level | Recommended setup | What to expect |
 | --- | --- | --- |
@@ -456,7 +456,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development checklist.
 
 ## Change The Model To Anything
 
-The base AI is Hermes 3 8B, but MORICE is not locked to one brain. Open the mode panel, type any installed Ollama model name, pick a local GGUF with `Change model` -> `Files`, or install one through `Change model` -> `Web`. MORICE saves that choice and uses it on the next reply, so builders can change the model without editing code.
+The base AI is Qwen2.5 Coder 7B, but MORICE is not locked to one brain. Open the mode panel, type any installed Ollama model name, pick a local GGUF with `Change model` -> `Files`, or install one through `Change model` -> `Web`. MORICE saves that choice and uses it on the next reply, so builders can change the model without editing code. Hermes is retained only as an optional comparison/test model.
 
 ## License
 

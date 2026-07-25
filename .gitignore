@@ -12,6 +12,8 @@ build/
 dist/
 build-vnext/
 dist-vnext/
+build-qwen/
+dist-qwen/
 
 # Local configs
 .env

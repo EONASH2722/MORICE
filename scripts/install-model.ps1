@@ -1,17 +1,17 @@
 param(
     [ValidateSet("auto", "github", "huggingface")]
     [string]$Source = "auto",
-    [string]$ReleaseBaseUrl = "https://github.com/EONASH2722/MORICE/releases/download/model-hermes-3-llama-3.1-8b-q4-k-m",
+    [string]$ReleaseBaseUrl = "https://github.com/EONASH2722/MORICE/releases/download/model-qwen2.5-coder-7b-instruct-q4-k-m",
     [string]$Destination = "",
     [switch]$SkipHashCheck
 )
 
 $ErrorActionPreference = "Stop"
 
-$ModelFile = "Hermes-3-Llama-3.1-8B.Q4_K_M.gguf"
-$ExpectedSha256 = "D4403CE5A6E930F4C2509456388C20D633A15FF08DD52EF3B142FF1810EC3553"
-$ExpectedSize = 4920733824
-$HuggingFaceUrl = "https://huggingface.co/NousResearch/Hermes-3-Llama-3.1-8B-GGUF/resolve/main/Hermes-3-Llama-3.1-8B.Q4_K_M.gguf?download=true"
+$ModelFile = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+$ExpectedSha256 = "509287F78CB4D4CF6B3843734733B914B2C158E43E22A7F4BF5E963800894D3C"
+$ExpectedSize = 4683073536
+$HuggingFaceUrl = "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/resolve/main/qwen2.5-coder-7b-instruct-q4_k_m.gguf?download=true"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $Destination.Trim()) {

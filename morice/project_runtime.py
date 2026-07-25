@@ -22,6 +22,14 @@ BINARY_ARTIFACT_EXTENSIONS = {
     ".zip",
 }
 
+# A text-only manifest cannot faithfully construct engine metadata, import settings,
+# or binary art/audio files. Reject these so a runnable browser fallback can be used.
+UNSUPPORTED_ENGINE_EXTENSIONS = {".asset", ".meta", ".prefab", ".unity"}
+UNSUPPORTED_GENERATED_ASSET_EXTENSIONS = {
+    ".bmp", ".gif", ".ico", ".jpeg", ".jpg", ".mp3", ".ogg", ".otf",
+    ".png", ".ttf", ".wav", ".webp", ".woff", ".woff2",
+}
+
 PYTHON_STDLIB = {
     "argparse",
     "ast",
@@ -79,6 +87,15 @@ def validate_project_file(relative_path: str, content: str) -> None:
     if ext in BINARY_ARTIFACT_EXTENSIONS:
         raise ProjectValidationError(
             f"MORICE cannot create a compiled binary like {path}. It must create source files and a build/run script instead."
+        )
+    if ext in UNSUPPORTED_ENGINE_EXTENSIONS:
+        raise ProjectValidationError(
+            f"MORICE cannot generate an incomplete engine file like {path}. Create a self-contained HTML/Canvas project, "
+            "or edit source-only files in an existing engine project."
+        )
+    if ext in UNSUPPORTED_GENERATED_ASSET_EXTENSIONS:
+        raise ProjectValidationError(
+            f"MORICE cannot invent a reliable binary asset like {path}. Use CSS, Canvas, SVG, or an existing asset instead."
         )
     if "\x00" in content:
         raise ProjectValidationError(f"{path} contains binary data. Project mode writes text source files only.")
@@ -171,7 +188,15 @@ def build_run_script(project_root: str, requirements: list[str]) -> tuple[str, s
     lines = ["@echo off", "setlocal", "where python >nul 2>nul || (echo Python was not found on PATH. & pause & exit /b 1)"]
     if requirements:
         lines.append('python -m pip install -r "%~dp0requirements.txt"')
-        lines.append("if errorlevel 1 pause")
+        lines.extend(
+            [
+                "if errorlevel 1 (",
+                "  echo Dependency installation failed. Fix the error above, then run this file again.",
+                "  pause",
+                "  exit /b 1",
+                ")",
+            ]
+        )
     lines.append(f'python "%~dp0{os.path.basename(plan.target)}"')
     lines.append("if errorlevel 1 pause")
     lines.append("endlocal")

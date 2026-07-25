@@ -25,21 +25,21 @@ def _configure_local_model_defaults():
         return
 
     gguf_candidates = [
-        _project_path("Hermes-3-Llama-3.1-8B.Q4_K_M.gguf"),
-        _asset_path("Hermes-3-Llama-3.1-8B.Q4_K_M.gguf"),
+        _project_path("Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf"),
+        _asset_path("Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf"),
     ]
     server_path = _asset_path("llama-bin", "llama-server.exe")
 
     gguf_path = next((path for path in gguf_candidates if os.path.exists(path)), "")
-    stale_llama_model = any(
+    stale_default_model = any(
         marker in configured_model.lower()
-        for marker in ("llama3", "llama-3", "meta-llama")
+        for marker in ("llama3", "llama-3", "meta-llama", "hermes", "morice")
     )
-    if configured_model and not stale_llama_model and not gguf_path:
+    if configured_model and not stale_default_model and not gguf_path:
         return
     if gguf_path:
         os.environ["MORICE_GGUF_PATH"] = gguf_path
-        if not configured_model or stale_llama_model:
+        if not configured_model or stale_default_model:
             os.environ["MORICE_MODEL"] = "local-gguf"
     if os.path.exists(server_path):
         os.environ.setdefault("MORICE_LLAMA_SERVER_PATH", server_path)

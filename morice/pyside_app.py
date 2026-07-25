@@ -499,7 +499,7 @@ class ModelWebBrowserDialog(QDialog):
 
         self.search_input = QLineEdit()
         self.search_input.setObjectName("ModelSearchInput")
-        self.search_input.setPlaceholderText("Search model, e.g. hermes 3 8b")
+        self.search_input.setPlaceholderText("Search model, e.g. qwen2.5 coder 7b")
         self.search_input.returnPressed.connect(self._start_search)
 
         self.search_btn = QPushButton("Search")
@@ -515,7 +515,7 @@ class ModelWebBrowserDialog(QDialog):
         self.quick_buttons = []
         for label, query in (
             ("Best fit", ""),
-            ("Hermes 8B", "hermes 3 8b"),
+            ("Hermes test", "hermes 3 8b"),
             ("Qwen coder", "qwen2.5 coder 7b"),
             ("Mistral", "mistral 7b instruct"),
             ("Gemma", "gemma 3 4b"),
@@ -891,11 +891,7 @@ class ModelWebBrowserDialog(QDialog):
             return "qwen2.5 3b gguf"
         if vram and vram < 5_500:
             return "qwen2.5 3b gguf"
-        if vram and vram < 9_500:
-            return "hermes 3 8b gguf"
-        if vram and vram < 15_000:
-            return "qwen2.5 coder 7b gguf"
-        return "mistral 7b instruct gguf"
+        return "qwen2.5 coder 7b gguf"
 
     def _start_recommended_search(self):
         if self._auto_search_started or self.results.count() > 0:
@@ -1869,9 +1865,22 @@ class MoriceWindow(QWidget):
         self.project_lookup_mode = normalize_project_lookup_mode(self.settings.get("project_lookup_mode", ""))
         self.model_path = normalize_model_path(self.settings.get("model_path", ""))
         self.model_name = normalize_model_name(self.settings.get("model_name", ""))
+        # Hermes was the old bundled default. It remains selectable for tests, but
+        # saved default selections now migrate to Qwen automatically.
+        legacy_model_path = os.path.basename(self.model_path).lower()
+        legacy_model_name = self.model_name.lower()
+        migrated_legacy_model = False
+        if "hermes-3-llama" in legacy_model_path:
+            self.model_path = ""
+            migrated_legacy_model = True
+        if legacy_model_name in {"morice", "hermes", "hermes-3"} or "hermes-3-llama" in legacy_model_name:
+            self.model_name = ""
+            migrated_legacy_model = True
         self.gpu_name = normalize_gpu_name(self.settings.get("gpu_name", ""))
         self.gpu_vram_mb = normalize_gpu_vram_mb(self.settings.get("gpu_vram_mb", ""))
         self.gpu_profile = gpu_profile_from_values(self.gpu_name, self.gpu_vram_mb, "settings")
+        if migrated_legacy_model:
+            self._save_project_settings()
         self.science_artifacts: list[ScienceArtifact] = []
         self.active_workspace_kind = "graph"
         self.last_project_request = ""
@@ -1933,7 +1942,7 @@ class MoriceWindow(QWidget):
         self.model_path_input = QLineEdit()
         self.model_path_input.setObjectName("ProjectFolderInput")
         self.model_path_input.setReadOnly(True)
-        self.model_path_input.setPlaceholderText("Bundled Hermes GGUF")
+        self.model_path_input.setPlaceholderText("Bundled Qwen2.5 Coder 7B GGUF")
         self.model_path_input.setText(self._model_display_text())
 
         self.change_model_btn = QPushButton("Change model")
@@ -3370,7 +3379,7 @@ class MoriceWindow(QWidget):
 
     def _model_display_text(self) -> str:
         if not self.model_path:
-            return "Bundled Hermes GGUF"
+            return "Bundled Qwen2.5 Coder 7B GGUF"
         return os.path.basename(self.model_path) or self.model_path
 
     def _model_status_line(self) -> str:
@@ -3378,7 +3387,7 @@ class MoriceWindow(QWidget):
             return f"Model file: {self._model_display_text()}."
         if self.model_name:
             return f"Ollama model: {self.model_name}."
-        return "Model: bundled Hermes GGUF."
+        return "Model: bundled Qwen2.5 Coder 7B GGUF."
 
     def _model_fit_message(self, path: str) -> str:
         result = local_model_result(path)
@@ -3463,14 +3472,14 @@ class MoriceWindow(QWidget):
             return
         self.model_path = ""
         self.model_path_input.setText(self._model_display_text())
-        self.model_path_input.setToolTip("Using bundled Hermes GGUF unless an Ollama model name is set")
+        self.model_path_input.setToolTip("Using bundled Qwen2.5 Coder 7B GGUF unless an Ollama model name is set")
         self._save_project_settings()
         self._refresh_mode_panel()
         reset_model_runtime()
         if self.model_name:
             self.mode_status.setText(f"GGUF file cleared. MORICE will use Ollama model {self.model_name}.")
         else:
-            self.mode_status.setText("GGUF file cleared. MORICE will use the bundled Hermes GGUF.")
+            self.mode_status.setText("GGUF file cleared. MORICE will use the bundled Qwen2.5 Coder 7B GGUF.")
 
     def _app_folder(self) -> str:
         if getattr(sys, "frozen", False):
@@ -3538,7 +3547,7 @@ class MoriceWindow(QWidget):
         if self.model_path:
             self.model_path_input.setToolTip(f"{self.model_path}\n{self._model_fit_message(self.model_path)}")
         else:
-            self.model_path_input.setToolTip("Using bundled Hermes GGUF unless an Ollama name is set")
+            self.model_path_input.setToolTip("Using bundled Qwen2.5 Coder 7B GGUF unless an Ollama name is set")
         self._refresh_gpu_profile_ui()
         for button, active in (
             (self.normal_mode_btn, not is_project),
@@ -3613,6 +3622,9 @@ class MoriceWindow(QWidget):
             "frm' as 'short form' and 'sory' as 'sorry' when the conversation makes that clear. "
             "When the user asks to build something, produce complete, practical source files that can run locally. "
             "Do not pretend a text file is a compiled app and never propose or emit fake .exe, .dll, .apk, .msi, or archive files. "
+            "For a new playable game, default to a complete self-contained HTML/CSS/JavaScript Canvas project that runs by opening index.html. "
+            "Only edit a Unity project when the chosen folder already contains a real Unity project and the request specifically asks for it; "
+            "never invent Unity scenes, prefabs, metadata, binary art/audio, or a compiled executable. "
             "Prefer dependency-light HTML/CSS/JavaScript for browser games and apps. For Python, include a requirements.txt "
             "only for real third-party imports and make the source run with a normal Python installation. "
             "Use clean architecture, readable names, validation, useful error handling, responsive UI guidance, and "
@@ -3808,6 +3820,8 @@ class MoriceWindow(QWidget):
             "When editing an existing file, include the full updated file content. "
             "Do not return a commands-only manifest; create or update at least one practical file whenever the request asks to build. "
             "Never create .exe, .dll, .msi, .apk, .zip, or another compiled/binary artifact. MORICE writes runnable source files only. "
+            "For a new game or browser app, create a complete self-contained index.html (plus CSS/JS when useful) rather than Unity files, fake assets, or pygame-only code. "
+            "Only edit existing Unity source scripts when the folder already contains that Unity project; never create .unity, .prefab, .meta, or binary asset files. "
             "For a browser app, create a complete index.html. For a Python app, create a complete .py entry point and requirements.txt when packages are needed. "
             "Do not wrap the JSON in markdown. Do not include explanations outside the JSON."
         )
@@ -4021,6 +4035,18 @@ class MoriceWindow(QWidget):
             for note in (manifest.get("notes") or [])[:4]
             if str(note).strip()
         ]
+        launch_plan = build_launch_plan(self.project_folder)
+        if launch_plan and launch_plan.kind == "batch":
+            # Keep users off raw Python entry points when dependencies are needed.
+            # run.bat installs requirements first and then starts the real entry point.
+            commands = ["run.bat"] + [
+                command
+                for command in commands
+                if not re.match(r"^(?:py(?:thon)?|pyinstaller)\b", command.strip(), flags=re.IGNORECASE)
+            ]
+            notes.insert(0, "Use run.bat to install required packages before launching the Python project.")
+        elif launch_plan and launch_plan.kind == "browser":
+            commands = ["Open index.html in a browser"] + commands
         message = (
             f"{summary}\n\n"
             f"Work folder: {self.project_folder}\n"
@@ -4409,7 +4435,7 @@ class MoriceWindow(QWidget):
             12000,
             lambda: self._thinking_delayed_update(
                 token,
-                "Hermes is still generating. Local CPU replies can take a bit.",
+                "Qwen is still generating. Local CPU replies can take a bit.",
             ),
         )
         QTimer.singleShot(
@@ -4964,7 +4990,7 @@ class MoriceWindow(QWidget):
             "Received your message and started the reply pipeline."
         )
         self.thinking_update.emit(
-            "Using @web, collecting search results, then asking the Hermes engine."
+            "Using @web, collecting search results, then asking the selected Qwen/local engine."
             if web_query_for_status
             else (
                 "Online+local Project mode: collecting web context, then building files."
@@ -4975,7 +5001,7 @@ class MoriceWindow(QWidget):
                     else (
                         "Normal chat VNext: visual is open in Lab, now writing the explanation."
                         if science_visual_ready
-                        else "Full offline mode: asking the local Hermes engine only."
+                        else "Full offline mode: asking the bundled Qwen engine only."
                     )
                 )
             )
@@ -5049,9 +5075,9 @@ class MoriceWindow(QWidget):
                     )
 
                 self.thinking_update.emit(
-                    "Asking Hermes for project files."
+                    "Asking Qwen for project files."
                     if project_build_request
-                    else "Asking Hermes to compose the final answer."
+                    else "Asking Qwen to compose the final answer."
                 )
                 model_user_input = user_input
                 model_history = self.history

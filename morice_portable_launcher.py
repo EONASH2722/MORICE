@@ -9,7 +9,7 @@ def _asset_path(name: str) -> str:
 
 def main():
     os.environ.setdefault("MORICE_LLAMA_SERVER", "1")
-    os.environ.setdefault("MORICE_GGUF_PATH", _asset_path("Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf"))
+    os.environ.setdefault("MORICE_GGUF_PATH", _asset_path("Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf"))
     os.environ.setdefault("MORICE_LLAMA_SERVER_PATH", _asset_path(os.path.join("llama-bin", "llama-server.exe")))
     os.environ.setdefault("MORICE_MODEL", "local-gguf")
     from morice.pyside_app import run_app
