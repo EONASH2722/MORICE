@@ -14,13 +14,13 @@ from .llama_server import ensure_server
 DEFAULT_MODEL = os.getenv("MORICE_MODEL", "").strip()
 DEFAULT_BASE_URL = os.getenv("MORICE_OLLAMA_URL", "http://localhost:11434")
 DEFAULT_GGUF = os.getenv("MORICE_GGUF_PATH", "").strip()
-DEFAULT_CTX = int(os.getenv("MORICE_CTX", "8192"))
+DEFAULT_CTX = int(os.getenv("MORICE_CTX", "16384"))
 DEFAULT_GPU_LAYERS = int(os.getenv("MORICE_GPU_LAYERS", "0"))
 DEFAULT_CHAT_FORMAT = os.getenv("MORICE_CHAT_FORMAT", "").strip() or None
 DEFAULT_THREADS = int(os.getenv("MORICE_THREADS", str(max(1, (os.cpu_count() or 4) - 2))))
 DEFAULT_BATCH = int(os.getenv("MORICE_BATCH", "64"))
 DEFAULT_USE_SERVER = os.getenv("MORICE_LLAMA_SERVER", "1") == "1"
-DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "4096"))
+DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "6144"))
 _OLLAMA_PROCESS = None
 DEFAULT_BUNDLED_GGUF = "Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf"
 OFFICIAL_QWEN_GGUF = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
@@ -128,10 +128,96 @@ def _build_prompt(messages):
     return "\n".join(lines)
 
 
+def _merge_continuation(existing: str, continuation: str) -> str:
+    existing = (existing or "").rstrip()
+    continuation = (continuation or "").lstrip()
+    if not existing:
+        return continuation
+    if not continuation:
+        return existing
+    maximum = min(600, len(existing), len(continuation))
+    overlap = 0
+    for size in range(maximum, 7, -1):
+        if existing[-size:] == continuation[:size]:
+            overlap = size
+            break
+    separator = "" if existing.endswith(("\n", " ")) else "\n"
+    return existing + separator + continuation[overlap:]
+
+
+def _fit_messages_to_context(messages):
+    """Keep current instructions and prompt while dropping only oldest history."""
+    input_token_budget = max(4096, DEFAULT_CTX - DEFAULT_MAX_TOKENS - 768)
+    character_budget = input_token_budget * 4
+    clean = [
+        {
+            "role": str(message.get("role", "user")),
+            "content": str(message.get("content", "")),
+        }
+        for message in messages
+    ]
+    if sum(len(message["content"]) for message in clean) <= character_budget:
+        return clean
+
+    system_messages = [message for message in clean if message["role"] == "system"]
+    conversation = [message for message in clean if message["role"] != "system"]
+    latest = conversation[-1:] if conversation else []
+    fixed_size = sum(len(message["content"]) for message in system_messages + latest)
+
+    if latest and fixed_size > character_budget:
+        available = max(1600, character_budget - sum(
+            len(message["content"]) for message in system_messages
+        ))
+        content = latest[0]["content"]
+        if len(content) > available:
+            head = max(800, available // 2)
+            tail = max(800, available - head - 80)
+            latest[0] = {
+                **latest[0],
+                "content": (
+                    content[:head]
+                    + "\n\n[Middle of exceptionally long prompt omitted to fit the selected model context.]\n\n"
+                    + content[-tail:]
+                ),
+            }
+
+    selected = []
+    used = sum(len(message["content"]) for message in system_messages + latest)
+    for message in reversed(conversation[:-1]):
+        size = len(message["content"])
+        if used + size > character_budget:
+            continue
+        selected.append(message)
+        used += size
+    selected.reverse()
+    return system_messages + selected + latest
+
+
 def _try_chat_endpoint(base_url, payload, timeout):
     chat_url = f"{base_url.rstrip('/')}/api/chat"
-    data = _post_json(chat_url, payload, timeout)
-    content = data.get("message", {}).get("content", "").strip()
+    running_payload = dict(payload)
+    running_payload["messages"] = list(payload.get("messages", []))
+    content = ""
+    for continuation_index in range(3):
+        data = _post_json(chat_url, running_payload, timeout)
+        part = data.get("message", {}).get("content", "").strip()
+        content = _merge_continuation(content, part)
+        finish_reason = str(data.get("done_reason") or "").lower()
+        if finish_reason not in {"length", "max_tokens"}:
+            break
+        running_payload["messages"] = [
+            *running_payload["messages"],
+            {"role": "assistant", "content": part},
+            {
+                "role": "user",
+                "content": (
+                    "Continue exactly where the response stopped. Do not repeat prior text. "
+                    "Finish every remaining section."
+                ),
+            },
+        ]
+        if continuation_index == 2:
+            break
     return content or "(No response)"
 
 
@@ -143,20 +229,51 @@ def _try_generate_endpoint(base_url, messages, model, timeout):
         "stream": False,
         "options": {"num_predict": DEFAULT_MAX_TOKENS},
     }
-    data = _post_json(generate_url, prompt_payload, timeout)
-    content = data.get("response", "").strip()
+    content = ""
+    for continuation_index in range(3):
+        data = _post_json(generate_url, prompt_payload, timeout)
+        part = data.get("response", "").strip()
+        content = _merge_continuation(content, part)
+        finish_reason = str(data.get("done_reason") or "").lower()
+        if finish_reason not in {"length", "max_tokens"}:
+            break
+        prompt_payload["prompt"] = (
+            prompt_payload["prompt"]
+            + part
+            + "\nUSER: Continue exactly where the response stopped without repeating it."
+            + "\nASSISTANT:"
+        )
+        if continuation_index == 2:
+            break
     return content or "(No response)"
 
 
 def _try_openai_chat(base_url, payload, timeout):
     openai_url = f"{base_url.rstrip('/')}/v1/chat/completions"
-    data = _post_json(openai_url, payload, timeout)
-    content = (
-        data.get("choices", [{}])[0]
-        .get("message", {})
-        .get("content", "")
-        .strip()
-    )
+    running_payload = dict(payload)
+    running_payload["messages"] = list(payload.get("messages", []))
+    content = ""
+    for continuation_index in range(3):
+        data = _post_json(openai_url, running_payload, timeout)
+        choice = data.get("choices", [{}])[0]
+        part = choice.get("message", {}).get("content", "").strip()
+        content = _merge_continuation(content, part)
+        finish_reason = str(choice.get("finish_reason") or "").lower()
+        if finish_reason not in {"length", "max_tokens"}:
+            break
+        running_payload["messages"] = [
+            *running_payload["messages"],
+            {"role": "assistant", "content": part},
+            {
+                "role": "user",
+                "content": (
+                    "Continue exactly where the response stopped. Do not repeat prior text. "
+                    "Finish every remaining section."
+                ),
+            },
+        ]
+        if continuation_index == 2:
+            break
     return content or "(No response)"
 
 
@@ -394,6 +511,7 @@ def chat(
             messages.append({"role": "system", "content": "\n\n".join(system_additions)})
         messages.extend(history)
         messages.append({"role": "user", "content": user_message})
+        messages = _fit_messages_to_context(messages)
 
         if DEFAULT_USE_SERVER:
             payload = {
@@ -461,6 +579,7 @@ def chat(
 
     messages.extend(history)
     messages.append({"role": "user", "content": user_message})
+    messages = _fit_messages_to_context(messages)
 
     _ensure_ollama(base_url)
     fallback_models = _fallback_models(model, base_url, user_message)

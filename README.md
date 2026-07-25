@@ -4,7 +4,7 @@
 
 # MORICE
 
-MORICE is a local desktop AI workspace for people who want an assistant that can talk, research, read notes, build files, plot equations, and run deterministic physics demos without losing the feel of a personal tool. It combines a PySide6 glass interface, offline GGUF/Ollama model support, trusted model browsing, notes lookup, optional web lookup, wake control, queued follow-up messages, Project mode file building, and an early VNext science workspace.
+MORICE is a local desktop AI workspace for people who want an assistant that can talk, research, read notes, build files, render mathematics, and run deterministic science visualizations without losing the feel of a personal tool. It combines a PySide6 glass interface, offline GGUF/Ollama model support, trusted model browsing, notes lookup, optional web lookup, wake control, queued follow-up messages, a Project Mode file workspace, and the validated VNext rendering engine.
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license">
@@ -28,38 +28,38 @@ The main MORICE modes all pass through the same intent layer, then branch into t
   <img src="docs/morice-workflow-chain.svg" alt="MORICE Project mode, web lookup, notes lookup, and model browser workflow chain" width="100%">
 </p>
 
-## VNext Science Workspace
+## VNext Rendering Engine
 
-MORICE now has the first desktop slice of a scientific workspace. Chat stays clean: when a graph or simulation is generated, chat shows a small clickable preview card and the actual visualization opens in the `Lab` workspace dock beside the conversation.
+MORICE renders supported visual requests directly inside Normal Chat. Background workers prepare typed artifacts, validators check the result, and the loading card is replaced by a real interactive workspace. The optional `Lab` dock archives generated artifacts; it is not required to view them.
 
-Current VNext desktop slice:
+Current VNext desktop runtime:
 
-- Deterministic Graph Engine in `morice/science_engine.py`.
-- Interactive PySide graph canvas with dark grid, zoom, pan, multiple equations, x/y-intercept callouts, extrema callouts, and point inspection.
-- Graph prompts can cover standard `y = ...` functions, multiple equations, polar `r = ...` curves, and parametric `x(t), y(t)` curves in the current desktop slice.
-- 2D particle/projectile physics canvas with gravity, bounds, collisions, pause/resume, stepping, and speed control.
+- Function graphs: multiple equations, piecewise, polar, parametric, implicit, roots, intercepts, extrema, and inflection points.
+- Surface graphs: validated `z=f(x,y)` data with linked 2D height-map and 3D mesh views.
+- Physics: particles, projectile, pendulum, spring, wave, circular motion, and orbital scenes with real simulation state.
+- Chemistry: curated VSEPR molecular structures with 2D/3D views, reference angles, rotation, and atom inspection.
+- Structured diagrams: networking, compiler, process-state, and explicit flow pipelines.
+- Rich answers: local Markdown, highlighted code, tables, and KaTeX equations.
 - Model-agnostic instruction shape: `simulationType`, `equations`, and `parameters`.
+- Renderer registry, capability detection, bounded scheduler, artifact cache, resource cleanup, and honest failure states.
+- Reusable in-chat generation card with real analysis, selection, preparation, validation, and rendering stages.
+- Graph, surface, molecule, and diagram export to PNG/SVG/PDF; physics export to PNG/JSON.
+- 2D/3D selectors reuse one validated dataset or physical state instead of regenerating model output.
+- Pause, resume, step, step back, reset, time scale, vectors, trails, inspectors, and live statistics where applicable.
 - Lab workspace dock with `Graphs`, `Simulations`, and `Notebook` tabs.
-- Chat preview cards that open the right workspace view instead of rendering graphs inside chat.
-- Notebook tab stores artifact metadata and the deterministic instruction JSON for future persistent project sessions.
+- Model-output guard that removes fake claims such as `[A graph is shown]` when no renderer validated an artifact.
+- Fail-closed behavior for unsupported renderers: no fake graph, screenshot, window, or simulation description.
 
-Planned VNext engine expansion:
-
-- Plotly plus a MathJS-powered parser for the production web renderer.
-- Matter.js/Planck.js for richer 2D physics.
-- Three.js plus Rapier/Cannon-es for GPU-accelerated 3D rigid-body scenes.
-- Export to PNG, SVG, GIF, MP4, and JSON state.
-- Persistent per-project graph, simulation, file, memory, and notebook artifacts.
-
-See `docs/vnext-science-workspace.md` and the strict TypeScript scaffold in `vnext/` for the planned engine layer.
+See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, capability limits, and extension rules. The strict TypeScript engine in `vnext/` includes the coordinator, renderer manager, Plotly adapter, cache, and deterministic 2D/3D particle-state core.
 
 ## Highlights
 
 - Glass desktop interface with a centered launch composer, animated galaxy/wave surfaces, and a Send button that stays calm instead of using a liquid-fill animation.
 - Local-first model routing through a bundled GGUF, a selected GGUF file, or an installed Ollama model.
 - Trusted model browser with automatic GPU/VRAM detection, one-click trusted model lanes, compatibility scoring, worth scoring, official-source links, licenses, task metadata, and model-speciality summaries.
-- Project mode that reads a bounded snapshot of a selected work folder, asks the model for a strict file manifest, applies safe file writes, rescues filename-labeled markdown code blocks into editable files, falls back to a local builder when the model does not return usable project output, remembers retry requests, and shows a right-side diff panel.
-- VNext Lab workspace for graphing equations and running deterministic 2D physics previews beside chat.
+- Project Mode with a readable right-side Files/Changes/Output workspace, project tree, source preview, green/red diffs, source validation, run actions, and an allowlisted direct-command terminal.
+- Project prompts become validated editable files in the selected folder; filename-labeled code blocks and the local fallback builder remain recovery paths.
+- VNext inline workspaces for real graphs, surfaces, physics, molecules, diagrams, and rich mathematics directly in Normal Chat.
 - `@web` lookup for fresh information when needed, with results passed into the local reply pipeline instead of leaving the whole chat online by default.
 - `@notes` lookup for local knowledge files, so MORICE can answer from personal documents without uploading them.
 - Wake listener that can launch or wake MORICE by saved phrase or clap pattern.
@@ -334,10 +334,10 @@ simulate 300 particles with gravity and collisions
 MORICE routes these to deterministic engines:
 
 ```text
-chat prompt -> science intent -> instruction JSON -> graph/physics engine -> Lab workspace
+chat prompt -> visualization decision -> renderer selection -> deterministic data -> validation -> inline workspace
 ```
 
-The AI model may help reason about the problem, but rendering stays deterministic. The model does not draw directly; the app turns supported instructions into graph data or simulation state.
+The AI model may help reason about the problem, but it never draws directly. The renderer manager turns supported instructions into graph data or simulation state, validates that output, and only then inserts a live workspace into chat. Unsupported or failed renderers display an explicit error instead of an imaginary screenshot or placeholder.
 
 ## Message Queue
 
@@ -400,6 +400,7 @@ Common places to edit:
 - UI and animations: `morice/pyside_app.py`
 - MORICE personality and reply rules: `morice/core.py`
 - Graph and physics instruction engine: `morice/science_engine.py`
+- Visualization registry, queue, validation, caching, and capability reporting: `morice/visualization.py`
 - Local model routing and token budget: `morice/llm_client.py`
 - Project fallback file builder: `morice/project_builder.py`
 - Model verification/search/VRAM scoring: `morice/model_catalog.py`
@@ -407,13 +408,13 @@ Common places to edit:
 - Saved personalization settings: `morice/settings.py`
 - Logo and queue screenshot: `morice/assets/` and `docs/screenshots/`
 - Build bundle: `MORICE.spec`
-- Future TypeScript graph/physics architecture: `vnext/`
+- Strict TypeScript renderer core and tests: `vnext/`
 
 Useful environment variables:
 
 - `MORICE_GGUF_PATH` sets a specific GGUF path.
 - `MORICE_MODEL` sets an Ollama model name and bypasses the GGUF default.
-- `MORICE_MAX_TOKENS` controls reply length. Default: `4096`.
+- `MORICE_MAX_TOKENS` controls each reply chunk. Default: `6144`. MORICE continues automatically when a compatible endpoint reports a length stop.
 - `MORICE_LLAMA_SERVER` set to `1` to use bundled llama-server.
 - `MORICE_CTX` sets context length.
 - `MORICE_GPU_LAYERS` sets GPU layers.
@@ -427,7 +428,9 @@ Useful environment variables:
 morice/
   pyside_app.py        Desktop UI
   project_builder.py   Local Project mode fallback file generator
-  science_engine.py    Deterministic graph and physics artifact generator
+  science_engine.py    Deterministic graph, surface, and physics artifacts
+  domain_engine.py     Curated molecule and structured-diagram artifacts
+  visualization.py     Renderer registry, async pipeline, cache, validation, and capabilities
   core.py              Personality, commands, and helper replies
   llm_client.py        Local/Ollama model routing
   model_catalog.py     Trusted model search, GPU fit scoring, and file verification
@@ -437,7 +440,7 @@ morice/
 docs/screenshots/      Queue-system README screenshot
 docs/vnext-science-workspace.md
 scripts/               Model install and release-prep scripts
-vnext/                 Strict TypeScript future graph/physics engine scaffold
+vnext/                 Strict TypeScript coordinator, cache, graph adapter, and physics core
 morice_wake_listener.py
 MORICE.spec
 Modelfile

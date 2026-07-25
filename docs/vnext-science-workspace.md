@@ -1,99 +1,132 @@
-# MORICE VNext Science Workspace
+# MORICE VNext Rendering Architecture
 
-This document defines the VNext direction for turning MORICE into a scientific AI workspace while keeping the current desktop app stable.
+VNext is MORICE's validated visualization runtime. It renders supported
+artifacts inside Normal Chat and rejects unsupported requests honestly. Project
+Mode remains a file-building workspace.
 
-## Current Desktop Slice
+## Runtime Pipeline
 
-Implemented in the Python/PySide app:
-
-- `morice/science_engine.py`
-  - Parses safe math expressions.
-  - Generates deterministic graph samples.
-  - Supports standard function plots, multiple equations, polar curves, and parametric curves.
-  - Emits graph inspection points for x-intercepts, y-intercepts, and extrema when available.
-  - Generates deterministic 2D particle/projectile simulation state.
-  - Emits model-agnostic instructions using `simulationType`, `equations`, and `parameters`.
-- `morice/pyside_app.py`
-  - Adds a collapsible `Lab` workspace dock.
-  - Shows graph and simulation preview cards in chat.
-  - Opens actual visualizations in the Lab dock, not inside chat.
-  - Supports graph zoom, pan, point inspection, intercept callouts, extrema callouts, and multiple equations.
-  - Supports physics pause, resume, step, speed control, and live stats.
-  - Keeps normal focus behavior predictable by avoiding automatic input focus after background replies finish.
-
-## Future TypeScript Engine Layer
-
-Scaffolded in `vnext/`:
-
-- Strict TypeScript.
-- Plotly for production graph rendering.
-- MathJS for expression parsing and validation.
-- Matter.js and Planck for richer 2D physics.
-- Three.js, Rapier, and Cannon-es for 3D simulation.
-- Vitest for unit tests.
-
-## AI Boundary
-
-The AI model must not draw directly. The AI only produces or helps produce instructions:
-
-```json
-{
-  "simulationType": "graph",
-  "equations": ["x^2 - 4x + 3"],
-  "parameters": {
-    "xMin": -10,
-    "xMax": 10,
-    "samples": 1000
-  }
-}
+```text
+Normal Chat prompt
+  -> deterministic intent decision
+  -> renderer registry selection
+  -> bounded background render queue
+  -> typed data preparation
+  -> numeric and structural validation
+  -> real interactive chat workspace
+  -> optional Lab archive
 ```
 
-The deterministic engines parse, validate, simulate, and render.
+The model can suggest intent, equations, and parameters. It is never treated as
+proof that a visualization exists. A success card appears only after a renderer
+returns a validated artifact.
 
-## Performance Target
+## Implemented Renderers
 
-Primary target hardware:
+| Renderer | Real output | Interaction | Validation |
+| --- | --- | --- | --- |
+| Function graphs | Cartesian, multiple equations, piecewise, polar, parametric, and implicit curves | Pan, zoom, hover coordinates, reset, large view, PNG/SVG/PDF | Safe expression AST, finite samples, numeric roots, extrema, intercepts, and inflection checks |
+| Surface graphs | Sampled `z=f(x,y)` mesh and matching 2D height map | 2D/3D switch, rotate, zoom, hover, PNG/SVG/PDF | Safe two-variable AST, finite grid, exact sampled min/max |
+| Physics | Particles, projectile, pendulum, spring, wave, circular motion, and orbit | Pause, resume, step, step back, reset, speed, gravity, trails, vectors, 2D/3D projection where supported, PNG/JSON | Deterministic initial state, bounded values, mass-aware collisions, finite state |
+| Molecules | Curated VSEPR structures | 2D/3D switch, rotate, zoom, atom inspection, PNG/SVG/PDF | Known topology, validated atom/bond indices, reference-angle coordinate models |
+| Diagrams | OSI, TCP/IP, TCP handshake, DNS, compiler, process lifecycle, and explicit arrow flows | Pan, zoom, node inspection, PNG/SVG/PDF | Known nodes, valid edge endpoints, deterministic layout |
+| Rich answers | Markdown, code highlighting, tables, and KaTeX math | Selection and copying inside the answer view | Local bundled assets; no network dependency |
 
-- Lenovo LOQ
-- RTX 3050 Mobile 6GB
+The 2D and 3D controls are projections of one validated artifact. Switching
+views does not ask the model to regenerate values.
 
-Design rules:
+## Accuracy Contract
 
-- Keep chat lightweight.
-- Lazy-load heavy graph/physics renderers.
-- Pause or throttle simulations in the background.
-- Keep graph/simulation artifacts separate from chat bubbles.
-- Clean up renderer state when switching projects.
+- Equations are parsed by a restricted numeric expression evaluator.
+- Graph landmarks are calculated from the sampled function and refined
+  numerically instead of guessed from model prose.
+- Surface legends report the actual sampled extrema.
+- Particle simulations use deterministic state and fixed-step integration.
+- Molecule coordinates reproduce a reference angle where a single constrained
+  VSEPR geometry permits it. More highly distorted molecules are labeled
+  `idealized-vsepr`; measured/reference angles remain separate from the
+  schematic coordinates.
+- Unsupported SPH fluids, soft bodies, rigid-body constraint systems, arbitrary
+  molecules, arbitrary 3D objects, and embedded document viewers return a
+  capability error. MORICE never substitutes an unrelated animation.
 
-## Project Mode Direction
+These are interactive educational and engineering visualizations, not a
+certified CFD, quantum chemistry, or finite-element solver.
 
-Project Mode should become an IDE-style workspace:
+## Runtime Ownership
 
-- Chat
-- Graphs
-- Simulations
-- Files
-- Memory
-- Projects
-- Scientific notebook
+- `morice/visualization.py`: registry, capabilities, scheduler, cache,
+  validation boundary, progress stages, error recovery, and fake-output guard.
+- `morice/science_engine.py`: graph/surface generation and deterministic physics
+  instructions.
+- `morice/domain_engine.py`: curated chemistry and structured-diagram artifacts.
+- `morice/pyside_app.py`: in-chat workspaces, rendering, controls, exports,
+  resource cleanup, and Project Mode IDE panel.
+- `vnext/`: strict TypeScript contracts, coordinator, renderer manager, Plotly
+  adapter, cache, and deterministic 2D/3D particle-state engine.
 
-Each project should persist:
+## Project Mode
 
-- Conversations
-- Files
-- Graph artifacts
-- Simulation artifacts
-- Notes
-- AI outputs
+Project Mode is intentionally separate from VNext science rendering:
 
-The current desktop implementation adds the first artifact and Lab workspace pieces needed for that direction.
+- File tree and source preview.
+- Green/red unified diffs.
+- Build output and a direct-command allowlisted terminal.
+- Safe path checks and staged source writes.
+- Source validation before replacement.
+- Run and verify actions with detected entry points.
+- Folder-only or full-access policy displayed in the composer.
+- Local or online-plus-local project context.
 
-## Project Mode Bridge
+The model is asked for a strict file manifest. MORICE converts the manifest into
+editable files, validates paths and source, stages writes next to each target,
+then replaces files. If model output is unusable, the local fallback builder
+creates a real starter project rather than returning copy-paste instructions.
 
-The desktop Project Mode now treats project prompts as file work, not copy-paste advice:
+## Performance
 
-- The model is asked for a strict JSON manifest with complete file contents.
-- If the model responds with filename-labeled markdown code blocks, MORICE converts those blocks into real files.
-- If both model routes fail, MORICE uses a deterministic local fallback builder for web apps or Python starters.
-- Retry phrases such as `try again` reuse the last real project request instead of becoming the new project spec.
-- Every write stays inside the selected work folder and the right-side panel shows green/red diffs.
+- Heavy artifact generation runs on a bounded worker pool.
+- Artifacts use an LRU-style memory budget.
+- Hidden simulations stop consuming timer frames.
+- Physics uses fixed time steps and spatial collision partitioning in the
+  desktop engine.
+- 3D is projected from real depth state; unsupported GPU backends are reported
+  unavailable instead of claimed.
+- Web assets are bundled and lazy-loaded locally.
+
+Primary QA target: Windows 10/11 and the Lenovo LOQ class of hardware, including
+RTX 3050 Mobile 6 GB systems.
+
+## Verification
+
+Python tests cover graph landmarks, discontinuities, repeated roots, implicit
+contours, piecewise functions, surfaces, physics configuration, replay, 2D/3D
+state, molecular angles, inline widget replacement, exports, honest failures,
+Project Mode safety, desktop identity, and long-answer continuation.
+
+The TypeScript suite covers prompt coordination, piecewise parsing,
+capability selection, artifact caching, fail-closed behavior, deterministic
+particle state, bounds, and real 3D depth.
+
+Before publishing a build:
+
+```powershell
+python -m unittest discover -s tests -v
+cd vnext
+pnpm typecheck
+pnpm test
+```
+
+## Extension Rule
+
+A future renderer must implement:
+
+1. A unique capability ID.
+2. Prompt matching that does not steal unrelated requests.
+3. Typed artifact construction.
+4. Validation independent of model prose.
+5. Memory estimation and cleanup.
+6. An honest unsupported or failed state.
+7. Automated numeric and visual QA.
+
+No renderer may claim success from placeholder text.

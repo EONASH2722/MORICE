@@ -1,6 +1,6 @@
 import * as Plotly from "plotly.js-dist-min";
-import { math } from "mathjs";
-import type { GraphArtifact, SimulationInstruction } from "./contracts";
+import { compile } from "mathjs";
+import type { GraphArtifact } from "./contracts";
 
 export interface PlotlyGraphConfig {
   container: string | HTMLElement;
@@ -8,14 +8,15 @@ export interface PlotlyGraphConfig {
   showGrid?: boolean;
   showLegend?: boolean;
   enableLatex?: boolean;
+  view?: "2d" | "3d";
 }
 
 /**
  * Renders a GraphArtifact using Plotly with support for LaTeX notation in labels and titles.
  */
 export async function renderGraph(artifact: GraphArtifact, config: PlotlyGraphConfig): Promise<void> {
-  if (!artifact || !artifact.series || artifact.series.length === 0) {
-    throw new Error("Invalid graph artifact: no series data");
+  if (!artifact || ((!artifact.series || artifact.series.length === 0) && !artifact.surface)) {
+    throw new Error("Invalid graph artifact: no graph data");
   }
 
   const containerEl =
@@ -26,7 +27,7 @@ export async function renderGraph(artifact: GraphArtifact, config: PlotlyGraphCo
   }
 
   // Build Plotly traces from series
-  const traces = artifact.series.map((series) => ({
+  const traces: object[] = artifact.series.map((series) => ({
     x: series.points.map((p) => p.x),
     y: series.points.map((p) => p.y),
     mode: "lines+markers" as const,
@@ -41,9 +42,33 @@ export async function renderGraph(artifact: GraphArtifact, config: PlotlyGraphCo
     },
     hovertemplate: `<b>${series.label}</b><br>x: %{x:.4f}<br>y: %{y:.4f}<extra></extra>`,
   }));
+  if (artifact.surface) {
+    const surface = artifact.surface;
+    traces.push(
+      config.view === "2d"
+        ? {
+            x: surface.x,
+            y: surface.y,
+            z: surface.z,
+            type: "heatmap",
+            name: surface.label,
+            hovertemplate: "x: %{x:.4f}<br>y: %{y:.4f}<br>z: %{z:.4f}<extra></extra>",
+            colorscale: "Viridis"
+          }
+        : {
+            x: surface.x,
+            y: surface.y,
+            z: surface.z,
+            type: "surface",
+            name: surface.label,
+            hovertemplate: "x: %{x:.4f}<br>y: %{y:.4f}<br>z: %{z:.4f}<extra></extra>",
+            colorscale: "Viridis"
+          }
+    );
+  }
 
   // Build layout with LaTeX support
-  const layout: Partial<Plotly.Layout> = {
+  const layout = {
     title: {
       text: config.enableLatex ? `$${artifact.title}$` : artifact.title,
       font: {
@@ -106,7 +131,7 @@ export async function renderGraph(artifact: GraphArtifact, config: PlotlyGraphCo
     },
   };
 
-  const plotConfig: Partial<Plotly.Config> = {
+  const plotConfig = {
     responsive: true,
     displayModeBar: true,
     displaylogo: false,
@@ -121,14 +146,14 @@ export async function renderGraph(artifact: GraphArtifact, config: PlotlyGraphCo
   };
 
   // Use MathJax for LaTeX rendering if enabled
-  if (config.enableLatex && typeof (window as any).MathJax !== "undefined") {
+  if (config.enableLatex && "MathJax" in window) {
     layout.font = {
       ...layout.font,
       family: '"Computer Modern", serif',
     };
   }
 
-  await Plotly.newPlot(containerEl, traces, layout as Plotly.Layout, plotConfig);
+  await Plotly.newPlot(containerEl, traces, layout, plotConfig);
 }
 
 /**
@@ -140,10 +165,10 @@ export function evaluateExpression(
   xValues: number[]
 ): { x: number; y: number }[] {
   const points: { x: number; y: number }[] = [];
+  const compiled = compile(expression);
 
   for (const x of xValues) {
     try {
-      const compiled = math.compile(expression);
       const y = compiled.evaluate({ x });
 
       if (typeof y === "number" && isFinite(y)) {
@@ -186,10 +211,10 @@ export function findCriticalPoints(
   const yIntercepts: { x: number; y: number }[] = [];
   const extrema: { x: number; y: number; type: "max" | "min" }[] = [];
 
-  // Find x-intercepts (where y ≈ 0)
+  // Find x-intercepts (where y is approximately 0).
   for (let i = 0; i < points.length - 1; i++) {
-    const p1 = points[i];
-    const p2 = points[i + 1];
+    const p1 = points[i]!;
+    const p2 = points[i + 1]!;
 
     // Zero crossing
     if ((p1.y < 0 && p2.y > 0) || (p1.y > 0 && p2.y < 0)) {
@@ -201,11 +226,12 @@ export function findCriticalPoints(
     }
   }
 
-  // Find y-intercept (where x ≈ 0)
+  // Find y-intercept (where x is approximately 0).
   if (points.length > 0) {
-    const closest = points.reduce((prev, curr) =>
-      Math.abs(curr.x) < Math.abs(prev.x) ? curr : prev
-    );
+    let closest = points[0]!;
+    for (const point of points.slice(1)) {
+      if (Math.abs(point.x) < Math.abs(closest.x)) closest = point;
+    }
     if (Math.abs(closest.x) < 1) {
       yIntercepts.push(closest);
     }
@@ -213,9 +239,9 @@ export function findCriticalPoints(
 
   // Find local extrema
   for (let i = 1; i < points.length - 1; i++) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    const next = points[i + 1];
+    const prev = points[i - 1]!;
+    const curr = points[i]!;
+    const next = points[i + 1]!;
 
     // Local maximum
     if (curr.y >= prev.y && curr.y >= next.y && Math.abs(curr.y) < 1e10) {

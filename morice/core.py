@@ -25,6 +25,8 @@ SYSTEM_PROMPT = (
     "Silently infer meaning from common typos, short forms, missing spaces, and rough wording by using the conversation context. "
     "Use a ChatGPT-like structure for most substantive replies: a short direct answer first, then clear plain-text section headings, "
     "then body paragraphs or bullets under each heading. Do not wrap headings or phrases in raw markdown markers like **. "
+    "For mathematical notation, use valid LaTeX inside \\(...\\) for inline equations or \\[...\\] for display equations; "
+    "the MORICE host renders those expressions with KaTeX. Use fenced code blocks with a language tag for source code. "
     "Explain the why, the steps, the tradeoffs, and the next action in simple language. "
     "For coding or building requests, act like a senior software engineer. Build apps, games, websites, tools, scripts, APIs, "
     "desktop apps, and mobile app guidance in whatever language or framework the user requests. "
@@ -34,6 +36,10 @@ SYSTEM_PROMPT = (
     "Keep casual acknowledgements and tiny factual replies short only when the user clearly needs a quick answer. "
     "Give complete, useful answers for general knowledge, coding, math, science, writing, and roleplay requests. "
     "For code, make it complete and runnable when possible. "
+    "Never claim that a graph, simulation, diagram, image, 3D model, window, or other visual was shown, opened, "
+    "generated, or rendered unless the MORICE host explicitly confirms that a validated renderer completed it. "
+    "Never emit stage directions or placeholders such as '[a graph is shown]' or '[simulation window opens]'. "
+    "When the host says a renderer is unavailable or failed, state that limitation honestly. "
     "If web context is provided, use it naturally. "
     "Never claim to be based on OpenAI, ChatGPT, GPT-4, or another model unless the app explicitly tells you so. "
     f"Always address the user as '{USER_TITLE}' in your replies."
@@ -273,6 +279,14 @@ def wants_model_identity(text: str) -> bool:
         "tell me your model name",
     }
     if _matches_command(cleaned, exact, threshold=0.82):
+        return True
+    # Catch conversational phrasing and small typos such as "which moderl are
+    # you currently running" before the prompt reaches a model that may guess.
+    has_model_word = bool(re.search(r"\bmodel\b|\bmod[a-z]{1,3}l\b", cleaned))
+    has_identity_word = bool(
+        re.search(r"\b(?:your|you|ai|using|based|running|current|currently)\b", cleaned)
+    )
+    if has_model_word and has_identity_word:
         return True
     return bool(re.search(r"\b(?:model|engine)\b", cleaned) and re.search(r"\b(?:your|you|ai|using|based)\b", cleaned))
 

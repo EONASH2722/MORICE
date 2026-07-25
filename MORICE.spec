@@ -19,6 +19,7 @@ a = Analysis(
     datas=[
         (os.path.join(project_dir, 'morice', 'assets', 'morice_logo.ico'), 'morice\\assets'),
         (os.path.join(project_dir, 'morice', 'assets', 'morice_logo.png'), 'morice\\assets'),
+        (os.path.join(project_dir, 'morice', 'assets', 'web'), 'morice\\assets\\web'),
         (bundled_model, 'morice\\assets'),
         (os.path.join(project_dir, 'morice', 'assets', 'llama-bin'), 'morice\\assets\\llama-bin'),
         (os.path.join(project_dir, 'morice', 'assets', 'OCR_NOTES.md'), 'morice\\assets'),

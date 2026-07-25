@@ -109,11 +109,11 @@
 
   <path d="M483 258 C483 306 484 306 484 350" class="line"/>
   <rect x="372" y="350" width="258" height="152" class="box" fill="url(#science)" opacity="0.96"/>
-  <text x="402" y="388" class="label">Science Lab</text>
-  <text x="402" y="417" class="small">Graph canvas opens live</text>
-  <text x="402" y="440" class="small">Particle simulations run</text>
-  <text x="402" y="463" class="small">Cards stay in chat</text>
-  <text x="402" y="486" class="small">Renderers stay deterministic</text>
+  <text x="402" y="388" class="label">Inline VNext</text>
+  <text x="402" y="417" class="small">Graphs and surfaces render</text>
+  <text x="402" y="440" class="small">Physics and molecules run</text>
+  <text x="402" y="463" class="small">Workspaces stay in chat</text>
+  <text x="402" y="486" class="small">Validation blocks fake output</text>
 
   <path d="M483 258 C483 306 790 302 790 350" class="line"/>
   <rect x="664" y="350" width="278" height="152" class="box" fill="url(#context)" opacity="0.96"/>

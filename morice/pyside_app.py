@@ -2,6 +2,7 @@ import os
 import sys
 import threading
 import ctypes
+import copy
 import html
 import json
 import math
@@ -9,6 +10,7 @@ import re
 import difflib
 import time
 import subprocess
+import tempfile
 from ctypes import wintypes
 
 from PySide6.QtCore import (
@@ -22,6 +24,7 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
     QEvent,
+    QUrl,
 )
 from PySide6.QtGui import (
     QFont,
@@ -33,9 +36,16 @@ from PySide6.QtGui import (
     QPainter,
     QPen,
     QPainterPath,
+    QPolygon,
     QLinearGradient,
     QRadialGradient,
+    QPdfWriter,
 )
+from PySide6.QtSvg import QSvgGenerator
+try:
+    from PySide6.QtWebEngineWidgets import QWebEngineView
+except ImportError:  # pragma: no cover - optional on minimal PySide installs
+    QWebEngineView = None
 from PySide6.QtWidgets import (
     QApplication,
     QDialog,
@@ -53,9 +63,15 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QProgressBar,
+    QComboBox,
+    QCheckBox,
+    QSlider,
     QSizeGrip,
     QSizePolicy,
     QTextEdit,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QStackedWidget,
 )
 
 from .core import (
@@ -124,7 +140,9 @@ from .project_runtime import (
     launch_project,
     validate_project_file,
 )
-from .science_engine import GraphArtifact, PhysicsArtifact, ScienceArtifact, build_science_artifact, is_science_request
+from .science_engine import GraphArtifact, GraphSurface, PhysicsArtifact, ScienceArtifact, is_science_request
+from .domain_engine import DiagramArtifact, MoleculeArtifact, atom_color
+from .visualization import VisualizationManager, VisualizationResult
 from .settings import (
     DEFAULT_SETTINGS,
     load_settings,
@@ -246,7 +264,7 @@ def _set_windows_app_id() -> None:
     if os.name != "nt":
         return
     try:
-        app_id = "EONASH2722.MORICE.Desktop"
+        app_id = "EONASH2722.MORICE"
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
     except Exception:
         pass
@@ -1195,6 +1213,112 @@ def _message_to_rich_text(message: str) -> str:
     return "".join(parts)
 
 
+def _web_assets_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "web")
+
+
+def _needs_web_rich_text(message: str) -> bool:
+    text = message or ""
+    return bool(
+        re.search(
+            r"(?:```|`[^`\n]+`|\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|"
+            r"\\\([\s\S]+?\\\)|(?<!\\)\$[^$\n]+\$|^\s*\|.+\|\s*$)",
+            text,
+            flags=re.MULTILINE,
+        )
+    )
+
+
+class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget):
+    def __init__(self, message: str, parent=None):
+        super().__init__(parent)
+        self.setObjectName("RichContentView")
+        self.setFixedHeight(80)
+        self.setMaximumHeight(1400)
+        if QWebEngineView is None:
+            fallback_layout = QVBoxLayout(self)
+            fallback = QLabel(message)
+            fallback.setWordWrap(True)
+            fallback.setTextInteractionFlags(
+                Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
+            )
+            fallback_layout.addWidget(fallback)
+            return
+        self.setContextMenuPolicy(Qt.DefaultContextMenu)
+        self.page().setBackgroundColor(QColor(0, 0, 0, 0))
+        self.loadFinished.connect(lambda _ok: QTimer.singleShot(0, self._measure_content))
+        source = json.dumps(message or "", ensure_ascii=False).replace("</", "<\\/")
+        document = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="katex.min.css">
+  <link rel="stylesheet" href="github-dark.min.css">
+  <style>
+    html, body {{ margin: 0; padding: 0; background: transparent; color: #edf1f8;
+      font: 15px/1.58 "Inter", "Segoe UI", sans-serif; letter-spacing: 0; }}
+    body {{ overflow-x: hidden; overflow-y: auto; }}
+    p {{ margin: 0 0 10px; }}
+    h1, h2, h3, h4 {{ margin: 12px 0 7px; line-height: 1.25; }}
+    h1 {{ font-size: 21px; }} h2 {{ font-size: 19px; }} h3 {{ font-size: 17px; }}
+    ul, ol {{ margin: 6px 0 10px 24px; padding: 0; }}
+    li {{ margin: 3px 0; }}
+    code {{ font-family: "Cascadia Code", Consolas, monospace; font-size: 0.94em; }}
+    :not(pre) > code {{ background: rgba(119, 92, 190, .18); border: 1px solid
+      rgba(153, 119, 229, .22); padding: 2px 5px; border-radius: 4px; }}
+    pre {{ overflow-x: auto; padding: 12px; background: rgba(5, 7, 12, .82);
+      border: 1px solid rgba(153, 119, 229, .28); border-radius: 6px; }}
+    blockquote {{ margin: 8px 0; padding: 2px 12px; color: #cbd5e5;
+      border-left: 3px solid #8c64e8; }}
+    table {{ width: 100%; border-collapse: collapse; margin: 9px 0; }}
+    th, td {{ border: 1px solid rgba(255,255,255,.16); padding: 7px 9px;
+      text-align: left; }}
+    th {{ background: rgba(68, 91, 158, .28); }}
+    .katex-display {{ overflow-x: auto; overflow-y: hidden; padding: 7px 0; }}
+    a {{ color: #74c9ff; }}
+  </style>
+</head>
+<body><main id="content"></main>
+<script src="markdown-it.min.js"></script>
+<script src="katex.min.js"></script>
+<script src="auto-render.min.js"></script>
+<script src="highlight.min.js"></script>
+<script>
+  const source = {source};
+  const md = window.markdownit({{html: false, linkify: true, typographer: true}});
+  document.getElementById("content").innerHTML = md.render(source);
+  renderMathInElement(document.getElementById("content"), {{
+    throwOnError: false,
+    strict: "warn",
+    delimiters: [
+      {{left: "$$", right: "$$", display: true}},
+      {{left: "\\\\[", right: "\\\\]", display: true}},
+      {{left: "\\\\(", right: "\\\\)", display: false}},
+      {{left: "$", right: "$", display: false}}
+    ]
+  }});
+  document.querySelectorAll("pre code").forEach((block) => hljs.highlightElement(block));
+</script>
+</body>
+</html>"""
+        self.setHtml(document, QUrl.fromLocalFile(_web_assets_path() + os.sep))
+
+    def _measure_content(self):
+        if QWebEngineView is None:
+            return
+        self.page().runJavaScript(
+            "Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)",
+            self._resize_to_content,
+        )
+
+    def _resize_to_content(self, value):
+        try:
+            height = max(80, min(1400, int(math.ceil(float(value))) + 6))
+        except (TypeError, ValueError):
+            return
+        self.setFixedHeight(height)
+
+
 
 class ComposerStageFrame(QFrame):
     def __init__(self):
@@ -1264,16 +1388,20 @@ class ChatBubble(QFrame):
         author_label.setTextFormat(Qt.PlainText)
         author_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         author_label.setFocusPolicy(Qt.StrongFocus)
-        message_label = QLabel(message)
-        message_label.setWordWrap(True)
-        message_label.setObjectName("MessageLabel")
-        message_label.setText(_message_to_rich_text(message))
-        message_label.setTextFormat(Qt.RichText)
-        message_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
-        message_label.setFocusPolicy(Qt.StrongFocus)
-
         layout.addWidget(author_label)
-        layout.addWidget(message_label)
+        if QWebEngineView is not None and _needs_web_rich_text(message):
+            layout.addWidget(RichContentView(message, self))
+        else:
+            message_label = QLabel(message)
+            message_label.setWordWrap(True)
+            message_label.setObjectName("MessageLabel")
+            message_label.setText(_message_to_rich_text(message))
+            message_label.setTextFormat(Qt.RichText)
+            message_label.setTextInteractionFlags(
+                Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
+            )
+            message_label.setFocusPolicy(Qt.StrongFocus)
+            layout.addWidget(message_label)
 
         self.setProperty("user", "true" if is_user else "false")
 
@@ -1399,10 +1527,56 @@ class GraphCanvas(QWidget):
 
     def set_artifact(self, artifact: GraphArtifact | None):
         self.artifact = artifact
+        self.reset_view()
+
+    def reset_view(self):
         self.zoom = 1.0
         self.pan_x = 0.0
         self.pan_y = 0.0
         self.update()
+
+    def export_png(self, path: str) -> bool:
+        return bool(path and self.grab().save(path, "PNG"))
+
+    def export_svg(self, path: str) -> bool:
+        if not path:
+            return False
+        generator = QSvgGenerator()
+        generator.setFileName(path)
+        generator.setSize(self.size())
+        generator.setViewBox(self.rect())
+        generator.setTitle(self.artifact.title if self.artifact else "MORICE graph")
+        generator.setDescription("Interactive graph exported from MORICE")
+        painter = QPainter(generator)
+        try:
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    def export_pdf(self, path: str) -> bool:
+        if not path:
+            return False
+        writer = QPdfWriter(path)
+        writer.setTitle(self.artifact.title if self.artifact else "MORICE graph")
+        writer.setCreator("MORICE")
+        writer.setResolution(144)
+        painter = QPainter(writer)
+        viewport = painter.viewport()
+        target = self.size()
+        target.scale(viewport.size(), Qt.KeepAspectRatio)
+        painter.setViewport(
+            viewport.x() + (viewport.width() - target.width()) // 2,
+            viewport.y() + (viewport.height() - target.height()) // 2,
+            target.width(),
+            target.height(),
+        )
+        painter.setWindow(self.rect())
+        try:
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
 
     def _ranges(self) -> tuple[float, float, float, float]:
         if not self.artifact:
@@ -1443,7 +1617,7 @@ class GraphCanvas(QWidget):
 
     def mouseMoveEvent(self, event):
         pos = event.position().toPoint()
-        plot = self.rect().adjusted(46, 26, -18, -38)
+        plot = self.rect().adjusted(58, 30, -18, -56)
         if self._dragging:
             x0, x1, y0, y1 = self._ranges()
             dx = pos.x() - self._last_mouse.x()
@@ -1475,7 +1649,7 @@ class GraphCanvas(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         rect = self.rect()
-        plot = rect.adjusted(46, 26, -18, -38)
+        plot = rect.adjusted(58, 30, -18, -56)
         painter.fillRect(rect, QColor(5, 7, 12, 235))
         painter.setPen(QPen(QColor(150, 120, 225, 70), 1))
         painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 12, 12)
@@ -1492,6 +1666,12 @@ class GraphCanvas(QWidget):
             y = plot.top() + int(plot.height() * i / 10)
             painter.drawLine(x, plot.top(), x, plot.bottom())
             painter.drawLine(plot.left(), y, plot.right(), y)
+            x_value = x0 + (x1 - x0) * i / 10
+            y_value = y1 - (y1 - y0) * i / 10
+            painter.setPen(QColor(195, 205, 225, 150))
+            painter.drawText(QRect(x - 28, plot.bottom() + 5, 56, 18), Qt.AlignHCenter | Qt.AlignTop, f"{x_value:.3g}")
+            painter.drawText(QRect(2, y - 9, 40, 18), Qt.AlignRight | Qt.AlignVCenter, f"{y_value:.3g}")
+            painter.setPen(QPen(QColor(255, 255, 255, 42), 1))
 
         zero = self._to_screen(0.0, 0.0, plot)
         painter.setPen(QPen(QColor(255, 255, 255, 96), 1))
@@ -1518,9 +1698,25 @@ class GraphCanvas(QWidget):
             painter.drawPath(path)
         painter.setClipping(False)
 
+        occupied_labels: list[QRect] = []
+        labels_drawn = 0
+        label_priority = {
+            "y-intercept": 0,
+            "maximum": 1,
+            "minimum": 1,
+            "inflection": 2,
+            "x-intercept": 3,
+        }
         for series in self.artifact.series:
             marker_color = QColor(series.color)
-            for inspection in series.inspection_points[:5]:
+            inspections = sorted(
+                series.inspection_points[:14],
+                key=lambda point: (
+                    label_priority.get(str(point.get("kind")), 9),
+                    abs(float(point.get("x", 0.0))),
+                ),
+            )
+            for inspection in inspections:
                 try:
                     ix = float(inspection.get("x", 0.0))
                     iy = float(inspection.get("y", 0.0))
@@ -1534,19 +1730,47 @@ class GraphCanvas(QWidget):
                 painter.setPen(QPen(QColor(4, 8, 16, 220), 2))
                 painter.setBrush(marker_color)
                 painter.drawEllipse(point, 5, 5)
+                if labels_drawn >= 8:
+                    continue
                 label = str(inspection.get("label") or "point")
                 value = f"{ix:.3g}, {iy:.3g}"
                 text = f"{label}\n{value}"
                 metrics = painter.fontMetrics()
                 width = max(metrics.horizontalAdvance(label), metrics.horizontalAdvance(value)) + 26
                 height = metrics.height() * 2 + 16
-                bubble_x = point.x() + 14
-                bubble_y = point.y() - height - 10
-                if bubble_x + width > plot.right():
-                    bubble_x = point.x() - width - 14
-                if bubble_y < plot.top():
-                    bubble_y = point.y() + 14
-                bubble = QRect(bubble_x, bubble_y, width, height)
+                candidates = [
+                    QRect(point.x() + 14, point.y() - height - 10, width, height),
+                    QRect(point.x() + 14, point.y() + 14, width, height),
+                    QRect(point.x() - width - 14, point.y() - height - 10, width, height),
+                    QRect(point.x() - width - 14, point.y() + 14, width, height),
+                    QRect(point.x() - width // 2, point.y() - height - 18, width, height),
+                    QRect(point.x() - width // 2, point.y() + 18, width, height),
+                    QRect(point.x() + 40, point.y() - height // 2, width, height),
+                    QRect(point.x() - width - 40, point.y() - height // 2, width, height),
+                    QRect(point.x() - width // 2, point.y() - height * 2 - 20, width, height),
+                    QRect(point.x() - width // 2, point.y() + height + 20, width, height),
+                ]
+                allowed = plot.adjusted(4, 4, -4, -4)
+                bubble = None
+                positioned_candidates = []
+                for candidate in candidates:
+                    candidate.moveLeft(max(allowed.left(), min(candidate.left(), allowed.right() - width)))
+                    candidate.moveTop(max(allowed.top(), min(candidate.top(), allowed.bottom() - height)))
+                    positioned_candidates.append(QRect(candidate))
+                    if not any(candidate.adjusted(-5, -5, 5, 5).intersects(other) for other in occupied_labels):
+                        bubble = candidate
+                        break
+                if bubble is None:
+                    def overlap_area(candidate: QRect) -> int:
+                        return sum(
+                            candidate.intersected(other).width() * candidate.intersected(other).height()
+                            for other in occupied_labels
+                            if candidate.intersects(other)
+                        )
+
+                    bubble = min(positioned_candidates, key=overlap_area)
+                occupied_labels.append(bubble)
+                labels_drawn += 1
                 pointer = QPainterPath()
                 pointer.addRoundedRect(bubble, 14, 14)
                 painter.setPen(QPen(QColor(125, 210, 255, 130), 1))
@@ -1557,11 +1781,782 @@ class GraphCanvas(QWidget):
 
         painter.setPen(QColor(255, 255, 255, 218))
         painter.drawText(rect.adjusted(12, 6, -12, -6), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+        painter.setPen(QColor(220, 230, 250, 190))
+        painter.drawText(QRect(plot.right() - 20, plot.bottom() - 24, 18, 20), Qt.AlignCenter, "x")
+        painter.drawText(QRect(plot.left() + 6, plot.top() + 2, 18, 20), Qt.AlignCenter, "y")
         painter.setPen(QColor(180, 205, 255, 160))
         painter.drawText(
             rect.adjusted(12, 0, -12, -10),
             Qt.AlignBottom | Qt.AlignLeft,
             f"x {x0:.2g}..{x1:.2g} | y {y0:.2g}..{y1:.2g} | wheel zoom, drag pan",
+        )
+
+
+class SurfaceCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("GraphCanvas")
+        self.setMinimumHeight(340)
+        self.setMouseTracking(True)
+        self.artifact: GraphArtifact | None = None
+        self.view_mode = "3d"
+        self.zoom = 1.0
+        self.yaw = math.radians(42.0)
+        self.pitch = math.radians(31.0)
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self._dragging = False
+        self._last_mouse = QPoint()
+        self._projected_points: list[tuple[QPoint, float, float, float]] = []
+
+    def set_artifact(self, artifact: GraphArtifact | None):
+        self.artifact = artifact
+        self.reset_view()
+
+    def set_view_mode(self, mode: str):
+        self.view_mode = "2d" if str(mode).lower().startswith("2") else "3d"
+        self.reset_view()
+
+    def reset_view(self):
+        self.zoom = 1.0
+        self.yaw = math.radians(42.0)
+        self.pitch = math.radians(31.0)
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self.update()
+
+    def export_png(self, path: str) -> bool:
+        return bool(path and self.grab().save(path, "PNG"))
+
+    def export_svg(self, path: str) -> bool:
+        if not path:
+            return False
+        generator = QSvgGenerator()
+        generator.setFileName(path)
+        generator.setSize(self.size())
+        generator.setViewBox(self.rect())
+        generator.setTitle(self.artifact.title if self.artifact else "MORICE surface")
+        generator.setDescription("Validated surface exported from MORICE")
+        painter = QPainter(generator)
+        try:
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    def export_pdf(self, path: str) -> bool:
+        if not path:
+            return False
+        writer = QPdfWriter(path)
+        writer.setTitle(self.artifact.title if self.artifact else "MORICE surface")
+        writer.setCreator("MORICE")
+        writer.setResolution(144)
+        painter = QPainter(writer)
+        try:
+            viewport = painter.viewport()
+            target = self.size()
+            target.scale(viewport.size(), Qt.KeepAspectRatio)
+            painter.setViewport(
+                viewport.x() + (viewport.width() - target.width()) // 2,
+                viewport.y() + (viewport.height() - target.height()) // 2,
+                target.width(),
+                target.height(),
+            )
+            painter.setWindow(self.rect())
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    @staticmethod
+    def _surface_color(value: float, low: float, high: float, alpha: int = 225) -> QColor:
+        amount = max(0.0, min(1.0, (value - low) / max(1e-9, high - low)))
+        stops = (
+            (0.0, QColor("#2356d8")),
+            (0.34, QColor("#2bc4c8")),
+            (0.67, QColor("#f0d35d")),
+            (1.0, QColor("#e55364")),
+        )
+        for index in range(len(stops) - 1):
+            start_at, start_color = stops[index]
+            end_at, end_color = stops[index + 1]
+            if amount <= end_at:
+                local = (amount - start_at) / max(1e-9, end_at - start_at)
+                color = QColor(
+                    int(start_color.red() + (end_color.red() - start_color.red()) * local),
+                    int(start_color.green() + (end_color.green() - start_color.green()) * local),
+                    int(start_color.blue() + (end_color.blue() - start_color.blue()) * local),
+                    alpha,
+                )
+                return color
+        color = QColor(stops[-1][1])
+        color.setAlpha(alpha)
+        return color
+
+    def _project_3d(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        surface: GraphSurface,
+        plot: QRect,
+    ) -> tuple[QPoint, float]:
+        x_mid = (surface.x[0] + surface.x[-1]) * 0.5
+        y_mid = (surface.y[0] + surface.y[-1]) * 0.5
+        z_mid = (surface.z_range[0] + surface.z_range[1]) * 0.5
+        xn = (x - x_mid) / max(1e-9, (surface.x[-1] - surface.x[0]) * 0.5)
+        yn = (y - y_mid) / max(1e-9, (surface.y[-1] - surface.y[0]) * 0.5)
+        zn = (z - z_mid) / max(1e-9, (surface.z_range[1] - surface.z_range[0]) * 0.5)
+        # Keep mathematically exact samples in the artifact; only constrain the
+        # camera projection so singularities cannot fling the mesh off-screen.
+        zn = max(-1.35, min(1.35, zn))
+        cos_yaw = math.cos(self.yaw)
+        sin_yaw = math.sin(self.yaw)
+        x_rotated = xn * cos_yaw - yn * sin_yaw
+        y_rotated = xn * sin_yaw + yn * cos_yaw
+        vertical = zn * math.cos(self.pitch) - y_rotated * math.sin(self.pitch)
+        depth = zn * math.sin(self.pitch) + y_rotated * math.cos(self.pitch)
+        scale = min(plot.width(), plot.height()) * 0.32 * self.zoom
+        point = QPoint(
+            int(plot.center().x() + self.pan_x + x_rotated * scale),
+            int(plot.center().y() + self.pan_y - vertical * scale),
+        )
+        return point, depth
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta:
+            self.zoom = max(0.35, min(4.0, self.zoom * (1.1 if delta > 0 else 0.9)))
+            self.update()
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._last_mouse = event.position().toPoint()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        position = event.position().toPoint()
+        if self._dragging:
+            delta = position - self._last_mouse
+            self._last_mouse = position
+            if self.view_mode == "3d":
+                self.yaw += delta.x() * 0.009
+                self.pitch = max(-1.25, min(1.25, self.pitch + delta.y() * 0.009))
+            else:
+                self.pan_x += delta.x()
+                self.pan_y += delta.y()
+            self.update()
+        elif self._projected_points:
+            nearest = min(
+                self._projected_points,
+                key=lambda item: (item[0].x() - position.x()) ** 2 + (item[0].y() - position.y()) ** 2,
+            )
+            distance = math.hypot(nearest[0].x() - position.x(), nearest[0].y() - position.y())
+            if distance <= 34:
+                self.inspected.emit(f"x={nearest[1]:.4g}, y={nearest[2]:.4g}, z={nearest[3]:.4g}")
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = False
+        event.accept()
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(54, 34, -28, -50)
+        painter.fillRect(rect, QColor(5, 7, 12, 240))
+        painter.setPen(QPen(QColor(150, 120, 225, 70), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+        if not self.artifact or not self.artifact.surface:
+            painter.setPen(QColor(255, 255, 255, 160))
+            painter.drawText(rect, Qt.AlignCenter, "No validated surface data")
+            return
+        surface = self.artifact.surface
+        low, high = surface.z_range
+        self._projected_points = []
+
+        if self.view_mode == "2d":
+            rows = len(surface.y)
+            columns = len(surface.x)
+            cell_width = plot.width() / max(1, columns - 1)
+            cell_height = plot.height() / max(1, rows - 1)
+            for row in range(rows - 1):
+                for column in range(columns - 1):
+                    value = surface.z[row][column]
+                    if not math.isfinite(value):
+                        continue
+                    left = plot.left() + self.pan_x + column * cell_width * self.zoom
+                    top = plot.bottom() + self.pan_y - (row + 1) * cell_height * self.zoom
+                    cell = QRect(
+                        int(left),
+                        int(top),
+                        max(1, int(cell_width * self.zoom) + 1),
+                        max(1, int(cell_height * self.zoom) + 1),
+                    )
+                    painter.fillRect(cell, self._surface_color(value, low, high))
+                    if row % 2 == 0 and column % 2 == 0:
+                        self._projected_points.append(
+                            (
+                                cell.center(),
+                                surface.x[column],
+                                surface.y[row],
+                                value,
+                            )
+                        )
+            painter.setPen(QPen(QColor(255, 255, 255, 48), 1))
+            for index in range(0, 11):
+                x = plot.left() + int(plot.width() * index / 10)
+                y = plot.top() + int(plot.height() * index / 10)
+                painter.drawLine(x, plot.top(), x, plot.bottom())
+                painter.drawLine(plot.left(), y, plot.right(), y)
+            painter.setPen(QColor(225, 235, 250, 205))
+            painter.drawText(plot.adjusted(5, 5, -5, -5), Qt.AlignBottom | Qt.AlignRight, "2D height map")
+        else:
+            faces: list[tuple[float, QPolygon, float]] = []
+            step = 2 if len(surface.x) > 30 else 1
+            for row in range(0, len(surface.y) - step, step):
+                for column in range(0, len(surface.x) - step, step):
+                    coordinates = (
+                        (column, row),
+                        (column + step, row),
+                        (column + step, row + step),
+                        (column, row + step),
+                    )
+                    points: list[QPoint] = []
+                    depths: list[float] = []
+                    values: list[float] = []
+                    valid = True
+                    for column_index, row_index in coordinates:
+                        value = surface.z[row_index][column_index]
+                        if not math.isfinite(value):
+                            valid = False
+                            break
+                        point, depth = self._project_3d(
+                            surface.x[column_index],
+                            surface.y[row_index],
+                            value,
+                            surface,
+                            plot,
+                        )
+                        points.append(point)
+                        depths.append(depth)
+                        values.append(value)
+                    if valid:
+                        faces.append((sum(depths) / len(depths), QPolygon(points), sum(values) / len(values)))
+                        self._projected_points.append(
+                            (
+                                points[0],
+                                surface.x[column],
+                                surface.y[row],
+                                values[0],
+                            )
+                        )
+            for _depth, polygon, value in sorted(faces, key=lambda item: item[0], reverse=True):
+                painter.setBrush(self._surface_color(value, low, high, 205))
+                painter.setPen(QPen(QColor(5, 10, 18, 86), 1))
+                painter.drawPolygon(polygon)
+            painter.setPen(QColor(225, 235, 250, 205))
+            painter.drawText(plot.adjusted(5, 5, -5, -5), Qt.AlignBottom | Qt.AlignRight, "Drag rotate | wheel zoom")
+
+        legend = QRect(plot.right() - 20, plot.top() + 10, 12, max(70, plot.height() // 3))
+        for offset in range(legend.height()):
+            value = high - (high - low) * offset / max(1, legend.height() - 1)
+            painter.setPen(self._surface_color(value, low, high))
+            painter.drawLine(legend.left(), legend.top() + offset, legend.right(), legend.top() + offset)
+        painter.setPen(QColor(230, 238, 250, 205))
+        painter.drawText(QRect(legend.left() - 44, legend.top() - 18, 56, 18), Qt.AlignRight, f"{high:.3g}")
+        painter.drawText(QRect(legend.left() - 44, legend.bottom(), 56, 18), Qt.AlignRight, f"{low:.3g}")
+        painter.setPen(QColor(255, 255, 255, 225))
+        painter.drawText(rect.adjusted(12, 7, -12, -7), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+
+
+class MoleculeCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("MoleculeCanvas")
+        self.setMinimumHeight(340)
+        self.setMouseTracking(True)
+        self.artifact: MoleculeArtifact | None = None
+        self.view_mode = "3d"
+        self.yaw = math.radians(36.0)
+        self.pitch = math.radians(24.0)
+        self.zoom = 1.0
+        self._dragging = False
+        self._last_mouse = QPoint()
+        self._hit_regions: list[tuple[QPoint, int, float]] = []
+
+    def set_artifact(self, artifact: MoleculeArtifact | None):
+        self.artifact = artifact
+        self.reset_view()
+
+    def set_view_mode(self, mode: str):
+        self.view_mode = "2d" if str(mode).lower().startswith("2") else "3d"
+        self.reset_view()
+
+    def reset_view(self):
+        self.yaw = math.radians(36.0)
+        self.pitch = math.radians(24.0)
+        self.zoom = 1.0
+        self.update()
+
+    def export_png(self, path: str) -> bool:
+        return bool(path and self.grab().save(path, "PNG"))
+
+    def export_svg(self, path: str) -> bool:
+        if not path:
+            return False
+        generator = QSvgGenerator()
+        generator.setFileName(path)
+        generator.setSize(self.size())
+        generator.setViewBox(self.rect())
+        generator.setTitle(self.artifact.title if self.artifact else "MORICE molecule")
+        generator.setDescription("Validated molecular structure exported from MORICE")
+        painter = QPainter(generator)
+        try:
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    def export_pdf(self, path: str) -> bool:
+        if not path:
+            return False
+        writer = QPdfWriter(path)
+        writer.setTitle(self.artifact.title if self.artifact else "MORICE molecule")
+        writer.setCreator("MORICE")
+        writer.setResolution(144)
+        painter = QPainter(writer)
+        try:
+            viewport = painter.viewport()
+            target = self.size()
+            target.scale(viewport.size(), Qt.KeepAspectRatio)
+            painter.setViewport(
+                viewport.x() + (viewport.width() - target.width()) // 2,
+                viewport.y() + (viewport.height() - target.height()) // 2,
+                target.width(),
+                target.height(),
+            )
+            painter.setWindow(self.rect())
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    def _project_3d(self, x: float, y: float, z: float, plot: QRect) -> tuple[QPoint, float]:
+        cos_yaw = math.cos(self.yaw)
+        sin_yaw = math.sin(self.yaw)
+        x_rotated = x * cos_yaw - y * sin_yaw
+        y_rotated = x * sin_yaw + y * cos_yaw
+        vertical = z * math.cos(self.pitch) - y_rotated * math.sin(self.pitch)
+        depth = z * math.sin(self.pitch) + y_rotated * math.cos(self.pitch)
+        scale = min(plot.width(), plot.height()) * 0.29 * self.zoom
+        return (
+            QPoint(
+                int(plot.center().x() + x_rotated * scale),
+                int(plot.center().y() - vertical * scale),
+            ),
+            depth,
+        )
+
+    def _layout_2d(self, plot: QRect) -> dict[int, QPoint]:
+        if not self.artifact:
+            return {}
+        outer = [atom for atom in self.artifact.atoms if atom.atom_id != self.artifact.central_atom]
+        radius = min(plot.width(), plot.height()) * 0.31 * self.zoom
+        positions = {self.artifact.central_atom: plot.center()}
+        count = max(1, len(outer))
+        start = -math.pi / 2
+        for index, atom in enumerate(outer):
+            angle = start + math.tau * index / count
+            positions[atom.atom_id] = QPoint(
+                int(plot.center().x() + math.cos(angle) * radius),
+                int(plot.center().y() + math.sin(angle) * radius),
+            )
+        return positions
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta:
+            self.zoom = max(0.45, min(2.8, self.zoom * (1.1 if delta > 0 else 0.9)))
+            self.update()
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._last_mouse = event.position().toPoint()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        position = event.position().toPoint()
+        if self._dragging and self.view_mode == "3d":
+            delta = position - self._last_mouse
+            self._last_mouse = position
+            self.yaw += delta.x() * 0.009
+            self.pitch = max(-1.25, min(1.25, self.pitch + delta.y() * 0.009))
+            self.update()
+        elif self.artifact and self._hit_regions:
+            point, atom_id, radius = min(
+                self._hit_regions,
+                key=lambda item: math.hypot(item[0].x() - position.x(), item[0].y() - position.y()),
+            )
+            if math.hypot(point.x() - position.x(), point.y() - position.y()) <= radius + 10:
+                atom = next(atom for atom in self.artifact.atoms if atom.atom_id == atom_id)
+                charge = (
+                    f", formal charge {atom.formal_charge:+d}"
+                    if atom.formal_charge
+                    else ""
+                )
+                self.inspected.emit(
+                    f"Atom {atom.atom_id}: {atom.element} at "
+                    f"({atom.x:.3g}, {atom.y:.3g}, {atom.z:.3g}){charge}"
+                )
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = False
+        event.accept()
+
+    @staticmethod
+    def _bond_offsets(start: QPoint, end: QPoint, order: int) -> list[tuple[QPoint, QPoint]]:
+        dx = end.x() - start.x()
+        dy = end.y() - start.y()
+        length = max(1.0, math.hypot(dx, dy))
+        nx = -dy / length
+        ny = dx / length
+        if order <= 1:
+            offsets = [0.0]
+        elif order == 2:
+            offsets = [-3.5, 3.5]
+        else:
+            offsets = [-5.5, 0.0, 5.5]
+        return [
+            (
+                QPoint(int(start.x() + nx * offset), int(start.y() + ny * offset)),
+                QPoint(int(end.x() + nx * offset), int(end.y() + ny * offset)),
+            )
+            for offset in offsets
+        ]
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(30, 42, -30, -70)
+        painter.fillRect(rect, QColor(5, 7, 12, 240))
+        painter.setPen(QPen(QColor(150, 120, 225, 70), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+        if not self.artifact:
+            painter.setPen(QColor(255, 255, 255, 160))
+            painter.drawText(rect, Qt.AlignCenter, "No validated molecule data")
+            return
+
+        projected: dict[int, tuple[QPoint, float]] = {}
+        if self.view_mode == "3d":
+            for atom in self.artifact.atoms:
+                projected[atom.atom_id] = self._project_3d(atom.x, atom.y, atom.z, plot)
+        else:
+            projected = {
+                atom_id: (point, 0.0)
+                for atom_id, point in self._layout_2d(plot).items()
+            }
+
+        painter.setPen(QPen(QColor(205, 218, 238, 190), 4, Qt.SolidLine, Qt.RoundCap))
+        for bond in self.artifact.bonds:
+            start = projected[bond.first][0]
+            end = projected[bond.second][0]
+            for line_start, line_end in self._bond_offsets(start, end, bond.order):
+                painter.drawLine(line_start, line_end)
+
+        self._hit_regions = []
+        atom_depths = sorted(
+            self.artifact.atoms,
+            key=lambda atom: projected[atom.atom_id][1],
+            reverse=True,
+        )
+        for atom in atom_depths:
+            point, depth = projected[atom.atom_id]
+            central = atom.atom_id == self.artifact.central_atom
+            radius = int((24 if central else 20) * self.zoom)
+            if self.view_mode == "3d":
+                radius = int(radius * max(0.74, min(1.2, 1.0 - depth * 0.09)))
+            radius = max(13, radius)
+            color = QColor(atom_color(atom.element))
+            painter.setBrush(color)
+            painter.setPen(QPen(color.lighter(145), 2))
+            painter.drawEllipse(point, radius, radius)
+            painter.setPen(QColor(4, 7, 12, 245) if color.lightness() > 145 else QColor(255, 255, 255, 245))
+            font = painter.font()
+            font.setBold(True)
+            font.setPointSize(max(8, min(13, radius // 2)))
+            painter.setFont(font)
+            painter.drawText(
+                QRect(point.x() - radius, point.y() - radius, radius * 2, radius * 2),
+                Qt.AlignCenter,
+                atom.element,
+            )
+            self._hit_regions.append((point, atom.atom_id, float(radius)))
+
+        if self.view_mode == "2d" and self.artifact.central_lone_pairs:
+            center = projected[self.artifact.central_atom][0]
+            painter.setBrush(QColor(116, 219, 255, 235))
+            painter.setPen(Qt.NoPen)
+            for pair in range(self.artifact.central_lone_pairs):
+                angle = math.pi + (pair - (self.artifact.central_lone_pairs - 1) / 2) * 0.62
+                base_x = center.x() + math.cos(angle) * 45
+                base_y = center.y() + math.sin(angle) * 45
+                tangent_x = -math.sin(angle) * 5
+                tangent_y = math.cos(angle) * 5
+                painter.drawEllipse(QPoint(int(base_x + tangent_x), int(base_y + tangent_y)), 3, 3)
+                painter.drawEllipse(QPoint(int(base_x - tangent_x), int(base_y - tangent_y)), 3, 3)
+
+        painter.setPen(QColor(255, 255, 255, 228))
+        title_font = painter.font()
+        title_font.setBold(True)
+        title_font.setPointSize(11)
+        painter.setFont(title_font)
+        painter.drawText(rect.adjusted(14, 8, -14, -8), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+        painter.setPen(QColor(190, 205, 230, 195))
+        angle_text = ", ".join(
+            f"{value:g} deg" for value in self.artifact.reference_angles
+        )
+        mode = "3D geometry" if self.view_mode == "3d" else "2D structure schematic"
+        footer = (
+            f"{mode} | molecular geometry: {self.artifact.geometry} | "
+            f"electron geometry: {self.artifact.electron_geometry} | "
+            f"reference angles: {angle_text}"
+        )
+        painter.drawText(rect.adjusted(14, 0, -14, -10), Qt.AlignBottom | Qt.AlignLeft, footer)
+
+
+class DiagramCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("DiagramCanvas")
+        self.setMinimumHeight(320)
+        self.setMouseTracking(True)
+        self.artifact: DiagramArtifact | None = None
+        self.zoom = 1.0
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self._dragging = False
+        self._last_mouse = QPoint()
+        self._node_rects: dict[str, QRect] = {}
+
+    def set_artifact(self, artifact: DiagramArtifact | None):
+        self.artifact = artifact
+        self.reset_view()
+
+    def reset_view(self):
+        self.zoom = 1.0
+        self.pan_x = 0.0
+        self.pan_y = 0.0
+        self.update()
+
+    def export_png(self, path: str) -> bool:
+        return bool(path and self.grab().save(path, "PNG"))
+
+    def export_svg(self, path: str) -> bool:
+        if not path:
+            return False
+        generator = QSvgGenerator()
+        generator.setFileName(path)
+        generator.setSize(self.size())
+        generator.setViewBox(self.rect())
+        generator.setTitle(self.artifact.title if self.artifact else "MORICE diagram")
+        generator.setDescription("Validated structured diagram exported from MORICE")
+        painter = QPainter(generator)
+        try:
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    def export_pdf(self, path: str) -> bool:
+        if not path:
+            return False
+        writer = QPdfWriter(path)
+        writer.setTitle(self.artifact.title if self.artifact else "MORICE diagram")
+        writer.setCreator("MORICE")
+        writer.setResolution(144)
+        painter = QPainter(writer)
+        try:
+            viewport = painter.viewport()
+            target = self.size()
+            target.scale(viewport.size(), Qt.KeepAspectRatio)
+            painter.setViewport(
+                viewport.x() + (viewport.width() - target.width()) // 2,
+                viewport.y() + (viewport.height() - target.height()) // 2,
+                target.width(),
+                target.height(),
+            )
+            painter.setWindow(self.rect())
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta().y()
+        if delta:
+            self.zoom = max(0.55, min(2.4, self.zoom * (1.1 if delta > 0 else 0.9)))
+            self.update()
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._last_mouse = event.position().toPoint()
+            event.accept()
+
+    def mouseMoveEvent(self, event):
+        position = event.position().toPoint()
+        if self._dragging:
+            delta = position - self._last_mouse
+            self._last_mouse = position
+            self.pan_x += delta.x()
+            self.pan_y += delta.y()
+            self.update()
+        else:
+            for node_id, node_rect in self._node_rects.items():
+                if node_rect.contains(position) and self.artifact:
+                    node = next(item for item in self.artifact.nodes if item.node_id == node_id)
+                    outgoing = sum(1 for edge in self.artifact.edges if edge.source == node_id)
+                    incoming = sum(1 for edge in self.artifact.edges if edge.target == node_id)
+                    self.inspected.emit(f"{node.label} | incoming {incoming} | outgoing {outgoing}")
+                    break
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = False
+        event.accept()
+
+    def _layout_nodes(self, plot: QRect) -> dict[str, QRect]:
+        if not self.artifact:
+            return {}
+        count = len(self.artifact.nodes)
+        vertical = self.artifact.instruction.get("parameters", {}).get("layout") == "vertical"
+        node_width = int(min(190, max(104, (plot.width() / max(1, count)) * 0.72)) * self.zoom)
+        node_height = int(58 * self.zoom)
+        positions: dict[str, QRect] = {}
+        if vertical:
+            gap = max(12, int((plot.height() - count * node_height) / max(1, count - 1)))
+            total_height = count * node_height + max(0, count - 1) * gap
+            top = plot.center().y() - total_height // 2 + int(self.pan_y)
+            for index, node in enumerate(self.artifact.nodes):
+                positions[node.node_id] = QRect(
+                    int(plot.center().x() - node_width / 2 + self.pan_x),
+                    top + index * (node_height + gap),
+                    node_width,
+                    node_height,
+                )
+        else:
+            columns = min(4, max(1, count))
+            rows = math.ceil(count / columns)
+            gap_x = max(20, int((plot.width() - columns * node_width) / max(1, columns - 1)))
+            gap_y = max(26, int((plot.height() - rows * node_height) / max(1, rows - 1)))
+            total_width = columns * node_width + max(0, columns - 1) * gap_x
+            total_height = rows * node_height + max(0, rows - 1) * gap_y
+            left = plot.center().x() - total_width // 2 + int(self.pan_x)
+            top = plot.center().y() - total_height // 2 + int(self.pan_y)
+            for index, node in enumerate(self.artifact.nodes):
+                row = index // columns
+                column = index % columns
+                positions[node.node_id] = QRect(
+                    left + column * (node_width + gap_x),
+                    top + row * (node_height + gap_y),
+                    node_width,
+                    node_height,
+                )
+        return positions
+
+    @staticmethod
+    def _edge_points(source: QRect, target: QRect) -> tuple[QPoint, QPoint]:
+        dx = target.center().x() - source.center().x()
+        dy = target.center().y() - source.center().y()
+        if abs(dx) >= abs(dy):
+            start = QPoint(source.right() if dx >= 0 else source.left(), source.center().y())
+            end = QPoint(target.left() if dx >= 0 else target.right(), target.center().y())
+        else:
+            start = QPoint(source.center().x(), source.bottom() if dy >= 0 else source.top())
+            end = QPoint(target.center().x(), target.top() if dy >= 0 else target.bottom())
+        return start, end
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(34, 46, -34, -48)
+        painter.fillRect(rect, QColor(5, 7, 12, 240))
+        painter.setPen(QPen(QColor(150, 120, 225, 70), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+        if not self.artifact:
+            painter.setPen(QColor(255, 255, 255, 160))
+            painter.drawText(rect, Qt.AlignCenter, "No validated diagram data")
+            return
+        self._node_rects = self._layout_nodes(plot)
+
+        painter.setPen(QPen(QColor(119, 202, 255, 205), 2))
+        for edge in self.artifact.edges:
+            source_rect = self._node_rects.get(edge.source)
+            target_rect = self._node_rects.get(edge.target)
+            if not source_rect or not target_rect:
+                continue
+            start, end = self._edge_points(source_rect, target_rect)
+            painter.drawLine(start, end)
+            angle = math.atan2(end.y() - start.y(), end.x() - start.x())
+            arrow = QPolygon(
+                [
+                    end,
+                    QPoint(
+                        int(end.x() - 11 * math.cos(angle - 0.48)),
+                        int(end.y() - 11 * math.sin(angle - 0.48)),
+                    ),
+                    QPoint(
+                        int(end.x() - 11 * math.cos(angle + 0.48)),
+                        int(end.y() - 11 * math.sin(angle + 0.48)),
+                    ),
+                ]
+            )
+            painter.setBrush(QColor(119, 202, 255, 220))
+            painter.drawPolygon(arrow)
+            if edge.label:
+                midpoint = QPoint((start.x() + end.x()) // 2, (start.y() + end.y()) // 2)
+                label_rect = QRect(midpoint.x() - 55, midpoint.y() - 18, 110, 24)
+                painter.fillRect(label_rect, QColor(5, 7, 12, 220))
+                painter.setPen(QColor(200, 220, 246, 210))
+                painter.drawText(label_rect, Qt.AlignCenter, edge.label)
+                painter.setPen(QPen(QColor(119, 202, 255, 205), 2))
+
+        colors = ("#3d5ca8", "#2a7894", "#447a69", "#7551a8")
+        for index, node in enumerate(self.artifact.nodes):
+            node_rect = self._node_rects[node.node_id]
+            painter.setBrush(QColor(colors[index % len(colors)]))
+            painter.setPen(QPen(QColor(154, 211, 255, 150), 1))
+            painter.drawRoundedRect(node_rect, 7, 7)
+            painter.setPen(QColor(255, 255, 255, 240))
+            painter.drawText(node_rect.adjusted(10, 7, -10, -7), Qt.AlignCenter | Qt.TextWordWrap, node.label)
+
+        painter.setPen(QColor(255, 255, 255, 228))
+        title_font = painter.font()
+        title_font.setBold(True)
+        title_font.setPointSize(11)
+        painter.setFont(title_font)
+        painter.drawText(rect.adjusted(14, 8, -14, -8), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+        painter.setPen(QColor(190, 205, 230, 190))
+        painter.drawText(
+            rect.adjusted(14, 0, -14, -9),
+            Qt.AlignBottom | Qt.AlignLeft,
+            "wheel zoom | drag pan | hover nodes for connection counts",
         )
 
 
@@ -1573,18 +2568,47 @@ class PhysicsCanvas(QWidget):
         self.setObjectName("PhysicsCanvas")
         self.setMinimumHeight(300)
         self.artifact: PhysicsArtifact | None = None
+        self._initial_artifact: PhysicsArtifact | None = None
         self.running = True
         self.speed = 1.0
+        self.render_mode = "2d"
+        self.view_yaw = math.radians(38.0)
+        self.view_pitch = math.radians(24.0)
+        self.view_zoom = 1.0
+        self._view_dragging = False
+        self._view_last_mouse = QPoint()
+        self.show_trails = False
+        self._trails: dict[int, list[tuple[float, float, float]]] = {}
+        self._replay: list[tuple[list[tuple[float, float, float, float, float, float]], dict]] = []
         self._collisions = 0
         self._frames = 0
+        self._stats_started = time.perf_counter()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.step)
         self._timer.start(16)
 
     def set_artifact(self, artifact: PhysicsArtifact | None):
-        self.artifact = artifact
+        self._initial_artifact = copy.deepcopy(artifact)
+        self.artifact = copy.deepcopy(artifact)
         self._collisions = 0
         self._frames = 0
+        self._stats_started = time.perf_counter()
+        self._trails.clear()
+        self._replay.clear()
+        self.running = True
+        self.render_mode = "3d" if self._supports_3d_view(artifact) else "2d"
+        self.view_yaw = math.radians(38.0)
+        self.view_pitch = math.radians(24.0)
+        self.view_zoom = 1.0
+        self.update()
+
+    def reset_simulation(self):
+        self.artifact = copy.deepcopy(self._initial_artifact)
+        self._collisions = 0
+        self._frames = 0
+        self._stats_started = time.perf_counter()
+        self._trails.clear()
+        self._replay.clear()
         self.running = True
         self.update()
 
@@ -1594,73 +2618,418 @@ class PhysicsCanvas(QWidget):
     def set_speed(self, speed: float):
         self.speed = max(0.05, min(5.0, speed))
 
+    def set_render_mode(self, mode: str):
+        if not self._supports_3d_view(self.artifact):
+            self.render_mode = "2d"
+        else:
+            self.render_mode = "2d" if str(mode).lower().startswith("2") else "3d"
+        self.update()
+
+    @staticmethod
+    def _supports_3d_view(artifact: PhysicsArtifact | None) -> bool:
+        if not artifact:
+            return False
+        views = artifact.instruction.get("parameters", {}).get("views", ["2d"])
+        return "3d" in views
+
+    def set_gravity(self, gravity: float):
+        if self.artifact:
+            self.artifact.gravity = float(gravity)
+            if self.artifact.simulation_type == "pendulum-2d":
+                self.artifact.instruction.setdefault("parameters", {})[
+                    "physicalGravity"
+                ] = float(gravity)
+
+    def set_show_vectors(self, visible: bool):
+        if self.artifact:
+            self.artifact.instruction.setdefault("parameters", {})["showVelocityVectors"] = bool(visible)
+        self.update()
+
+    def set_show_trails(self, visible: bool):
+        self.show_trails = bool(visible)
+        if not self.show_trails:
+            self._trails.clear()
+        self.update()
+
+    def export_png(self, path: str) -> bool:
+        return bool(path and self.grab().save(path, "PNG"))
+
+    def export_json(self, path: str) -> bool:
+        if not path or not self.artifact:
+            return False
+        payload = {
+            "schema": "morice.physics-state.v1",
+            "title": self.artifact.title,
+            "simulationType": self.artifact.simulation_type,
+            "parameters": copy.deepcopy(
+                self.artifact.instruction.get("parameters", {})
+            ),
+            "gravity": self.artifact.gravity,
+            "friction": self.artifact.friction,
+            "restitution": self.artifact.restitution,
+            "bounds": list(self.artifact.bounds),
+            "particles": [
+                {
+                    "x": particle.x,
+                    "y": particle.y,
+                    "z": particle.z,
+                    "vx": particle.vx,
+                    "vy": particle.vy,
+                    "vz": particle.vz,
+                    "radius": particle.radius,
+                    "mass": particle.mass,
+                    "color": particle.color,
+                }
+                for particle in self.artifact.particles
+            ],
+        }
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+        except OSError:
+            return False
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    def wheelEvent(self, event):
+        if self._supports_3d_view(self.artifact) and self.render_mode == "3d":
+            delta = event.angleDelta().y()
+            if delta:
+                self.view_zoom = max(0.45, min(2.6, self.view_zoom * (1.1 if delta > 0 else 0.9)))
+                self.update()
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    def mousePressEvent(self, event):
+        if (
+            event.button() == Qt.LeftButton
+            and self._supports_3d_view(self.artifact)
+            and self.render_mode == "3d"
+        ):
+            self._view_dragging = True
+            self._view_last_mouse = event.position().toPoint()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._view_dragging:
+            position = event.position().toPoint()
+            delta = position - self._view_last_mouse
+            self._view_last_mouse = position
+            self.view_yaw += delta.x() * 0.009
+            self.view_pitch = max(-1.2, min(1.2, self.view_pitch + delta.y() * 0.009))
+            self.update()
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._view_dragging = False
+        event.accept()
+
     def step_once(self):
         self._advance()
         self.update()
 
+    def step_back(self):
+        self.running = False
+        if not self._replay or not self.artifact:
+            return
+        states, parameters = self._replay.pop()
+        if len(states) != len(self.artifact.particles):
+            return
+        for particle, state in zip(self.artifact.particles, states):
+            (
+                particle.x,
+                particle.y,
+                particle.z,
+                particle.vx,
+                particle.vy,
+                particle.vz,
+            ) = state
+        self.artifact.instruction["parameters"] = parameters
+        self._frames = max(0, self._frames - 1)
+        self.update()
+
     def step(self):
-        if self.running:
+        if self.running and self.isVisible():
             self._advance()
             self.update()
 
     def _advance(self):
         if not self.artifact:
             return
+        replay_limit = 45 if len(self.artifact.particles) > 300 else 120
+        self._replay.append(
+            (
+                [
+                    (
+                        particle.x,
+                        particle.y,
+                        particle.z,
+                        particle.vx,
+                        particle.vy,
+                        particle.vz,
+                    )
+                    for particle in self.artifact.particles
+                ],
+                copy.deepcopy(
+                    self.artifact.instruction.get("parameters", {})
+                ),
+            )
+        )
+        if len(self._replay) > replay_limit:
+            del self._replay[: len(self._replay) - replay_limit]
         width, height = self.artifact.bounds
+        is_3d = self.artifact.simulation_type == "particle-3d"
+        depth = float(self.artifact.instruction.get("parameters", {}).get("depth") or height)
         dt = 1 / 60 * self.speed
         particles = self.artifact.particles
         frame_collisions = 0
+        parameters = self.artifact.instruction.setdefault("parameters", {})
+        if self.artifact.simulation_type == "pendulum-2d" and particles:
+            anchor_x, anchor_y = [float(value) for value in parameters["anchor"]]
+            length = float(parameters["length"])
+            angle = float(parameters.get("angleRadians", 0.0))
+            angular_velocity = float(parameters.get("angularVelocity", 0.0))
+            physical_gravity = float(parameters.get("physicalGravity", 9.81))
+            # Semi-implicit Euler is symplectic and much more stable for the
+            # lossless pendulum than explicit Euler.
+            angular_acceleration = -(physical_gravity / max(1e-9, length / 20.0)) * math.sin(angle)
+            angular_velocity += angular_acceleration * dt
+            angle += angular_velocity * dt
+            parameters["angleRadians"] = angle
+            parameters["angularVelocity"] = angular_velocity
+            particle = particles[0]
+            previous_x, previous_y = particle.x, particle.y
+            particle.x = anchor_x + math.sin(angle) * length
+            particle.y = anchor_y + math.cos(angle) * length
+            particle.vx = (particle.x - previous_x) / max(1e-9, dt)
+            particle.vy = (particle.y - previous_y) / max(1e-9, dt)
+        elif self.artifact.simulation_type == "wave-2d":
+            phase = float(parameters.get("phase", 0.0))
+            phase += float(parameters["angularFrequency"]) * dt
+            parameters["phase"] = phase
+            amplitude = float(parameters["amplitude"])
+            wavelength = float(parameters["wavelength"])
+            center_y = height * 0.5
+            for particle in particles:
+                previous_y = particle.y
+                particle.y = center_y + amplitude * math.sin(
+                    math.tau * particle.x / wavelength - phase
+                )
+                particle.vy = (particle.y - previous_y) / max(1e-9, dt)
+        elif self.artifact.simulation_type == "circular-motion-2d" and particles:
+            angle = float(parameters.get("angleRadians", 0.0))
+            angular_speed = float(parameters["angularSpeed"])
+            angle = (angle + angular_speed * dt) % math.tau
+            parameters["angleRadians"] = angle
+            center_x, center_y = [float(value) for value in parameters["center"]]
+            radius = float(parameters["radius"])
+            particle = particles[0]
+            particle.x = center_x + math.cos(angle) * radius
+            particle.y = center_y + math.sin(angle) * radius
+            particle.vx = -math.sin(angle) * radius * angular_speed
+            particle.vy = math.cos(angle) * radius * angular_speed
         for particle in particles:
-            particle.vy += self.artifact.gravity * dt
+            if self.artifact.simulation_type in {
+                "pendulum-2d",
+                "wave-2d",
+                "circular-motion-2d",
+            }:
+                continue
+            if self.artifact.simulation_type == "spring-2d":
+                anchor_x, anchor_y = width * 0.5, height * 0.5
+                spring_k = 3.8
+                damping = 0.18
+                particle.vx += (-spring_k * (particle.x - anchor_x) / particle.mass - damping * particle.vx) * dt
+                particle.vy += (-spring_k * (particle.y - anchor_y) / particle.mass - damping * particle.vy) * dt
+            elif self.artifact.simulation_type == "orbit-2d":
+                dx = width * 0.5 - particle.x
+                dy = height * 0.5 - particle.y
+                distance_sq = max(625.0, dx * dx + dy * dy)
+                distance = math.sqrt(distance_sq)
+                acceleration = 900_000.0 / distance_sq
+                particle.vx += acceleration * dx / distance * dt
+                particle.vy += acceleration * dy / distance * dt
+            else:
+                particle.vy += self.artifact.gravity * dt
             particle.vx *= self.artifact.friction
             particle.vy *= self.artifact.friction
+            if is_3d:
+                particle.vz *= self.artifact.friction
             particle.x += particle.vx * dt
             particle.y += particle.vy * dt
+            if is_3d:
+                particle.z += particle.vz * dt
             if particle.x - particle.radius < 0:
                 particle.x = particle.radius
-                particle.vx = abs(particle.vx) * 0.82
+                particle.vx = abs(particle.vx) * self.artifact.restitution
                 frame_collisions += 1
             elif particle.x + particle.radius > width:
                 particle.x = width - particle.radius
-                particle.vx = -abs(particle.vx) * 0.82
+                particle.vx = -abs(particle.vx) * self.artifact.restitution
                 frame_collisions += 1
             if particle.y - particle.radius < 0:
                 particle.y = particle.radius
-                particle.vy = abs(particle.vy) * 0.82
+                particle.vy = abs(particle.vy) * self.artifact.restitution
                 frame_collisions += 1
             elif particle.y + particle.radius > height:
                 particle.y = height - particle.radius
-                particle.vy = -abs(particle.vy) * 0.82
+                particle.vy = -abs(particle.vy) * self.artifact.restitution
+                frame_collisions += 1
+            if is_3d and particle.z - particle.radius < 0:
+                particle.z = particle.radius
+                particle.vz = abs(particle.vz) * self.artifact.restitution
+                frame_collisions += 1
+            elif is_3d and particle.z + particle.radius > depth:
+                particle.z = depth - particle.radius
+                particle.vz = -abs(particle.vz) * self.artifact.restitution
                 frame_collisions += 1
 
-        if len(particles) <= 220:
-            for i, first in enumerate(particles):
-                for second in particles[i + 1 :]:
-                    dx = second.x - first.x
-                    dy = second.y - first.y
-                    min_dist = first.radius + second.radius
-                    dist_sq = dx * dx + dy * dy
-                    if 0 < dist_sq < min_dist * min_dist:
-                        dist = math.sqrt(dist_sq)
-                        nx = dx / dist
-                        ny = dy / dist
-                        overlap = (min_dist - dist) * 0.5
-                        first.x -= nx * overlap
-                        first.y -= ny * overlap
-                        second.x += nx * overlap
-                        second.y += ny * overlap
-                        first.vx, second.vx = second.vx * 0.88, first.vx * 0.88
-                        first.vy, second.vy = second.vy * 0.88, first.vy * 0.88
-                        frame_collisions += 1
+        if self.artifact.simulation_type not in {
+            "projectile-2d",
+            "spring-2d",
+            "orbit-2d",
+            "pendulum-2d",
+            "wave-2d",
+            "circular-motion-2d",
+        }:
+            cell_size = max(16.0, max((particle.radius for particle in particles), default=4.0) * 2.2)
+            spatial_grid: dict[tuple[int, int, int], list[int]] = {}
+            for index, particle in enumerate(particles):
+                cell = (
+                    int(particle.x // cell_size),
+                    int(particle.y // cell_size),
+                    int(particle.z // cell_size) if is_3d else 0,
+                )
+                spatial_grid.setdefault(cell, []).append(index)
+
+            checked_pairs: set[tuple[int, int]] = set()
+            for (cell_x, cell_y, cell_z), indices in spatial_grid.items():
+                nearby = []
+                for offset_x in (-1, 0, 1):
+                    for offset_y in (-1, 0, 1):
+                        z_offsets = (-1, 0, 1) if is_3d else (0,)
+                        for offset_z in z_offsets:
+                            nearby.extend(
+                                spatial_grid.get(
+                                    (cell_x + offset_x, cell_y + offset_y, cell_z + offset_z),
+                                    (),
+                                )
+                            )
+                for first_index in indices:
+                    first = particles[first_index]
+                    for second_index in nearby:
+                        if second_index == first_index:
+                            continue
+                        pair = (min(first_index, second_index), max(first_index, second_index))
+                        if pair in checked_pairs:
+                            continue
+                        checked_pairs.add(pair)
+                        second = particles[second_index]
+                        dx = second.x - first.x
+                        dy = second.y - first.y
+                        dz = second.z - first.z if is_3d else 0.0
+                        min_dist = first.radius + second.radius
+                        dist_sq = dx * dx + dy * dy + dz * dz
+                        if dist_sq < min_dist * min_dist:
+                            if dist_sq <= 1e-12:
+                                dist = min_dist
+                                nx, ny, nz = 1.0, 0.0, 0.0
+                            else:
+                                dist = math.sqrt(dist_sq)
+                                nx = dx / dist
+                                ny = dy / dist
+                                nz = dz / dist if is_3d else 0.0
+                            inverse_first = 1.0 / max(1e-6, first.mass)
+                            inverse_second = 1.0 / max(1e-6, second.mass)
+                            inverse_total = inverse_first + inverse_second
+                            overlap = max(0.0, min_dist - dist)
+                            correction = overlap / inverse_total
+                            first.x -= nx * correction * inverse_first
+                            first.y -= ny * correction * inverse_first
+                            first.z -= nz * correction * inverse_first
+                            second.x += nx * correction * inverse_second
+                            second.y += ny * correction * inverse_second
+                            second.z += nz * correction * inverse_second
+
+                            relative_normal_velocity = (
+                                (second.vx - first.vx) * nx + (second.vy - first.vy) * ny
+                                + (second.vz - first.vz) * nz
+                            )
+                            if relative_normal_velocity < 0:
+                                impulse = (
+                                    -(1.0 + self.artifact.restitution)
+                                    * relative_normal_velocity
+                                    / inverse_total
+                                )
+                                impulse_x = impulse * nx
+                                impulse_y = impulse * ny
+                                impulse_z = impulse * nz
+                                first.vx -= impulse_x * inverse_first
+                                first.vy -= impulse_y * inverse_first
+                                first.vz -= impulse_z * inverse_first
+                                second.vx += impulse_x * inverse_second
+                                second.vy += impulse_y * inverse_second
+                                second.vz += impulse_z * inverse_second
+                            frame_collisions += 1
 
         self._collisions += frame_collisions
         self._frames += 1
+        if self.show_trails:
+            trail_limit = min(100, len(particles))
+            for index, particle in enumerate(particles[:trail_limit]):
+                trail = self._trails.setdefault(index, [])
+                trail.append((particle.x, particle.y, particle.z))
+                if len(trail) > 42:
+                    del trail[:-42]
         if self._frames % 20 == 0:
+            elapsed = max(1e-6, time.perf_counter() - self._stats_started)
+            measured_fps = self._frames / elapsed
+            kinetic_energy = sum(
+                0.5
+                * particle.mass
+                * (
+                    particle.vx * particle.vx
+                    + particle.vy * particle.vy
+                    + (particle.vz * particle.vz if is_3d else 0.0)
+                )
+                for particle in particles
+            )
             stats = (
-                f"Particles: {len(particles)} | FPS target: 60 | "
-                f"Collisions/sec: {int((self._collisions / max(1, self._frames)) * 60)} | Speed: {self.speed:g}x"
+                f"Particles: {len(particles)} | FPS: {measured_fps:.0f} | "
+                f"Collisions/sec: {int((self._collisions / max(1, self._frames)) * 60)} | "
+                f"Energy: {kinetic_energy:.3g} | Speed: {self.speed:g}x"
             )
             self.stats_changed.emit(stats)
+
+    def _project_particle_3d(
+        self,
+        x: float,
+        y: float,
+        z: float,
+        sim_w: float,
+        sim_h: float,
+        depth: float,
+        field: QRect,
+    ) -> tuple[QPoint, float, float]:
+        xn = (x - sim_w * 0.5) / max(1e-9, sim_w * 0.5)
+        yn = (y - sim_h * 0.5) / max(1e-9, sim_h * 0.5)
+        zn = (z - depth * 0.5) / max(1e-9, depth * 0.5)
+        cos_yaw = math.cos(self.view_yaw)
+        sin_yaw = math.sin(self.view_yaw)
+        x_rotated = xn * cos_yaw - zn * sin_yaw
+        z_rotated = xn * sin_yaw + zn * cos_yaw
+        vertical = yn * math.cos(self.view_pitch) - z_rotated * math.sin(self.view_pitch)
+        view_depth = yn * math.sin(self.view_pitch) + z_rotated * math.cos(self.view_pitch)
+        scale = min(field.width(), field.height()) * 0.36 * self.view_zoom
+        point = QPoint(
+            int(field.center().x() + x_rotated * scale),
+            int(field.center().y() + vertical * scale),
+        )
+        return point, view_depth, scale
 
     def paintEvent(self, event):  # noqa: ARG002
         painter = QPainter(self)
@@ -1674,6 +3043,100 @@ class PhysicsCanvas(QWidget):
             painter.drawText(rect, Qt.AlignCenter, "No simulation generated yet")
             return
         sim_w, sim_h = self.artifact.bounds
+        is_3d = self.artifact.simulation_type == "particle-3d"
+        supports_3d_view = self._supports_3d_view(self.artifact)
+        depth = float(self.artifact.instruction.get("parameters", {}).get("depth") or sim_h)
+        if supports_3d_view and self.render_mode == "3d":
+            field = rect.adjusted(24, 38, -24, -28)
+            painter.setPen(QPen(QColor(160, 205, 245, 70), 1))
+            corners: dict[tuple[int, int, int], QPoint] = {}
+            for x_side in (0, 1):
+                for y_side in (0, 1):
+                    for z_side in (0, 1):
+                        point, _view_depth, _scale = self._project_particle_3d(
+                            sim_w * x_side,
+                            sim_h * y_side,
+                            depth * z_side,
+                            sim_w,
+                            sim_h,
+                            depth,
+                            field,
+                        )
+                        corners[(x_side, y_side, z_side)] = point
+            for corner, point in corners.items():
+                for axis in range(3):
+                    adjacent = list(corner)
+                    adjacent[axis] = 1 - adjacent[axis]
+                    adjacent_key = tuple(adjacent)
+                    if corner[axis] == 0:
+                        painter.drawLine(point, corners[adjacent_key])
+
+            if self.show_trails:
+                for index, trail in self._trails.items():
+                    if len(trail) < 2:
+                        continue
+                    color = QColor(self.artifact.particles[index].color)
+                    color.setAlpha(88)
+                    painter.setPen(QPen(color, 1))
+                    path = QPainterPath()
+                    first = self._project_particle_3d(
+                        *trail[0],
+                        sim_w,
+                        sim_h,
+                        depth,
+                        field,
+                    )[0]
+                    path.moveTo(first)
+                    for trail_point in trail[1:]:
+                        projected = self._project_particle_3d(
+                            *trail_point,
+                            sim_w,
+                            sim_h,
+                            depth,
+                            field,
+                        )[0]
+                        path.lineTo(projected)
+                    painter.drawPath(path)
+
+            projected_particles = []
+            for particle in self.artifact.particles:
+                point, view_depth, scale = self._project_particle_3d(
+                    particle.x,
+                    particle.y,
+                    particle.z,
+                    sim_w,
+                    sim_h,
+                    depth,
+                    field,
+                )
+                projected_particles.append((view_depth, point, scale, particle))
+            for view_depth, point, scale, particle in sorted(projected_particles, key=lambda item: item[0]):
+                perspective = max(0.62, min(1.38, 1.0 + view_depth * 0.16))
+                radius = max(2.0, particle.radius * scale / max(sim_w, sim_h) * 5.0 * perspective)
+                color = QColor(particle.color)
+                color.setAlpha(max(120, min(255, int(215 + view_depth * 24))))
+                painter.setBrush(color)
+                painter.setPen(QPen(QColor(color).lighter(135), 1))
+                painter.drawEllipse(point, int(radius), int(radius))
+                if self.artifact.instruction.get("parameters", {}).get("showVelocityVectors"):
+                    end = self._project_particle_3d(
+                        particle.x + particle.vx * 0.12,
+                        particle.y + particle.vy * 0.12,
+                        particle.z + particle.vz * 0.12,
+                        sim_w,
+                        sim_h,
+                        depth,
+                        field,
+                    )[0]
+                    painter.drawLine(point, end)
+            painter.setPen(QColor(255, 255, 255, 218))
+            painter.drawText(
+                rect.adjusted(12, 6, -12, -6),
+                Qt.AlignTop | Qt.AlignLeft,
+                f"{self.artifact.title} | 3D view | drag rotate, wheel zoom",
+            )
+            return
+
         scale = min((rect.width() - 36) / sim_w, (rect.height() - 58) / sim_h)
         left = rect.left() + (rect.width() - sim_w * scale) / 2
         top = rect.top() + 34
@@ -1682,19 +3145,637 @@ class PhysicsCanvas(QWidget):
         painter.setBrush(QColor(255, 255, 255, 10))
         painter.drawRoundedRect(field, 8, 8)
         painter.setClipRect(field)
+        if self.artifact.simulation_type == "spring-2d" and self.artifact.particles:
+            anchor = QPoint(int(left + sim_w * 0.5 * scale), int(top + sim_h * 0.5 * scale))
+            particle = self.artifact.particles[0]
+            end = QPoint(int(left + particle.x * scale), int(top + particle.y * scale))
+            painter.setPen(QPen(QColor(170, 130, 255, 210), 2))
+            painter.drawLine(anchor, end)
+            painter.setBrush(QColor(255, 255, 255, 230))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(anchor, 5, 5)
+        elif self.artifact.simulation_type == "pendulum-2d" and self.artifact.particles:
+            anchor_values = self.artifact.instruction.get("parameters", {}).get(
+                "anchor", [sim_w * 0.5, 72.0]
+            )
+            anchor = QPoint(
+                int(left + float(anchor_values[0]) * scale),
+                int(top + float(anchor_values[1]) * scale),
+            )
+            particle = self.artifact.particles[0]
+            end = QPoint(int(left + particle.x * scale), int(top + particle.y * scale))
+            painter.setPen(QPen(QColor(205, 218, 238, 220), 3))
+            painter.drawLine(anchor, end)
+            painter.setBrush(QColor(255, 255, 255, 235))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(anchor, 5, 5)
+        elif self.artifact.simulation_type == "wave-2d" and self.artifact.particles:
+            path = QPainterPath()
+            first = self.artifact.particles[0]
+            path.moveTo(left + first.x * scale, top + first.y * scale)
+            for particle in self.artifact.particles[1:]:
+                path.lineTo(left + particle.x * scale, top + particle.y * scale)
+            painter.setPen(QPen(QColor("#64d8ff"), 2))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPath(path)
+        elif self.artifact.simulation_type == "circular-motion-2d":
+            parameters = self.artifact.instruction.get("parameters", {})
+            center_values = parameters.get("center", [sim_w * 0.5, sim_h * 0.5])
+            orbit_radius = float(parameters.get("radius", 118.0)) * scale
+            center = QPoint(
+                int(left + float(center_values[0]) * scale),
+                int(top + float(center_values[1]) * scale),
+            )
+            painter.setPen(QPen(QColor(119, 202, 255, 90), 1, Qt.DashLine))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(center, int(orbit_radius), int(orbit_radius))
+        elif self.artifact.simulation_type == "orbit-2d":
+            center = QPoint(int(left + sim_w * 0.5 * scale), int(top + sim_h * 0.5 * scale))
+            painter.setBrush(QColor("#ffd166"))
+            painter.setPen(QPen(QColor(255, 230, 150, 160), 2))
+            painter.drawEllipse(center, 11, 11)
+        if self.show_trails:
+            for index, trail in self._trails.items():
+                if len(trail) < 2:
+                    continue
+                color = QColor(self.artifact.particles[index].color)
+                color.setAlpha(90)
+                painter.setPen(QPen(color, 1))
+                path = QPainterPath()
+                first_x, first_y, _first_z = trail[0]
+                path.moveTo(left + first_x * scale, top + first_y * scale)
+                for trail_x, trail_y, _trail_z in trail[1:]:
+                    path.lineTo(left + trail_x * scale, top + trail_y * scale)
+                painter.drawPath(path)
         for index, particle in enumerate(self.artifact.particles):
             px = left + particle.x * scale
             py = top + particle.y * scale
             radius = max(1.5, particle.radius * scale)
             color = QColor(particle.color)
-            if self.artifact.simulation_type.endswith("3d-projected"):
-                radius *= 0.65 + (index % 9) * 0.055
             painter.setBrush(color)
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(QPoint(int(px), int(py)), int(radius), int(radius))
+            if self.artifact.instruction.get("parameters", {}).get("showVelocityVectors"):
+                painter.setPen(QPen(QColor(color).lighter(135), 1))
+                painter.drawLine(
+                    QPoint(int(px), int(py)),
+                    QPoint(int(px + particle.vx * scale * 0.12), int(py + particle.vy * scale * 0.12)),
+                )
         painter.setClipping(False)
         painter.setPen(QColor(255, 255, 255, 218))
-        painter.drawText(rect.adjusted(12, 6, -12, -6), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+        mode_label = " | 2D projection" if supports_3d_view else ""
+        painter.drawText(
+            rect.adjusted(12, 6, -12, -6),
+            Qt.AlignTop | Qt.AlignLeft,
+            self.artifact.title + mode_label,
+        )
+
+
+class VisualizationGenerationCard(QFrame):
+    def __init__(self, renderer_label: str):
+        super().__init__()
+        self.setObjectName("VisualizationGenerationCard")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(8)
+
+        self.title = QLabel("Generating interactive visualization")
+        self.title.setObjectName("VisualizationGenerationTitle")
+        self.stage = QLabel("Queued")
+        self.stage.setObjectName("VisualizationGenerationStage")
+        self.detail = QLabel(f"Waiting for {renderer_label}.")
+        self.detail.setObjectName("VisualizationGenerationDetail")
+        self.detail.setWordWrap(True)
+        self.progress = QProgressBar()
+        self.progress.setObjectName("VisualizationGenerationProgress")
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+
+        layout.addWidget(self.title)
+        layout.addWidget(self.stage)
+        layout.addWidget(self.detail)
+        layout.addWidget(self.progress)
+
+    def set_stage(self, stage: str, detail: str, percent: int):
+        self.stage.setText(stage or "Working")
+        self.detail.setText(detail or "")
+        self.progress.setValue(max(0, min(100, int(percent))))
+
+    def set_error(self, message: str):
+        self.setProperty("error", "true")
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.title.setText("Visualization unavailable")
+        self.stage.setText("Nothing was rendered")
+        self.detail.setText(message)
+        self.progress.setValue(100)
+
+
+class InlineGraphWorkspace(QFrame):
+    def __init__(self, artifact: GraphArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(520)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Interactive surface" if artifact.surface else "Interactive graph")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(7)
+        reset_button = QPushButton("Reset view")
+        reset_button.setObjectName("InlineVisualizationControl")
+        reset_button.clicked.connect(self._reset)
+        large_button = QPushButton("Open large")
+        large_button.setObjectName("InlineVisualizationControl")
+        large_button.clicked.connect(self._open_large)
+        png_button = QPushButton("PNG")
+        png_button.setObjectName("InlineVisualizationControl")
+        png_button.clicked.connect(lambda: self._export("png"))
+        svg_button = QPushButton("SVG")
+        svg_button.setObjectName("InlineVisualizationControl")
+        svg_button.clicked.connect(lambda: self._export("svg"))
+        pdf_button = QPushButton("PDF")
+        pdf_button.setObjectName("InlineVisualizationControl")
+        pdf_button.clicked.connect(lambda: self._export("pdf"))
+        controls.addWidget(reset_button)
+        controls.addWidget(large_button)
+        self.dimension_select: QComboBox | None = None
+        if artifact.surface:
+            dimension_label = QLabel("View")
+            dimension_label.setObjectName("InlineVisualizationParameter")
+            self.dimension_select = QComboBox()
+            self.dimension_select.setObjectName("InlineVisualizationSelect")
+            self.dimension_select.addItem("2D", "2d")
+            self.dimension_select.addItem("3D", "3d")
+            self.dimension_select.setCurrentText("3D")
+            controls.addWidget(dimension_label)
+            controls.addWidget(self.dimension_select)
+        controls.addStretch(1)
+        controls.addWidget(png_button)
+        controls.addWidget(svg_button)
+        controls.addWidget(pdf_button)
+
+        self.canvas = SurfaceCanvas() if artifact.surface else GraphCanvas()
+        self.canvas.setMinimumHeight(350)
+        self.canvas.set_artifact(artifact)
+        if self.dimension_select:
+            self.dimension_select.currentIndexChanged.connect(
+                lambda index: self.canvas.set_view_mode(str(self.dimension_select.itemData(index)))
+            )
+        self.inspector = QLabel("Move over the curve for exact coordinates. Use the wheel to zoom and drag to pan.")
+        if artifact.surface:
+            self.inspector.setText(
+                "Switch between the 2D height map and 3D mesh. Hover for the same validated x, y, z samples."
+            )
+        self.inspector.setObjectName("InlineVisualizationInspector")
+        self.inspector.setWordWrap(True)
+        self.canvas.inspected.connect(self.inspector.setText)
+        equations = QLabel(
+            artifact.surface.label
+            if artifact.surface
+            else "   ".join(series.label for series in artifact.series)
+        )
+        equations.setObjectName("InlineVisualizationEquation")
+        equations.setWordWrap(True)
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(equations)
+        layout.addWidget(self.inspector)
+
+    def _reset(self):
+        self.canvas.reset_view()
+        self.inspector.setText("View reset. Move over the curve for exact coordinates.")
+
+    def _open_large(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.artifact.title)
+        dialog.resize(1100, 760)
+        layout = QVBoxLayout(dialog)
+        canvas = SurfaceCanvas() if self.artifact.surface else GraphCanvas()
+        canvas.set_artifact(self.artifact)
+        if self.artifact.surface and self.dimension_select:
+            canvas.set_view_mode(str(self.dimension_select.currentData()))
+        layout.addWidget(canvas)
+        dialog.exec()
+
+    def _export(self, export_format: str):
+        filters = {
+            "png": ("PNG image (*.png)", ".png"),
+            "svg": ("SVG vector image (*.svg)", ".svg"),
+            "pdf": ("PDF document (*.pdf)", ".pdf"),
+        }
+        selected_filter, extension = filters[export_format]
+        path, _ = QFileDialog.getSaveFileName(self, f"Export {self.artifact.title}", "", selected_filter)
+        if not path:
+            return
+        if not path.lower().endswith(extension):
+            path += extension
+        exporters = {
+            "png": self.canvas.export_png,
+            "svg": self.canvas.export_svg,
+            "pdf": self.canvas.export_pdf,
+        }
+        succeeded = exporters[export_format](path)
+        self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
+
+
+class InlinePhysicsWorkspace(QFrame):
+    def __init__(self, artifact: PhysicsArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(560)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Live physics")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(7)
+        pause_button = QPushButton("Pause")
+        pause_button.setObjectName("InlineVisualizationControl")
+        pause_button.clicked.connect(lambda: self.canvas.set_running(False))
+        resume_button = QPushButton("Resume")
+        resume_button.setObjectName("InlineVisualizationControl")
+        resume_button.clicked.connect(lambda: self.canvas.set_running(True))
+        step_button = QPushButton("Step")
+        step_button.setObjectName("InlineVisualizationControl")
+        step_button.clicked.connect(self.canvas_step)
+        back_button = QPushButton("Step back")
+        back_button.setObjectName("InlineVisualizationControl")
+        back_button.clicked.connect(self.canvas_back)
+        reset_button = QPushButton("Reset")
+        reset_button.setObjectName("InlineVisualizationControl")
+        reset_button.clicked.connect(self._reset)
+        screenshot_button = QPushButton("PNG")
+        screenshot_button.setObjectName("InlineVisualizationControl")
+        screenshot_button.clicked.connect(self._export_png)
+        json_button = QPushButton("JSON")
+        json_button.setObjectName("InlineVisualizationControl")
+        json_button.clicked.connect(self._export_json)
+        controls.addWidget(pause_button)
+        controls.addWidget(resume_button)
+        controls.addWidget(step_button)
+        controls.addWidget(back_button)
+        controls.addWidget(reset_button)
+        controls.addStretch(1)
+        controls.addWidget(json_button)
+        controls.addWidget(screenshot_button)
+
+        parameter_row = QHBoxLayout()
+        parameter_row.setSpacing(10)
+        speed_label = QLabel("Speed")
+        speed_label.setObjectName("InlineVisualizationParameter")
+        self.speed_select = QComboBox()
+        self.speed_select.setObjectName("InlineVisualizationSelect")
+        for label, value in (("0.25x", 0.25), ("0.5x", 0.5), ("1x", 1.0), ("2x", 2.0), ("5x", 5.0)):
+            self.speed_select.addItem(label, value)
+        self.speed_select.setCurrentText("1x")
+        self.speed_select.currentIndexChanged.connect(
+            lambda index: self.canvas.set_speed(float(self.speed_select.itemData(index)))
+        )
+        self.dimension_select: QComboBox | None = None
+        if "3d" in artifact.instruction.get("parameters", {}).get("views", ["2d"]):
+            dimension_label = QLabel("View")
+            dimension_label.setObjectName("InlineVisualizationParameter")
+            self.dimension_select = QComboBox()
+            self.dimension_select.setObjectName("InlineVisualizationSelect")
+            self.dimension_select.addItem("2D", "2d")
+            self.dimension_select.addItem("3D", "3d")
+            self.dimension_select.setCurrentText("3D")
+            parameter_row.addWidget(dimension_label)
+            parameter_row.addWidget(self.dimension_select)
+        vectors = QCheckBox("Velocity vectors")
+        vectors.setObjectName("InlineVisualizationCheck")
+        vectors.setChecked(
+            bool(artifact.instruction.get("parameters", {}).get("showVelocityVectors"))
+        )
+        vectors.toggled.connect(self.canvas_vectors)
+        trails = QCheckBox("Trails")
+        trails.setObjectName("InlineVisualizationCheck")
+        trails.setChecked(bool(artifact.instruction.get("parameters", {}).get("showTrails")))
+        trails.toggled.connect(self.canvas_trails)
+        parameter_row.addWidget(speed_label)
+        parameter_row.addWidget(self.speed_select)
+        parameter_row.addWidget(vectors)
+        parameter_row.addWidget(trails)
+        parameter_row.addStretch(1)
+
+        gravity_row = QHBoxLayout()
+        gravity_label = QLabel(f"Gravity {artifact.gravity:g} canvas units/s²")
+        gravity_label.setObjectName("InlineVisualizationParameter")
+        self.gravity_label = gravity_label
+        gravity_slider = QSlider(Qt.Horizontal)
+        gravity_slider.setObjectName("InlineVisualizationSlider")
+        gravity_slider.setRange(-200, 500)
+        gravity_slider.setValue(int(artifact.gravity))
+        gravity_slider.valueChanged.connect(self._set_gravity)
+        gravity_row.addWidget(gravity_label)
+        gravity_row.addWidget(gravity_slider, stretch=1)
+
+        self.canvas = PhysicsCanvas()
+        self.canvas.setMinimumHeight(350)
+        self.canvas.set_artifact(artifact)
+        self.canvas.set_show_trails(trails.isChecked())
+        if self.dimension_select:
+            self.dimension_select.currentIndexChanged.connect(
+                lambda index: self.canvas.set_render_mode(str(self.dimension_select.itemData(index)))
+            )
+            self.canvas.set_render_mode(str(self.dimension_select.currentData()))
+        self.stats = QLabel("Preparing live statistics...")
+        self.stats.setObjectName("InlineVisualizationInspector")
+        self.stats.setWordWrap(True)
+        self.canvas.stats_changed.connect(self.stats.setText)
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addLayout(parameter_row)
+        layout.addLayout(gravity_row)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(self.stats)
+
+    def canvas_step(self):
+        self.canvas.set_running(False)
+        self.canvas.step_once()
+
+    def canvas_back(self):
+        self.canvas.step_back()
+        self.stats.setText("Moved back one recorded simulation step.")
+
+    def canvas_vectors(self, visible: bool):
+        self.canvas.set_show_vectors(visible)
+
+    def canvas_trails(self, visible: bool):
+        self.canvas.set_show_trails(visible)
+
+    def _set_gravity(self, value: int):
+        self.gravity_label.setText(f"Gravity {value} canvas units/s²")
+        self.canvas.set_gravity(float(value))
+
+    def _reset(self):
+        self.canvas.reset_simulation()
+        self.speed_select.setCurrentText("1x")
+        if self.dimension_select:
+            self.dimension_select.setCurrentText("3D")
+        self.stats.setText("Simulation reset to its validated initial state.")
+
+    def _export_png(self):
+        path, _ = QFileDialog.getSaveFileName(self, f"Export {self.artifact.title}", "", "PNG image (*.png)")
+        if not path:
+            return
+        if not path.lower().endswith(".png"):
+            path += ".png"
+        succeeded = self.canvas.export_png(path)
+        self.stats.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
+
+    def _export_json(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            f"Export {self.artifact.title} state",
+            "",
+            "JSON simulation state (*.json)",
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".json"):
+            path += ".json"
+        succeeded = self.canvas.export_json(path)
+        self.stats.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
+
+
+class InlineMoleculeWorkspace(QFrame):
+    def __init__(self, artifact: MoleculeArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(570)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Validated molecular model")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        controls.setSpacing(7)
+        reset_button = QPushButton("Reset view")
+        reset_button.setObjectName("InlineVisualizationControl")
+        reset_button.clicked.connect(self._reset)
+        large_button = QPushButton("Open large")
+        large_button.setObjectName("InlineVisualizationControl")
+        large_button.clicked.connect(self._open_large)
+        controls.addWidget(reset_button)
+        controls.addWidget(large_button)
+        controls.addWidget(QLabel("View"))
+        self.dimension_select = QComboBox()
+        self.dimension_select.setObjectName("InlineVisualizationSelect")
+        self.dimension_select.addItem("2D", "2d")
+        self.dimension_select.addItem("3D", "3d")
+        self.dimension_select.setCurrentText("3D")
+        controls.addWidget(self.dimension_select)
+        controls.addStretch(1)
+        for label, export_format in (("PNG", "png"), ("SVG", "svg"), ("PDF", "pdf")):
+            button = QPushButton(label)
+            button.setObjectName("InlineVisualizationControl")
+            button.clicked.connect(
+                lambda _checked=False, selected=export_format: self._export(selected)
+            )
+            controls.addWidget(button)
+
+        self.canvas = MoleculeCanvas()
+        self.canvas.set_artifact(artifact)
+        self.dimension_select.currentIndexChanged.connect(
+            lambda index: self.canvas.set_view_mode(
+                str(self.dimension_select.itemData(index))
+            )
+        )
+        self.canvas.set_view_mode("3d")
+        self.inspector = QLabel(
+            "Drag the 3D model to rotate, or switch to the 2D structure schematic. "
+            "Hover an atom for its validated coordinates."
+        )
+        self.inspector.setObjectName("InlineVisualizationInspector")
+        self.inspector.setWordWrap(True)
+        self.canvas.inspected.connect(self.inspector.setText)
+        angles = ", ".join(f"{value:g} deg" for value in artifact.reference_angles)
+        details = QLabel(
+            f"Formula: {artifact.formula} | molecular geometry: {artifact.geometry} | "
+            f"electron geometry: {artifact.electron_geometry} | central lone pairs: "
+            f"{artifact.central_lone_pairs} | reference angles: {angles} | "
+            f"coordinate model: {artifact.coordinate_model}"
+        )
+        details.setObjectName("InlineVisualizationEquation")
+        details.setWordWrap(True)
+        notes = QLabel("\n".join(artifact.notes))
+        notes.setObjectName("InlineVisualizationInspector")
+        notes.setWordWrap(True)
+        notes.setVisible(bool(artifact.notes))
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(details)
+        layout.addWidget(self.inspector)
+        layout.addWidget(notes)
+
+    def _reset(self):
+        self.canvas.reset_view()
+        self.inspector.setText("View reset. Hover an atom for validated coordinates.")
+
+    def _open_large(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.artifact.title)
+        dialog.setWindowIcon(QIcon(_icon_path()))
+        dialog.resize(1100, 760)
+        layout = QVBoxLayout(dialog)
+        canvas = MoleculeCanvas()
+        canvas.set_artifact(self.artifact)
+        canvas.set_view_mode(str(self.dimension_select.currentData()))
+        layout.addWidget(canvas)
+        dialog.exec()
+
+    def _export(self, export_format: str):
+        selected_filter, extension = {
+            "png": ("PNG image (*.png)", ".png"),
+            "svg": ("SVG vector image (*.svg)", ".svg"),
+            "pdf": ("PDF document (*.pdf)", ".pdf"),
+        }[export_format]
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            f"Export {self.artifact.title}",
+            "",
+            selected_filter,
+        )
+        if not path:
+            return
+        if not path.lower().endswith(extension):
+            path += extension
+        succeeded = {
+            "png": self.canvas.export_png,
+            "svg": self.canvas.export_svg,
+            "pdf": self.canvas.export_pdf,
+        }[export_format](path)
+        self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
+
+
+class InlineDiagramWorkspace(QFrame):
+    def __init__(self, artifact: DiagramArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(520)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Validated structured diagram")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        reset_button = QPushButton("Reset view")
+        reset_button.setObjectName("InlineVisualizationControl")
+        reset_button.clicked.connect(self._reset)
+        large_button = QPushButton("Open large")
+        large_button.setObjectName("InlineVisualizationControl")
+        large_button.clicked.connect(self._open_large)
+        controls.addWidget(reset_button)
+        controls.addWidget(large_button)
+        controls.addStretch(1)
+        for label, export_format in (("PNG", "png"), ("SVG", "svg"), ("PDF", "pdf")):
+            button = QPushButton(label)
+            button.setObjectName("InlineVisualizationControl")
+            button.clicked.connect(
+                lambda _checked=False, selected=export_format: self._export(selected)
+            )
+            controls.addWidget(button)
+
+        self.canvas = DiagramCanvas()
+        self.canvas.set_artifact(artifact)
+        self.inspector = QLabel(
+            "Hover a node for validated connection counts. Use the wheel to zoom and drag to pan."
+        )
+        self.inspector.setObjectName("InlineVisualizationInspector")
+        self.inspector.setWordWrap(True)
+        self.canvas.inspected.connect(self.inspector.setText)
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(self.inspector)
+
+    def _reset(self):
+        self.canvas.reset_view()
+        self.inspector.setText("View reset. Hover a node for connection counts.")
+
+    def _open_large(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.artifact.title)
+        dialog.setWindowIcon(QIcon(_icon_path()))
+        dialog.resize(1100, 760)
+        layout = QVBoxLayout(dialog)
+        canvas = DiagramCanvas()
+        canvas.set_artifact(self.artifact)
+        layout.addWidget(canvas)
+        dialog.exec()
+
+    def _export(self, export_format: str):
+        selected_filter, extension = {
+            "png": ("PNG image (*.png)", ".png"),
+            "svg": ("SVG vector image (*.svg)", ".svg"),
+            "pdf": ("PDF document (*.pdf)", ".pdf"),
+        }[export_format]
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            f"Export {self.artifact.title}",
+            "",
+            selected_filter,
+        )
+        if not path:
+            return
+        if not path.lower().endswith(extension):
+            path += extension
+        succeeded = {
+            "png": self.canvas.export_png,
+            "svg": self.canvas.export_svg,
+            "pdf": self.canvas.export_pdf,
+        }[export_format](path)
+        self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
 
 
 class TitleBar(QFrame):
@@ -1737,12 +3818,12 @@ class TitleBar(QFrame):
         layout.addWidget(title)
         layout.addStretch(1)
 
-        self.min_btn = QPushButton("−")
+        self.min_btn = QPushButton("-")
         self.min_btn.setToolTip("Minimize")
         self.min_btn.setObjectName("TitleButton")
         self.min_btn.clicked.connect(self._parent.showMinimized)
 
-        self.max_btn = QPushButton("□")
+        self.max_btn = QPushButton("[]")
         self.max_btn.setToolTip("Maximize")
         self.max_btn.setObjectName("TitleButton")
         self.max_btn.clicked.connect(self._toggle_maximize)
@@ -1757,24 +3838,29 @@ class TitleBar(QFrame):
         layout.addWidget(self.close_btn)
 
     def _toggle_maximize(self):
-        if getattr(self._parent, "_custom_maximized", False):
+        if self._parent.isMaximized() or getattr(self._parent, "_custom_maximized", False):
             self._parent.showNormal()
             normal_geometry = getattr(self._parent, "_normal_geometry", None)
             if normal_geometry is not None:
                 self._parent.setGeometry(normal_geometry)
             self._parent._custom_maximized = False
-            self.max_btn.setText("□")
+            self.max_btn.setText("[]")
             self.max_btn.setToolTip("Maximize")
         else:
             self._parent._normal_geometry = self._parent.geometry()
-            screen = QApplication.screenAt(QCursor.pos()) or self._parent.screen() or QApplication.primaryScreen()
-            if screen:
-                self._parent.showNormal()
-                self._parent.setGeometry(screen.availableGeometry().adjusted(6, 6, -6, -6))
+            screen = self._parent.screen()
+            if screen is None:
+                screen = QApplication.primaryScreen()
+            self._parent.showNormal()
+            if screen is not None:
+                # Frameless translucent windows can extend below the taskbar
+                # when native maximize margins are guessed by Windows. Using
+                # the available geometry keeps every bottom control visible.
+                self._parent.setGeometry(screen.availableGeometry())
             else:
                 self._parent.showMaximized()
             self._parent._custom_maximized = True
-            self.max_btn.setText("❐")
+            self.max_btn.setText("[ ]")
             self.max_btn.setToolTip("Restore")
 
     def mousePressEvent(self, event):
@@ -1802,12 +3888,20 @@ class MoriceWindow(QWidget):
     message_ready = Signal(str, str, bool)
     thinking_update = Signal(str)
     project_changes_ready = Signal(str, str)
+    project_output_ready = Signal(str)
     gpu_detected = Signal(object)
+    visualization_progress = Signal(str, str, str, int)
+    visualization_finished = Signal(object)
 
     def __init__(self):
         super().__init__()
         _load_ui_fonts()
-        self.setWindowTitle(f"{MORICE_NAME} Glass Chat")
+        application = QApplication.instance()
+        if application is not None:
+            application.setApplicationName("MORICE")
+            application.setApplicationDisplayName("MORICE")
+            application.setOrganizationName("EONASH2722")
+        self.setWindowTitle(MORICE_NAME)
         self.setMinimumSize(860, 580)
         self.resize(1240, 760)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -1878,6 +3972,9 @@ class MoriceWindow(QWidget):
         if migrated_legacy_model:
             self._save_project_settings()
         self.science_artifacts: list[ScienceArtifact] = []
+        self.visualization_manager = VisualizationManager()
+        self.visualization_cards: dict[str, VisualizationGenerationCard] = {}
+        self.visualization_futures: dict[str, object] = {}
         self.active_workspace_kind = "graph"
         self.last_project_request = ""
         self._last_external_wake_notice = 0.0
@@ -1886,7 +3983,10 @@ class MoriceWindow(QWidget):
         self.message_ready.connect(self._on_message_ready)
         self.thinking_update.connect(self._on_thinking_update)
         self.project_changes_ready.connect(self._on_project_changes_ready)
+        self.project_output_ready.connect(self._append_project_output)
         self.gpu_detected.connect(self._on_gpu_detected)
+        self.visualization_progress.connect(self._on_visualization_progress)
+        self.visualization_finished.connect(self._on_visualization_finished)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
@@ -2080,8 +4180,26 @@ class MoriceWindow(QWidget):
         self.workspace_artifact_list.setObjectName("WorkspaceArtifactList")
         self.workspace_artifact_list.currentRowChanged.connect(self._on_workspace_artifact_selected)
 
+        self.graph_canvas_host = QWidget()
+        self.graph_canvas_layout = QVBoxLayout(self.graph_canvas_host)
+        self.graph_canvas_layout.setContentsMargins(0, 0, 0, 0)
+        self.graph_canvas_layout.setSpacing(0)
         self.graph_canvas = GraphCanvas()
         self.graph_canvas.inspected.connect(lambda text: self.graph_inspector.setText(text or "Move over the graph to inspect points."))
+        self.graph_canvas_layout.addWidget(self.graph_canvas)
+        self.graph_dimension_select = QComboBox()
+        self.graph_dimension_select.setObjectName("InlineVisualizationSelect")
+        self.graph_dimension_select.addItem("2D", "2d")
+        self.graph_dimension_select.addItem("3D", "3d")
+        self.graph_dimension_select.setCurrentText("3D")
+        self.graph_dimension_select.setVisible(False)
+        self.graph_dimension_select.currentIndexChanged.connect(
+            lambda index: self.graph_canvas.set_view_mode(
+                str(self.graph_dimension_select.itemData(index))
+            )
+            if isinstance(self.graph_canvas, SurfaceCanvas)
+            else None
+        )
         self.graph_inspector = QLabel("Move over the graph to inspect points.")
         self.graph_inspector.setObjectName("WorkspaceInspector")
         self.graph_equations = QLabel("No equations yet.")
@@ -2108,13 +4226,29 @@ class MoriceWindow(QWidget):
         step_btn = QPushButton("Step")
         step_btn.setObjectName("WorkspaceControl")
         step_btn.clicked.connect(self.physics_canvas.step_once)
+        back_btn = QPushButton("Back")
+        back_btn.setObjectName("WorkspaceControl")
+        back_btn.clicked.connect(self.physics_canvas.step_back)
         speed_btn = QPushButton("2x")
         speed_btn.setObjectName("WorkspaceControl")
         speed_btn.clicked.connect(lambda: self.physics_canvas.set_speed(2.0 if self.physics_canvas.speed == 1.0 else 1.0))
+        self.physics_dimension_select = QComboBox()
+        self.physics_dimension_select.setObjectName("InlineVisualizationSelect")
+        self.physics_dimension_select.addItem("2D", "2d")
+        self.physics_dimension_select.addItem("3D", "3d")
+        self.physics_dimension_select.setCurrentText("3D")
+        self.physics_dimension_select.setVisible(False)
+        self.physics_dimension_select.currentIndexChanged.connect(
+            lambda index: self.physics_canvas.set_render_mode(
+                str(self.physics_dimension_select.itemData(index))
+            )
+        )
         physics_controls.addWidget(pause_btn)
         physics_controls.addWidget(resume_btn)
         physics_controls.addWidget(step_btn)
+        physics_controls.addWidget(back_btn)
         physics_controls.addWidget(speed_btn)
+        physics_controls.addWidget(self.physics_dimension_select)
 
         self.notebook_view = QTextEdit()
         self.notebook_view.setObjectName("WorkspaceNotebook")
@@ -2127,7 +4261,8 @@ class MoriceWindow(QWidget):
         workspace_layout.addLayout(workspace_header)
         workspace_layout.addLayout(workspace_tabs)
         workspace_layout.addWidget(self.workspace_artifact_list)
-        workspace_layout.addWidget(self.graph_canvas, stretch=1)
+        workspace_layout.addWidget(self.graph_canvas_host, stretch=1)
+        workspace_layout.addWidget(self.graph_dimension_select)
         workspace_layout.addWidget(self.graph_equations)
         workspace_layout.addWidget(self.graph_inspector)
         workspace_layout.addWidget(self.physics_canvas, stretch=1)
@@ -2187,7 +4322,7 @@ class MoriceWindow(QWidget):
 
         self.changes_panel = QFrame()
         self.changes_panel.setObjectName("ProjectChangesPanel")
-        self.changes_panel.setFixedWidth(400)
+        self.changes_panel.setFixedWidth(440)
         self.changes_minimized = False
         self.changes_expanded = False
         changes_layout = QVBoxLayout(self.changes_panel)
@@ -2203,6 +4338,9 @@ class MoriceWindow(QWidget):
         self.changes_minimize_btn.setObjectName("ChangesIconButton")
         self.changes_minimize_btn.setToolTip("Minimize project changes")
         self.changes_minimize_btn.clicked.connect(self._toggle_changes_minimized)
+        # Keep code review readable. The former minimized strip could become a
+        # nearly empty sliver at the right edge and hide the actual diff.
+        self.changes_minimize_btn.setVisible(False)
         self.changes_expand_btn = QPushButton("[]")
         self.changes_expand_btn.setObjectName("ChangesIconButton")
         self.changes_expand_btn.setToolTip("Widen project changes")
@@ -2223,7 +4361,63 @@ class MoriceWindow(QWidget):
         self.changes_content = QWidget()
         changes_content_layout = QVBoxLayout(self.changes_content)
         changes_content_layout.setContentsMargins(0, 0, 0, 0)
-        changes_content_layout.setSpacing(10)
+        changes_content_layout.setSpacing(8)
+
+        project_tabs = QHBoxLayout()
+        project_tabs.setContentsMargins(0, 0, 0, 0)
+        project_tabs.setSpacing(6)
+        self.project_files_tab = QPushButton("Files")
+        self.project_changes_tab = QPushButton("Changes")
+        self.project_output_tab = QPushButton("Output")
+        for index, button in enumerate(
+            (self.project_files_tab, self.project_changes_tab, self.project_output_tab)
+        ):
+            button.setObjectName("WorkspaceTab")
+            button.clicked.connect(
+                lambda _checked=False, selected=index: self._set_project_workspace_tab(
+                    selected
+                )
+            )
+            project_tabs.addWidget(button)
+        changes_content_layout.addLayout(project_tabs)
+
+        self.project_workspace_stack = QStackedWidget()
+        self.project_workspace_stack.setObjectName("ProjectWorkspaceStack")
+        changes_content_layout.addWidget(self.project_workspace_stack, stretch=1)
+
+        self.project_files_page = QWidget()
+        project_files_layout = QVBoxLayout(self.project_files_page)
+        project_files_layout.setContentsMargins(0, 0, 0, 0)
+        project_files_layout.setSpacing(8)
+        files_header = QHBoxLayout()
+        files_label = QLabel("Project tree")
+        files_label.setObjectName("ProjectChangesSummary")
+        files_refresh = QPushButton("Refresh")
+        files_refresh.setObjectName("ProjectActionButton")
+        files_refresh.clicked.connect(self._refresh_project_tree)
+        files_header.addWidget(files_label, stretch=1)
+        files_header.addWidget(files_refresh)
+        self.project_file_tree = QTreeWidget()
+        self.project_file_tree.setObjectName("ProjectFileTree")
+        self.project_file_tree.setHeaderHidden(True)
+        self.project_file_tree.itemSelectionChanged.connect(
+            self._preview_selected_project_file
+        )
+        self.project_file_preview = QTextEdit()
+        self.project_file_preview.setObjectName("ProjectChangesView")
+        self.project_file_preview.setReadOnly(True)
+        self.project_file_preview.setPlaceholderText(
+            "Select a text file to preview it."
+        )
+        project_files_layout.addLayout(files_header)
+        project_files_layout.addWidget(self.project_file_tree, stretch=1)
+        project_files_layout.addWidget(self.project_file_preview, stretch=2)
+        self.project_workspace_stack.addWidget(self.project_files_page)
+
+        self.project_changes_page = QWidget()
+        changes_page_layout = QVBoxLayout(self.project_changes_page)
+        changes_page_layout.setContentsMargins(0, 0, 0, 0)
+        changes_page_layout.setSpacing(10)
         self.changes_verify_btn = QPushButton("Verify project")
         self.changes_verify_btn.setObjectName("ProjectActionButton")
         self.changes_verify_btn.setToolTip("Validate the source files in the selected project folder")
@@ -2240,12 +4434,55 @@ class MoriceWindow(QWidget):
         action_row.setSpacing(8)
         action_row.addWidget(self.changes_verify_btn)
         action_row.addWidget(self.changes_run_btn)
-        changes_content_layout.addWidget(self.changes_summary)
-        changes_content_layout.addWidget(self.changes_view, stretch=1)
-        changes_content_layout.addLayout(action_row)
-        changes_content_layout.addWidget(self.changes_action_status)
+        changes_page_layout.addWidget(self.changes_summary)
+        changes_page_layout.addWidget(self.changes_view, stretch=1)
+        changes_page_layout.addLayout(action_row)
+        changes_page_layout.addWidget(self.changes_action_status)
+        self.project_workspace_stack.addWidget(self.project_changes_page)
+
+        self.project_output_page = QWidget()
+        output_layout = QVBoxLayout(self.project_output_page)
+        output_layout.setContentsMargins(0, 0, 0, 0)
+        output_layout.setSpacing(8)
+        output_header = QHBoxLayout()
+        output_label = QLabel("Terminal and build output")
+        output_label.setObjectName("ProjectChangesSummary")
+        git_status_button = QPushButton("Git status")
+        git_status_button.setObjectName("ProjectActionButton")
+        git_status_button.clicked.connect(self._show_project_git_status)
+        clear_output_button = QPushButton("Clear")
+        clear_output_button.setObjectName("ProjectActionButton")
+        clear_output_button.clicked.connect(lambda: self.project_output_view.clear())
+        output_header.addWidget(output_label, stretch=1)
+        output_header.addWidget(git_status_button)
+        output_header.addWidget(clear_output_button)
+        self.project_output_view = QTextEdit()
+        self.project_output_view.setObjectName("ProjectChangesView")
+        self.project_output_view.setReadOnly(True)
+        self.project_output_view.setAcceptRichText(False)
+        self.project_output_view.setPlaceholderText(
+            "Verification, tests, run logs, Git status, and terminal output appear here."
+        )
+        command_row = QHBoxLayout()
+        self.project_command_input = QLineEdit()
+        self.project_command_input.setObjectName("ProjectFolderInput")
+        self.project_command_input.setPlaceholderText(
+            "Run in project folder, e.g. python -m unittest"
+        )
+        self.project_command_input.returnPressed.connect(self._run_project_command)
+        command_button = QPushButton("Run")
+        command_button.setObjectName("ProjectActionButton")
+        command_button.clicked.connect(self._run_project_command)
+        command_row.addWidget(self.project_command_input, stretch=1)
+        command_row.addWidget(command_button)
+        output_layout.addLayout(output_header)
+        output_layout.addWidget(self.project_output_view, stretch=1)
+        output_layout.addLayout(command_row)
+        self.project_workspace_stack.addWidget(self.project_output_page)
+
         changes_layout.addLayout(changes_header)
         changes_layout.addWidget(self.changes_content, stretch=1)
+        self._set_project_workspace_tab(1)
         body.addWidget(self.changes_panel)
         self.changes_panel.setVisible(False)
 
@@ -2784,6 +5021,22 @@ class MoriceWindow(QWidget):
                 color: rgba(238,238,238,0.92);
                 selection-background-color: rgba(118,72,220,0.62);
             }
+            #ProjectFileTree {
+                background: rgba(0,0,0,0.42);
+                color: rgba(238,244,252,0.94);
+                border-radius: 8px;
+                border: 1px solid rgba(126,210,245,0.16);
+                padding: 6px;
+                selection-background-color: rgba(74,112,205,0.72);
+                alternate-background-color: rgba(255,255,255,0.025);
+            }
+            #ProjectFileTree::item {
+                min-height: 24px;
+            }
+            #ProjectWorkspaceStack {
+                background: transparent;
+                border: none;
+            }
             #ScienceWorkspacePanel {
                 background: rgba(5,8,14,0.97);
                 border-radius: 14px;
@@ -2841,23 +5094,97 @@ class MoriceWindow(QWidget):
                 border: 1px solid rgba(160,200,255,0.14);
                 padding: 10px;
             }
-            #ScienceActionCard {
-                background: rgba(8,12,22,0.84);
-                border-radius: 12px;
-                border: 1px solid rgba(124,216,255,0.28);
-                padding: 10px;
+            #VisualizationGenerationCard,
+            #InlineVisualization {
+                background: rgba(7,11,18,0.96);
+                border-radius: 8px;
+                border: 1px solid rgba(100,190,240,0.34);
             }
-            #ScienceActionButton {
-                background: rgba(74,112,205,0.72);
-                color: #ffffff;
-                border-radius: 10px;
-                padding: 11px 14px;
-                border: 1px solid rgba(160,220,255,0.42);
+            #VisualizationGenerationCard[error="true"] {
+                background: rgba(30,12,16,0.96);
+                border-color: rgba(235,95,110,0.58);
+            }
+            #VisualizationGenerationTitle,
+            #InlineVisualizationTitle {
+                color: rgba(248,251,255,0.98);
+                font-size: 15px;
                 font-weight: 900;
-                text-align: left;
             }
-            #ScienceActionButton:hover {
-                background: rgba(95,132,225,0.9);
+            #VisualizationGenerationStage,
+            #InlineVisualizationKind {
+                color: rgba(112,205,255,0.9);
+                font-size: 12px;
+                font-weight: 800;
+            }
+            #VisualizationGenerationDetail,
+            #InlineVisualizationInspector {
+                color: rgba(212,224,240,0.76);
+                font-size: 12px;
+            }
+            #VisualizationGenerationProgress {
+                min-height: 5px;
+                max-height: 5px;
+                border: none;
+                border-radius: 2px;
+                background: rgba(255,255,255,0.08);
+            }
+            #VisualizationGenerationProgress::chunk {
+                border-radius: 2px;
+                background: rgba(76,190,245,0.9);
+            }
+            #InlineVisualizationControl {
+                background: rgba(25,35,50,0.92);
+                color: rgba(240,247,255,0.94);
+                border-radius: 6px;
+                border: 1px solid rgba(120,190,235,0.24);
+                padding: 7px 10px;
+                font-weight: 800;
+            }
+            #InlineVisualizationControl:hover {
+                background: rgba(48,80,108,0.96);
+                border-color: rgba(132,216,255,0.52);
+            }
+            #InlineVisualizationEquation {
+                background: rgba(255,255,255,0.035);
+                color: rgba(235,242,255,0.94);
+                border-radius: 6px;
+                padding: 8px 10px;
+                font-family: "Cambria Math", "Segoe UI";
+                font-size: 14px;
+            }
+            #InlineVisualizationParameter,
+            #InlineVisualizationCheck {
+                color: rgba(220,231,246,0.86);
+                font-size: 12px;
+            }
+            #InlineVisualizationSelect {
+                min-width: 80px;
+                background: rgba(21,29,42,0.98);
+                color: rgba(240,247,255,0.94);
+                border-radius: 6px;
+                border: 1px solid rgba(120,190,235,0.25);
+                padding: 5px 8px;
+            }
+            #InlineVisualizationSelect QAbstractItemView {
+                background: #111923;
+                color: #eef6ff;
+                selection-background-color: #315f82;
+            }
+            #InlineVisualizationSlider::groove:horizontal {
+                height: 5px;
+                border-radius: 2px;
+                background: rgba(255,255,255,0.1);
+            }
+            #InlineVisualizationSlider::handle:horizontal {
+                width: 15px;
+                margin: -5px 0;
+                border-radius: 7px;
+                background: rgba(105,205,250,0.96);
+                border: 1px solid rgba(220,248,255,0.82);
+            }
+            #GraphCanvas,
+            #PhysicsCanvas {
+                border-radius: 6px;
             }
             #SidebarTitle {
                 color: #ffffff;
@@ -3360,6 +5687,7 @@ class MoriceWindow(QWidget):
         self.project_folder_input.setToolTip(self.project_folder)
         self._save_project_settings()
         self._refresh_mode_panel()
+        self._refresh_project_tree()
         self.mode_status.setText("Work folder saved. Project mode can use this as the build root.")
 
     def _ensure_project_folder_for_build(self) -> bool:
@@ -3634,7 +5962,10 @@ class MoriceWindow(QWidget):
             return
         is_project = self.chat_mode == "project"
         self._set_project_details_visible(is_project)
-        if not is_project:
+        if is_project:
+            self._animate_panel_visibility(self.changes_panel, True)
+            self._refresh_project_tree()
+        else:
             self._animate_panel_visibility(self.changes_panel, False)
         self.personalization_btn.setVisible(not is_project)
         self.access_status_btn.setVisible(is_project)
@@ -4098,16 +6429,15 @@ class MoriceWindow(QWidget):
 
         changed = []
         diff_parts = []
+        pending_writes: list[tuple[str, str, str]] = []
         for relative_path, content, target in staged_files:
-            os.makedirs(os.path.dirname(target), exist_ok=True)
             old = ""
             if os.path.exists(target):
                 with open(target, "r", encoding="utf-8", errors="replace") as handle:
                     old = handle.read()
             if old == content:
                 continue
-            with open(target, "w", encoding="utf-8", newline="") as handle:
-                handle.write(content)
+            pending_writes.append((content, target, relative_path))
             changed.append(relative_path)
             diff_parts.append(self._diff_html(relative_path, old, content))
 
@@ -4117,10 +6447,39 @@ class MoriceWindow(QWidget):
             target = self._project_target_path(relative_path)
             old = ""
             validate_project_file(relative_path, content)
-            with open(target, "w", encoding="utf-8", newline="") as handle:
-                handle.write(content)
+            pending_writes.append((content, target, relative_path))
             changed.append(relative_path)
             diff_parts.append(self._diff_html(relative_path, old, content))
+
+        temporary_paths: list[tuple[str, str]] = []
+        try:
+            for content, target, _relative_path in pending_writes:
+                os.makedirs(os.path.dirname(target), exist_ok=True)
+                descriptor, temporary_path = tempfile.mkstemp(
+                    prefix=".morice-write-",
+                    suffix=".tmp",
+                    dir=os.path.dirname(target),
+                    text=True,
+                )
+                with os.fdopen(
+                    descriptor,
+                    "w",
+                    encoding="utf-8",
+                    newline="",
+                ) as handle:
+                    handle.write(content)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                temporary_paths.append((temporary_path, target))
+            for temporary_path, target in temporary_paths:
+                os.replace(temporary_path, target)
+        finally:
+            for temporary_path, _target in temporary_paths:
+                if os.path.exists(temporary_path):
+                    try:
+                        os.remove(temporary_path)
+                    except OSError:
+                        pass
 
         summary = str(manifest.get("summary") or "").strip() or f"Updated {len(changed)} file(s)."
         if not changed:
@@ -4157,30 +6516,280 @@ class MoriceWindow(QWidget):
             message += "\n\nSuggested run commands:\n" + "\n".join(f"- {command}" for command in commands)
         if notes:
             message += "\n\nNotes:\n" + "\n".join(f"- {note}" for note in notes)
-        return {"summary": summary, "message": message, "diff_html": panel_html, "changed": changed}
+        return {
+            "summary": summary,
+            "message": message,
+            "diff_html": panel_html,
+            "changed": changed,
+            "validated": True,
+        }
 
     def _on_project_changes_ready(self, summary: str, diff_html: str):
+        self._set_changes_minimized(False)
         self.changes_summary.setText(summary or "Project files updated.")
         self.changes_view.setHtml(
             diff_html
             or "<span style='color:rgba(255,255,255,0.64)'>No visible file diff for this action.</span>"
         )
-        self._animate_panel_visibility(self.changes_panel, self.chat_mode == "project")
+        if self.chat_mode == "project":
+            self.changes_panel.setVisible(True)
+            effect = self.changes_panel.graphicsEffect()
+            if isinstance(effect, QGraphicsOpacityEffect):
+                effect.setOpacity(1.0)
+        else:
+            self._animate_panel_visibility(self.changes_panel, False)
+        self._set_project_workspace_tab(1)
+        self._refresh_project_tree()
         self._refresh_project_actions()
 
+    def _set_project_workspace_tab(self, index: int):
+        if not hasattr(self, "project_workspace_stack"):
+            return
+        clean_index = max(0, min(2, int(index)))
+        self.project_workspace_stack.setCurrentIndex(clean_index)
+        for button_index, button in enumerate(
+            (
+                self.project_files_tab,
+                self.project_changes_tab,
+                self.project_output_tab,
+            )
+        ):
+            button.setProperty(
+                "active", "true" if button_index == clean_index else "false"
+            )
+            button.style().unpolish(button)
+            button.style().polish(button)
+        self.changes_title.setText(
+            ("Project files", "Project changes", "Project output")[clean_index]
+        )
+        if clean_index == 0:
+            self._refresh_project_tree()
+
+    def _refresh_project_tree(self):
+        if not hasattr(self, "project_file_tree"):
+            return
+        self.project_file_tree.clear()
+        folder = self.project_folder
+        if not folder or not os.path.isdir(folder):
+            placeholder = QTreeWidgetItem(["Choose a valid work folder."])
+            placeholder.setDisabled(True)
+            self.project_file_tree.addTopLevelItem(placeholder)
+            return
+        root_item = QTreeWidgetItem([os.path.basename(folder) or folder])
+        root_item.setData(0, Qt.UserRole, folder)
+        self.project_file_tree.addTopLevelItem(root_item)
+        item_by_path = {os.path.normcase(os.path.abspath(folder)): root_item}
+        entries = 0
+        for dirpath, dirnames, filenames in os.walk(folder, followlinks=False):
+            dirnames[:] = sorted(
+                name
+                for name in dirnames
+                if name not in PROJECT_IGNORED_DIRS
+                and not os.path.islink(os.path.join(dirpath, name))
+            )
+            parent_path = os.path.normcase(os.path.abspath(dirpath))
+            parent_item = item_by_path.get(parent_path, root_item)
+            for dirname in dirnames:
+                if entries >= 800:
+                    break
+                full_path = os.path.abspath(os.path.join(dirpath, dirname))
+                item = QTreeWidgetItem([dirname])
+                item.setData(0, Qt.UserRole, full_path)
+                parent_item.addChild(item)
+                item_by_path[os.path.normcase(full_path)] = item
+                entries += 1
+            for filename in sorted(filenames):
+                if entries >= 800:
+                    break
+                full_path = os.path.abspath(os.path.join(dirpath, filename))
+                item = QTreeWidgetItem([filename])
+                item.setData(0, Qt.UserRole, full_path)
+                parent_item.addChild(item)
+                entries += 1
+            if entries >= 800:
+                truncated = QTreeWidgetItem(["... tree limited to 800 entries"])
+                truncated.setDisabled(True)
+                root_item.addChild(truncated)
+                break
+        root_item.setExpanded(True)
+
+    def _preview_selected_project_file(self):
+        selected = self.project_file_tree.selectedItems()
+        if not selected:
+            return
+        path = str(selected[0].data(0, Qt.UserRole) or "")
+        if not path or not os.path.isfile(path):
+            self.project_file_preview.clear()
+            return
+        try:
+            root = os.path.realpath(self.project_folder)
+            resolved = os.path.realpath(path)
+            if os.path.commonpath([root, resolved]) != root:
+                self.project_file_preview.setPlainText(
+                    "This file is outside the selected project root."
+                )
+                return
+            if os.path.getsize(resolved) > 512 * 1024:
+                self.project_file_preview.setPlainText(
+                    "Preview unavailable: this file is larger than 512 KiB."
+                )
+                return
+            with open(resolved, "r", encoding="utf-8", errors="strict") as handle:
+                content = handle.read()
+        except (OSError, UnicodeError, ValueError) as exc:
+            self.project_file_preview.setPlainText(
+                f"Preview unavailable for this file: {exc}"
+            )
+            return
+        relative = os.path.relpath(resolved, root).replace("\\", "/")
+        self.project_file_preview.setPlainText(f"{relative}\n\n{content}")
+
+    def _append_project_output(self, text: str):
+        if not hasattr(self, "project_output_view"):
+            return
+        clean = (text or "").rstrip()
+        if not clean:
+            return
+        current = self.project_output_view.toPlainText()
+        combined = f"{current}\n\n{clean}".strip()
+        if len(combined) > 240_000:
+            combined = "[Older output trimmed]\n\n" + combined[-220_000:]
+        self.project_output_view.setPlainText(combined)
+        cursor = self.project_output_view.textCursor()
+        cursor.movePosition(cursor.End)
+        self.project_output_view.setTextCursor(cursor)
+
+    def _run_project_command(self):
+        command = self.project_command_input.text().strip()
+        if not command:
+            return
+        if not self.project_folder or not os.path.isdir(self.project_folder):
+            self._append_project_output(
+                "Command not started: choose a valid project folder first."
+            )
+            return
+        if re.search(r"[&|<>;\r\n]", command):
+            self._append_project_output(
+                "Command not started: shell chaining and redirection are disabled. "
+                "Run one direct command at a time."
+            )
+            return
+        executable_match = re.match(r'^\s*"?([^"\s]+)', command)
+        executable = (
+            os.path.basename(executable_match.group(1)).lower()
+            if executable_match
+            else ""
+        )
+        allowed = {
+            "cargo",
+            "cmake",
+            "dotnet",
+            "git",
+            "go",
+            "gradle",
+            "gradlew",
+            "gradlew.bat",
+            "java",
+            "javac",
+            "node",
+            "npm",
+            "npm.cmd",
+            "npx",
+            "npx.cmd",
+            "pnpm",
+            "pnpm.cmd",
+            "py",
+            "pytest",
+            "python",
+            "python.exe",
+            "uv",
+        }
+        if executable not in allowed:
+            self._append_project_output(
+                f"Command not started: '{executable or command}' is not in MORICE's "
+                "project-terminal allowlist."
+            )
+            return
+        self.project_command_input.clear()
+        self._set_project_workspace_tab(2)
+        self._append_project_output(f"> {command}")
+
+        def worker():
+            try:
+                completed = subprocess.run(
+                    command,
+                    cwd=self.project_folder,
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    timeout=300,
+                    shell=False,
+                    creationflags=(
+                        subprocess.CREATE_NO_WINDOW
+                        if os.name == "nt"
+                        else 0
+                    ),
+                )
+                output = (completed.stdout or "") + (completed.stderr or "")
+                self.project_output_ready.emit(
+                    (output.rstrip() or "(no output)")
+                    + f"\n[exit code {completed.returncode}]"
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                self.project_output_ready.emit(f"Command failed: {exc}")
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _show_project_git_status(self):
+        if not self.project_folder or not os.path.isdir(self.project_folder):
+            self._append_project_output(
+                "Git status unavailable: choose a valid project folder first."
+            )
+            return
+        self._set_project_workspace_tab(2)
+        self._append_project_output("> git status --short --branch")
+
+        def worker():
+            try:
+                completed = subprocess.run(
+                    ["git", "status", "--short", "--branch"],
+                    cwd=self.project_folder,
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    timeout=30,
+                    creationflags=(
+                        subprocess.CREATE_NO_WINDOW
+                        if os.name == "nt"
+                        else 0
+                    ),
+                )
+                output = (completed.stdout or "") + (completed.stderr or "")
+                self.project_output_ready.emit(
+                    (output.rstrip() or "Clean working tree.")
+                    + f"\n[exit code {completed.returncode}]"
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                self.project_output_ready.emit(f"Git status failed: {exc}")
+
+        threading.Thread(target=worker, daemon=True).start()
+
     def _toggle_changes_minimized(self):
-        self.changes_minimized = not self.changes_minimized
-        self.changes_content.setVisible(not self.changes_minimized)
-        self.changes_title.setVisible(not self.changes_minimized)
-        self.changes_minimize_btn.setText("+" if self.changes_minimized else "_")
-        self.changes_minimize_btn.setToolTip("Restore project changes" if self.changes_minimized else "Minimize project changes")
-        self.changes_panel.setFixedWidth(54 if self.changes_minimized else (620 if self.changes_expanded else 400))
+        self._set_changes_minimized(not self.changes_minimized)
+
+    def _set_changes_minimized(self, minimized: bool):
+        self.changes_minimized = False
+        self.changes_content.setVisible(True)
+        self.changes_title.setVisible(True)
+        self.changes_minimize_btn.setVisible(False)
+        self.changes_expand_btn.setVisible(True)
+        self.changes_panel.setFixedWidth(640 if self.changes_expanded else 440)
 
     def _toggle_changes_width(self):
         if self.changes_minimized:
-            self._toggle_changes_minimized()
+            self._set_changes_minimized(False)
         self.changes_expanded = not self.changes_expanded
-        self.changes_panel.setFixedWidth(620 if self.changes_expanded else 400)
+        self.changes_panel.setFixedWidth(640 if self.changes_expanded else 440)
         self.changes_expand_btn.setText("<>" if self.changes_expanded else "[]")
         self.changes_expand_btn.setToolTip("Use normal width" if self.changes_expanded else "Widen project changes")
 
@@ -4217,8 +6826,14 @@ class MoriceWindow(QWidget):
                     failures.append(f"{relative_path}: {exc}")
         if failures:
             self.changes_action_status.setText("Verification failed: " + failures[0])
+            self._append_project_output(
+                "Project verification failed:\n" + "\n".join(failures[:30])
+            )
         else:
             self.changes_action_status.setText(f"Verified {checked} source file(s).")
+            self._append_project_output(
+                f"Project verification passed: {checked} source file(s) checked."
+            )
         plan = build_launch_plan(self.project_folder)
         if plan:
             self.changes_run_btn.setEnabled(True)
@@ -4234,9 +6849,12 @@ class MoriceWindow(QWidget):
             self.changes_action_status.setText("No verified project entry point is available to run.")
             return
         try:
-            self.changes_action_status.setText(launch_project(plan))
+            message = launch_project(plan)
+            self.changes_action_status.setText(message)
+            self._append_project_output(message)
         except (OSError, ProjectValidationError) as exc:
             self.changes_action_status.setText(f"Could not run project: {exc}")
+            self._append_project_output(f"Could not run project: {exc}")
 
     def _set_workspace_view(self, kind: str):
         clean = kind if kind in {"graph", "physics", "notebook"} else "graph"
@@ -4249,7 +6867,10 @@ class MoriceWindow(QWidget):
             button.setProperty("active", "true" if active else "false")
             button.style().unpolish(button)
             button.style().polish(button)
-        self.graph_canvas.setVisible(clean == "graph")
+        self.graph_canvas_host.setVisible(clean == "graph")
+        self.graph_dimension_select.setVisible(
+            clean == "graph" and isinstance(self.graph_canvas, SurfaceCanvas)
+        )
         self.graph_equations.setVisible(clean == "graph")
         self.graph_inspector.setVisible(clean == "graph")
         self.physics_canvas.setVisible(clean == "physics")
@@ -4272,7 +6893,12 @@ class MoriceWindow(QWidget):
         self.workspace_artifact_list.blockSignals(True)
         self.workspace_artifact_list.clear()
         for artifact in self.science_artifacts:
-            prefix = "Graph" if artifact.kind == "graph" else "Physics"
+            prefix = {
+                "graph": "Graph",
+                "physics": "Physics",
+                "chemistry": "Molecule",
+                "diagram": "Diagram",
+            }.get(artifact.kind, "Artifact")
             item = QListWidgetItem(f"{prefix}: {artifact.title}")
             item.setData(Qt.UserRole, artifact.kind)
             self.workspace_artifact_list.addItem(item)
@@ -4284,16 +6910,44 @@ class MoriceWindow(QWidget):
         if row < 0 or row >= len(self.science_artifacts):
             return
         artifact = self.science_artifacts[row]
-        self._set_workspace_view(artifact.kind)
+        self._set_workspace_view(
+            artifact.kind if artifact.kind in {"graph", "physics"} else "notebook"
+        )
         if artifact.graph:
+            wants_surface_canvas = artifact.graph.surface is not None
+            has_surface_canvas = isinstance(self.graph_canvas, SurfaceCanvas)
+            if wants_surface_canvas != has_surface_canvas:
+                self.graph_canvas_layout.removeWidget(self.graph_canvas)
+                self.graph_canvas.deleteLater()
+                self.graph_canvas = SurfaceCanvas() if wants_surface_canvas else GraphCanvas()
+                self.graph_canvas.inspected.connect(
+                    lambda text: self.graph_inspector.setText(text or "Move over the graph to inspect points.")
+                )
+                self.graph_canvas_layout.addWidget(self.graph_canvas)
             self.graph_canvas.set_artifact(artifact.graph)
+            self.graph_dimension_select.setVisible(wants_surface_canvas)
+            if wants_surface_canvas:
+                self.graph_dimension_select.setCurrentText("3D")
+                self.graph_canvas.set_view_mode("3d")
             self.graph_equations.setText(
-                "Equations:\n" + "\n".join(f"- {series.label}" for series in artifact.graph.series)
+                "Equations:\n"
+                + (
+                    f"- {artifact.graph.surface.label}"
+                    if artifact.graph.surface
+                    else "\n".join(f"- {series.label}" for series in artifact.graph.series)
+                )
             )
         if artifact.physics:
             self.physics_canvas.set_artifact(artifact.physics)
+            is_3d = "3d" in artifact.physics.instruction.get(
+                "parameters", {}
+            ).get("views", ["2d"])
+            self.physics_dimension_select.setVisible(is_3d)
+            if is_3d:
+                self.physics_dimension_select.setCurrentText("3D")
+                self.physics_canvas.set_render_mode("3d")
             self.physics_stats.setText(
-                f"Particles: {len(artifact.physics.particles)} | FPS target: 60 | "
+                f"Particles: {len(artifact.physics.particles)} | FPS: measuring | "
                 f"Collisions/sec: 0 | Speed: {self.physics_canvas.speed:g}x"
             )
         self.notebook_view.setPlainText(
@@ -4305,9 +6959,8 @@ class MoriceWindow(QWidget):
         )
 
     def _add_science_artifact(self, artifact: ScienceArtifact):
-        self.science_artifacts.append(artifact)
+        self.science_artifacts.append(copy.deepcopy(artifact))
         self._refresh_workspace_artifact_list()
-        self._open_workspace(artifact.kind)
 
     def _insert_chat_widget(self, widget: QWidget, force_scroll: bool = True):
         insert_index = max(0, self.chat_list_layout.count() - 1)
@@ -4316,68 +6969,160 @@ class MoriceWindow(QWidget):
             self.follow_latest = True
         self._schedule_latest_scroll(force=force_scroll)
 
-    def append_science_card(self, artifact: ScienceArtifact):
-        card = QFrame()
-        card.setObjectName("ScienceActionCard")
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
-        if artifact.kind == "graph":
-            title = "Graph Generated"
-            detail = f"Open Graph Workspace -> {artifact.title}"
-            target = "graph"
-        else:
-            title = "Physics Simulation Generated"
-            detail = f"Open Simulation Workspace -> {artifact.title}"
-            target = "physics"
-        button = QPushButton(f"{title}\n{detail}")
-        button.setObjectName("ScienceActionButton")
-        button.clicked.connect(lambda _checked=False, kind=target: self._open_workspace(kind))
-        layout.addWidget(button)
-        self._insert_chat_widget(card)
+    def _replace_chat_widget(self, old_widget: QWidget, new_widget: QWidget):
+        index = self.chat_list_layout.indexOf(old_widget)
+        if index < 0:
+            self._insert_chat_widget(new_widget)
+            return
+        self.chat_list_layout.removeWidget(old_widget)
+        self.chat_list_layout.insertWidget(index, new_widget)
+        old_widget.deleteLater()
+        self.follow_latest = True
+        self._schedule_latest_scroll(force=True)
+
+    def _visualization_renderer_label(self, renderer_id: str) -> str:
+        plugin = self.visualization_manager.registry.get(renderer_id)
+        return plugin.label if plugin else renderer_id.replace(".", " ")
 
     def _handle_science_request(self, user_input: str) -> bool:
         if self.chat_mode == "project":
             return False
-        if not is_science_request(user_input):
+        decision = self.visualization_manager.decide(user_input)
+        if decision is None:
             return False
-        artifact = build_science_artifact(user_input)
-        if not artifact:
-            return False
-        self._add_science_artifact(artifact)
-        self.append_science_card(artifact)
+
+        request = self.visualization_manager.create_request(user_input, decision)
+        renderer_label = self._visualization_renderer_label(decision.renderer_id)
+        card = VisualizationGenerationCard(renderer_label)
+        self.visualization_cards[request.job_id] = card
+        self._insert_chat_widget(card)
+        self.history.append({"role": "user", "content": user_input})
+
+        def progress(stage: str, detail: str, percent: int):
+            self.visualization_progress.emit(request.job_id, stage, detail, percent)
+
+        future = self.visualization_manager.submit(request, progress)
+        self.visualization_futures[request.job_id] = future
+
+        def completed(completed_future):
+            try:
+                result = completed_future.result()
+            except Exception as exc:  # noqa: BLE001
+                result = VisualizationResult(
+                    job_id=request.job_id,
+                    status="failed",
+                    renderer_id=decision.renderer_id,
+                    error=f"Rendering failed: {exc}",
+                )
+            try:
+                self.visualization_finished.emit(result)
+            except RuntimeError:
+                return
+
+        future.add_done_callback(completed)
         return True
 
-    def _science_reply_context(self) -> str:
-        if not self.science_artifacts:
-            return ""
-        artifact = self.science_artifacts[-1]
-        if artifact.kind == "graph" and artifact.graph:
-            equations = ", ".join(series.label for series in artifact.graph.series)
-            return (
-                "MORICE has already generated an interactive graph in the Lab workspace for this user prompt. "
-                f"Graph title: {artifact.title}. Equations: {equations}. "
-                "Give the user the written math/science explanation, key points, and how to inspect the visual. "
-                "Do not output placeholder text like [Graph of ...] and do not claim you cannot show the graph."
-            )
-        if artifact.kind == "physics" and artifact.physics:
-            return (
-                "MORICE has already generated a live physics simulation in the Lab workspace for this user prompt. "
-                f"Simulation title: {artifact.title}. Type: {artifact.physics.simulation_type}. "
-                f"Particles: {len(artifact.physics.particles)}. "
-                "Give the user the written physics explanation, what the simulation shows, and how to inspect it. "
-                "Do not output placeholder text like [Simulation of ...] and do not claim you cannot show the simulation."
-            )
-        return ""
+    def _on_visualization_progress(self, job_id: str, stage: str, detail: str, percent: int):
+        card = self.visualization_cards.get(job_id)
+        if card:
+            card.set_stage(stage, detail, percent)
 
-    def _science_ready_reply(self) -> str:
-        artifact = self.science_artifacts[-1] if self.science_artifacts else None
+    def _on_visualization_finished(self, result: VisualizationResult):
+        card = self.visualization_cards.pop(result.job_id, None)
+        self.visualization_futures.pop(result.job_id, None)
+        if card is None:
+            return
+        if not result.ok or result.artifact is None:
+            message = result.error or "The renderer did not produce a validated visualization."
+            card.set_error(message)
+            reply = (
+                f"I could not render that visual. {message} "
+                "Nothing was displayed, and I will not substitute a fake placeholder."
+            )
+            self.history.append({"role": "assistant", "content": reply})
+            self.append_message(MORICE_NAME, self._address(reply))
+            return
+
+        artifact = result.artifact
+        self._add_science_artifact(artifact)
+        if artifact.kind == "graph" and artifact.graph:
+            workspace = InlineGraphWorkspace(artifact.graph)
+        elif artifact.kind == "physics" and artifact.physics:
+            workspace = InlinePhysicsWorkspace(artifact.physics)
+        elif artifact.kind == "chemistry" and isinstance(artifact.chemistry, MoleculeArtifact):
+            workspace = InlineMoleculeWorkspace(artifact.chemistry)
+        elif artifact.kind == "diagram" and isinstance(artifact.diagram, DiagramArtifact):
+            workspace = InlineDiagramWorkspace(artifact.diagram)
+        else:
+            message = "The renderer returned an unsupported artifact type, so nothing was displayed."
+            card.set_error(message)
+            self.history.append({"role": "assistant", "content": message})
+            self.append_message(MORICE_NAME, self._address(message))
+            return
+
+        self._replace_chat_widget(card, workspace)
+        reply = self._science_ready_reply(artifact, result)
+        self.history.append({"role": "assistant", "content": reply})
+        self.append_message(MORICE_NAME, self._address(reply))
+
+    def _science_ready_reply(
+        self,
+        artifact: ScienceArtifact | None = None,
+        result: VisualizationResult | None = None,
+    ) -> str:
+        artifact = artifact or (self.science_artifacts[-1] if self.science_artifacts else None)
+        timing = f" It was prepared and validated in {result.duration_ms:.0f} ms." if result else ""
         if artifact and artifact.kind == "graph" and artifact.graph:
+            if artifact.graph.surface:
+                surface = artifact.graph.surface
+                return (
+                    f"The validated surface above uses one shared data grid for both views: "
+                    f"{surface.label}. Switch between the 2D height map and interactive 3D mesh; "
+                    f"hover to inspect x, y, z samples, drag to rotate or pan, and use the wheel to zoom."
+                    f"{timing}"
+                )
             equations = ", ".join(series.label for series in artifact.graph.series)
-            return f"I rendered {artifact.title} in the Lab graph workspace. Equations: {equations}. Use the Graphs tab to inspect the curve and hover over points for values."
+            landmark_count = sum(len(series.inspection_points) for series in artifact.graph.series)
+            return (
+                f"The interactive graph above is live and validated. Equations: {equations}. "
+                f"I found {landmark_count} inspectable intercept, extrema, or inflection points. "
+                f"Hover for coordinates, drag to pan, use the wheel to zoom, or export PNG, SVG, or PDF.{timing}"
+            )
         if artifact and artifact.kind == "physics" and artifact.physics:
-            return f"I started {artifact.title} in the Lab simulation workspace with {len(artifact.physics.particles)} particles. Use Pause, Resume, Step, and 2x to inspect the live motion."
-        return "I created the live visual in the Lab workspace."
+            views = (
+                " Switch between the 2D projection and 3D perspective; both use the same xyz simulation state."
+                if "3d" in artifact.physics.instruction.get(
+                    "parameters", {}
+                ).get("views", ["2d"])
+                else ""
+            )
+            return (
+                f"The live {artifact.physics.simulation_type} simulation above contains "
+                f"{len(artifact.physics.particles)} physical bodies. Use Pause, Resume, Step, Reset, "
+                f"speed, gravity, vector, and trail controls to inspect the system.{views}{timing}"
+            )
+        if artifact and artifact.kind == "chemistry" and isinstance(
+            artifact.chemistry, MoleculeArtifact
+        ):
+            molecule = artifact.chemistry
+            return (
+                f"The validated {molecule.formula} model above is from MORICE's curated VSEPR "
+                f"library. Its molecular geometry is {molecule.geometry}, its electron geometry is "
+                f"{molecule.electron_geometry}, and the central atom has "
+                f"{molecule.central_lone_pairs} lone pair(s). The 2D and 3D controls use the same "
+                f"validated atom and bond topology.{timing}"
+            )
+        if artifact and artifact.kind == "diagram" and isinstance(
+            artifact.diagram, DiagramArtifact
+        ):
+            diagram = artifact.diagram
+            return (
+                f"The structured {diagram.diagram_type} diagram above contains "
+                f"{len(diagram.nodes)} validated nodes and {len(diagram.edges)} directed links. "
+                f"Hover nodes to inspect their connections, drag to pan, zoom with the wheel, "
+                f"or export it.{timing}"
+            )
+        return "The renderer completed, but no supported interactive artifact was available."
 
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
         should_follow = self.follow_latest or self._is_at_bottom()
@@ -5090,11 +7835,8 @@ class MoriceWindow(QWidget):
             self.append_message(MORICE_NAME, self._address(summary))
             return
 
-        science_visual_ready = self._handle_science_request(user_input)
-        if science_visual_ready:
-            self.append_message(MORICE_NAME, self._address(self._science_ready_reply()))
+        if self._handle_science_request(user_input):
             return
-        science_visual_context = ""
 
         retry_project_request = self._is_project_retry_request(user_input)
         project_source_input = self.last_project_request if retry_project_request else user_input
@@ -5134,11 +7876,7 @@ class MoriceWindow(QWidget):
                 else (
                     "Local Project mode: using the selected folder and local model to build files."
                     if project_build_request
-                    else (
-                        "Normal chat VNext: visual is open in Lab, now writing the explanation."
-                        if science_visual_ready
-                        else "Full offline mode: asking the bundled Qwen engine only."
-                    )
+                    else "Full offline mode: asking the bundled Qwen engine only."
                 )
             )
         )
@@ -5172,9 +7910,6 @@ class MoriceWindow(QWidget):
                         self.thinking_update.emit("Reading the work folder so edits can be applied directly.")
                         extra_system += "\n\n" + self._project_snapshot()
                         extra_system += "\n\n" + self._project_manifest_instruction()
-                elif science_visual_context:
-                    self.thinking_update.emit("Normal chat VNext: using the generated Lab visual as context.")
-                    extra_system += "\n\n" + science_visual_context
                 response_style = self.response_style.strip()
                 if response_style:
                     extra_system += (
@@ -5295,6 +8030,8 @@ class MoriceWindow(QWidget):
                             else "Try a more direct build request, or switch the selected model to a stronger coding GGUF."
                         )
                         visible_reply = f"I could not safely turn that request into project files yet.{detail}\n\n{folder_hint}"
+                else:
+                    visible_reply = self.visualization_manager.sanitize_model_reply(visible_reply)
                 self.history.append({"role": "user", "content": user_input})
                 self.history.append({"role": "assistant", "content": visible_reply})
                 self.message_ready.emit(MORICE_NAME, self._address(visible_reply), False)
@@ -5326,12 +8063,17 @@ class MoriceWindow(QWidget):
         self.precision_btn.style().unpolish(self.precision_btn)
         self.precision_btn.style().polish(self.precision_btn)
 
+    def closeEvent(self, event):
+        self.visualization_manager.shutdown()
+        super().closeEvent(event)
+
 
 def run_app():
     _set_windows_app_id()
     app = QApplication(sys.argv)
     _load_ui_fonts()
     app.setApplicationName("MORICE")
+    app.setApplicationDisplayName("MORICE")
     app.setOrganizationName("EONASH2722")
     icon_path = _icon_path()
     if os.path.exists(icon_path):

@@ -461,7 +461,7 @@ def model_run_plan(result: dict, profile: GpuProfile | None) -> ModelRunPlan:
             "Recommended",
             compatibility.color,
             "Best experience for this PC. MORICE can use the model directly and should stay responsive.",
-            "Default 4096 context is safe; advanced users can try higher context.",
+            "MORICE's adaptive context can use up to 16384 tokens; lower it if another GPU workload is active.",
             "GPU offload should be comfortable if llama GPU layers are enabled.",
         )
     if compatibility.level == "good":
@@ -469,7 +469,7 @@ def model_run_plan(result: dict, profile: GpuProfile | None) -> ModelRunPlan:
             "Balanced",
             compatibility.color,
             "Strong fit. This is a good daily-driver choice for chat and project work.",
-            "Default 4096 context is recommended.",
+            "Use 8192-16384 context depending on free VRAM and model quantization.",
             "Use moderate GPU offload; close heavy GPU apps for smoother replies.",
         )
     if compatibility.level == "usable":
@@ -477,7 +477,7 @@ def model_run_plan(result: dict, profile: GpuProfile | None) -> ModelRunPlan:
             "Usable",
             compatibility.color,
             "This should work, but speed depends on free VRAM and CPU fallback.",
-            "Keep context around 2048-4096 if replies feel slow.",
+            "Keep context around 4096-8192 if replies feel slow.",
             "Use low or partial GPU offload; reduce GPU layers if loading fails.",
         )
     if compatibility.level == "cpu-assisted":
@@ -485,7 +485,7 @@ def model_run_plan(result: dict, profile: GpuProfile | None) -> ModelRunPlan:
             "CPU assisted",
             compatibility.color,
             "MORICE can try it, but it is better as a quality test than a fast default model.",
-            "Use a smaller context, around 2048.",
+            "Use a smaller context, around 2048-4096.",
             "Expect CPU-heavy replies or very low GPU offload.",
         )
     return ModelRunPlan(
