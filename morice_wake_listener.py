@@ -2,12 +2,14 @@ import csv
 import difflib
 import io
 import json
+import math
 import os
 import queue
 import subprocess
 import sys
 import time
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +31,7 @@ VOICE_MODELS = ROOT / "voice_models"
 LOG_PATH = ROOT / "morice_wake_listener.log"
 SAMPLE_RATE = 16000
 BLOCK_SIZE = 640
+BLOCK_DURATION_SECONDS = BLOCK_SIZE / SAMPLE_RATE
 DOUBLE_CLAP_WINDOW = 1.8
 CLAP_DEBOUNCE = 0.11
 # This is only event de-duplication, not a user-facing wake cooldown. A phrase
@@ -40,6 +43,11 @@ HEARD_LOG_GAP = 1.0
 TRANSCRIPT_WINDOW_SECONDS = 4.5
 DEVICE_SILENCE_ROTATE_SECONDS = 18.0
 LOG_MAX_BYTES = 900_000
+SENSITIVITY_PROFILES = {
+    "conservative": {"target_rms": 1200.0, "max_gain": 7.0, "clap_scale": 1.10},
+    "balanced": {"target_rms": 1500.0, "max_gain": 10.0, "clap_scale": 1.0},
+    "high": {"target_rms": 1800.0, "max_gain": 14.0, "clap_scale": 0.82},
+}
 
 
 def log(message: str) -> None:
@@ -164,6 +172,84 @@ class RollingTranscript:
     def text(self, now: float) -> str:
         self._trim(now)
         return " ".join(token for _, token in self._entries)
+
+
+@dataclass(frozen=True)
+class AudioMetrics:
+    peak: float
+    rms: float
+
+
+class AdaptiveAudioFrontend:
+    """Condition quiet microphone audio without teaching the AGC to amplify noise."""
+
+    def __init__(self, sensitivity: str = "high"):
+        self.sensitivity = normalize_sensitivity(sensitivity)
+        profile = SENSITIVITY_PROFILES[self.sensitivity]
+        self.target_rms = float(profile["target_rms"])
+        self.max_gain = float(profile["max_gain"])
+        self.noise_peak = 180.0
+        self.noise_rms = 22.0
+        self.gain = 1.0
+
+    @staticmethod
+    def metrics(samples: np.ndarray) -> AudioMetrics:
+        if samples.size == 0:
+            return AudioMetrics(0.0, 0.0)
+        values = samples.astype(np.float32)
+        return AudioMetrics(
+            peak=float(np.max(np.abs(values))),
+            rms=float(np.sqrt(np.mean(values * values))),
+        )
+
+    def observe_noise(self, metrics: AudioMetrics, transient: bool = False) -> None:
+        if transient or metrics.peak <= 0.0:
+            return
+        # Follow a quieter room quickly, but let a rising noise floor move
+        # slowly so speech does not immediately become the new "silence".
+        peak_rate = 0.10 if metrics.peak < self.noise_peak else 0.008
+        rms_rate = 0.10 if metrics.rms < self.noise_rms else 0.008
+        if metrics.rms > max(80.0, self.noise_rms * 2.4):
+            # A loud fan, USB hiss, or damaged microphone can remain above the
+            # normal gate indefinitely. Learn it slowly enough that a brief
+            # spoken phrase cannot poison the floor.
+            peak_rate = min(peak_rate, 0.0015)
+            rms_rate = min(rms_rate, 0.0015)
+        self.noise_peak += (min(metrics.peak, 12_000.0) - self.noise_peak) * peak_rate
+        self.noise_rms += (min(metrics.rms, 2_400.0) - self.noise_rms) * rms_rate
+        self.noise_peak = max(18.0, self.noise_peak)
+        self.noise_rms = max(3.0, self.noise_rms)
+
+    def condition_for_speech(self, samples: np.ndarray) -> np.ndarray:
+        if samples.size == 0:
+            return samples.astype(np.int16, copy=False)
+        centered = samples.astype(np.float32)
+        centered -= float(np.mean(centered))
+        rms = float(np.sqrt(np.mean(centered * centered)))
+        if rms < 2.0:
+            return np.zeros(samples.shape, dtype=np.int16)
+
+        signal_rms = math.sqrt(max(0.0, (rms * rms) - (self.noise_rms * self.noise_rms)))
+        snr_ratio = rms / max(self.noise_rms, 1.0)
+        desired_gain = self.target_rms / max(signal_rms, 45.0)
+        if snr_ratio < 1.08:
+            desired_gain = min(desired_gain, 2.0)
+        elif snr_ratio < 1.22:
+            desired_gain = min(desired_gain, 4.0)
+        desired_gain = max(1.0, min(self.max_gain, desired_gain))
+
+        # Attack quickly when speech is faint and release slowly so words split
+        # across blocks do not pump in volume.
+        rate = 0.34 if desired_gain > self.gain else 0.08
+        self.gain += (desired_gain - self.gain) * rate
+        amplified = centered * self.gain
+        # A soft limiter protects Vosk from hard-clipped laptop microphone peaks.
+        limited = np.tanh(amplified / 30_000.0) * 30_000.0
+        return np.clip(limited, -32768, 32767).astype(np.int16)
+
+
+class RotateAudioDevice(RuntimeError):
+    pass
 
 
 def find_vosk_model() -> Path | None:
@@ -303,6 +389,24 @@ def configured_audio_device():
         return value
 
 
+def normalize_sensitivity(value: str) -> str:
+    clean = norm(value)
+    aliases = {
+        "low": "conservative",
+        "normal": "balanced",
+        "medium": "balanced",
+        "poor mic": "high",
+        "quiet": "high",
+        "weak": "high",
+    }
+    clean = aliases.get(clean, clean)
+    return clean if clean in SENSITIVITY_PROFILES else "high"
+
+
+def configured_sensitivity() -> str:
+    return normalize_sensitivity(os.getenv("MORICE_WAKE_SENSITIVITY", "high"))
+
+
 def input_device_candidates(preferred=None) -> list[dict]:
     """Return usable inputs in a practical order, with a forced device first."""
     devices = sd.query_devices()
@@ -363,6 +467,35 @@ def stream_rates_for(device: dict) -> list[int]:
     return unique_rates
 
 
+def audio_stream_options(preferred=None) -> list[dict]:
+    """Build resilient device/rate attempts while preserving the preferred mic."""
+    try:
+        devices = input_device_candidates(preferred)
+    except Exception as exc:  # noqa: BLE001
+        log(f"could not enumerate microphones; using the system default: {exc}")
+        devices = []
+    if not devices:
+        return [
+            {
+                "index": preferred,
+                "name": str(preferred or "system default"),
+                "rate": SAMPLE_RATE,
+            }
+        ]
+
+    options: list[dict] = []
+    for device in devices:
+        for rate in stream_rates_for(device):
+            options.append(
+                {
+                    "index": device["index"],
+                    "name": device["name"],
+                    "rate": rate,
+                }
+            )
+    return options
+
+
 def resample_pcm16(samples: np.ndarray, source_rate: int, target_rate: int = SAMPLE_RATE) -> np.ndarray:
     if source_rate == target_rate or samples.size == 0:
         return samples.astype(np.int16, copy=False)
@@ -373,42 +506,36 @@ def resample_pcm16(samples: np.ndarray, source_rate: int, target_rate: int = SAM
     return np.clip(resampled, -32768, 32767).astype(np.int16)
 
 
-def boost_for_speech(samples: np.ndarray) -> np.ndarray:
-    """Apply restrained software gain so quiet microphone input still reaches Vosk."""
-    if samples.size == 0:
-        return samples.astype(np.int16, copy=False)
-    rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
-    if rms < 18.0:
-        return samples.astype(np.int16, copy=False)
-    gain = min(7.0, max(1.0, 1000.0 / rms))
-    if gain <= 1.02:
-        return samples.astype(np.int16, copy=False)
-    return np.clip(samples.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
-
-
-def detect_clap(samples: np.ndarray, ambient_peak: float, ambient_rms: float) -> tuple[bool, float, float]:
+def detect_clap(
+    samples: np.ndarray,
+    ambient_peak: float,
+    ambient_rms: float,
+    sensitivity: str = "high",
+) -> tuple[bool, float, float]:
     if samples.size == 0:
         return False, 0.0, 0.0
     peak = float(np.max(np.abs(samples)))
     rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
     sharpness = peak / max(rms, 1.0)
     diff_peak = float(np.max(np.abs(np.diff(samples.astype(np.int32))))) if samples.size > 1 else 0.0
-    # Low floors and adaptive thresholds keep double-clap wake usable on quiet
-    # laptop/array microphones while the two-clap requirement avoids noise spam.
-    peak_threshold = max(260.0, ambient_peak * 1.85)
-    rms_threshold = max(26.0, ambient_rms * 1.35)
-    attack_threshold = max(150.0, ambient_peak * 0.32)
+    profile = SENSITIVITY_PROFILES[normalize_sensitivity(sensitivity)]
+    scale = float(profile["clap_scale"])
+    # The two-clap requirement gives us room to accept compressed, low-level
+    # transients from inexpensive laptop microphones without waking on speech.
+    peak_threshold = max(145.0 * scale, ambient_peak * 1.58 * scale)
+    rms_threshold = max(12.0 * scale, ambient_rms * 1.20 * scale)
+    attack_threshold = max(82.0 * scale, ambient_peak * 0.24 * scale)
     loud_transient = (
         peak >= peak_threshold
         and diff_peak >= attack_threshold
-        and (rms >= rms_threshold or sharpness >= 1.85)
+        and (rms >= rms_threshold or sharpness >= 1.52)
     )
-    sharp_snap = peak >= max(440.0, ambient_peak * 1.45) and diff_peak >= attack_threshold and sharpness >= 1.70
+    sharp_snap = (
+        peak >= max(220.0 * scale, ambient_peak * 1.30 * scale)
+        and diff_peak >= attack_threshold
+        and sharpness >= 1.42
+    )
     return loud_transient or sharp_snap, peak, rms
-
-
-def update_ambient(current: float, value: float, limit: float) -> float:
-    return (current * 0.985) + (min(value, limit) * 0.015)
 
 
 def self_test() -> int:
@@ -424,7 +551,30 @@ def self_test() -> int:
     clap[41] = -7600
     quiet_detected, _, _ = detect_clap(quiet, 1200.0, 80.0)
     clap_detected, _, _ = detect_clap(clap, 1200.0, 80.0)
-    checks.extend([not quiet_detected, clap_detected])
+    weak_clap = quiet.copy()
+    weak_clap[40] = 520
+    weak_clap[41] = -430
+    weak_clap_detected, _, _ = detect_clap(weak_clap, 90.0, 12.0)
+
+    phase = np.linspace(0.0, math.tau * 8, BLOCK_SIZE, endpoint=False)
+    weak_voice = (np.sin(phase) * 55.0).astype(np.int16)
+    frontend = AdaptiveAudioFrontend("high")
+    conditioned = frontend.condition_for_speech(weak_voice)
+    raw_rms = frontend.metrics(weak_voice).rms
+    conditioned_rms = frontend.metrics(conditioned).rms
+
+    transcript = RollingTranscript()
+    transcript.add("wake", 1.0)
+    combined = transcript.add("wake up son", 1.2)
+    checks.extend(
+        [
+            not quiet_detected,
+            clap_detected,
+            weak_clap_detected,
+            conditioned_rms > raw_rms * 4.0,
+            phrase_matches(combined, "wake up son"),
+        ]
+    )
     if all(checks):
         print("wake listener self-test passed")
         return 0
@@ -463,14 +613,22 @@ def main() -> int:
     clap_times: list[float] = []
     last_settings_refresh = 0.0
     last_heard_log = 0.0
-    ambient_peak = 2500.0
-    ambient_rms = 250.0
     audio_device = configured_audio_device()
+    sensitivity = configured_sensitivity()
     if audio_device is not None:
         log(f"using configured audio device: {audio_device!r}")
+    log(f"wake sensitivity={sensitivity!r}")
+    stream_options = audio_stream_options(audio_device)
+    stream_index = 0
 
     while True:
+        option = stream_options[stream_index % len(stream_options)]
+        source_rate = int(option["rate"])
+        source_block_size = max(320, int(round(source_rate * BLOCK_DURATION_SECONDS)))
         audio_queue: queue.Queue[bytes] = queue.Queue(maxsize=96)
+        frontend = AdaptiveAudioFrontend(sensitivity)
+        transcript = RollingTranscript()
+        last_input_activity = time.monotonic()
 
         def callback(indata, frames, time_info, status):  # noqa: ARG001
             if status:
@@ -486,16 +644,23 @@ def main() -> int:
 
         try:
             with sd.RawInputStream(
-                samplerate=SAMPLE_RATE,
-                blocksize=BLOCK_SIZE,
+                samplerate=source_rate,
+                blocksize=source_block_size,
                 dtype="int16",
                 channels=1,
-                device=audio_device,
+                device=option["index"],
                 callback=callback,
             ):
-                log("listening for two claps or magic words")
+                log(
+                    "listening for two claps or magic words; "
+                    f"device={option['name']!r}, rate={source_rate}, "
+                    f"adaptive_gain<=x{frontend.max_gain:g}"
+                )
                 while True:
-                    data = audio_queue.get()
+                    try:
+                        data = audio_queue.get(timeout=2.5)
+                    except queue.Empty as exc:
+                        raise RotateAudioDevice("microphone stopped delivering audio") from exc
                     now = time.monotonic()
 
                     if now - last_settings_refresh >= SETTINGS_REFRESH_SECONDS:
@@ -504,50 +669,81 @@ def main() -> int:
                         if latest_wake_phrase != wake_phrase:
                             wake_phrase = latest_wake_phrase
                             recognizer = make_recognizer(vosk_model, wake_phrase)
+                            transcript.reset()
                             log(f"wake phrase updated to {wake_phrase!r}")
 
-                    samples = np.frombuffer(data, dtype=np.int16)
+                    source_samples = np.frombuffer(data, dtype=np.int16)
+                    samples = resample_pcm16(source_samples, source_rate)
                     if samples.size:
-                        is_clap, peak, rms = detect_clap(samples, ambient_peak, ambient_rms)
-                        is_clap = is_clap and now - last_clap >= CLAP_DEBOUNCE
+                        metrics = frontend.metrics(samples)
+                        if metrics.peak >= 6.0 or metrics.rms >= 1.5:
+                            last_input_activity = now
+                        elif (
+                            len({item["index"] for item in stream_options}) > 1
+                            and now - last_input_activity >= DEVICE_SILENCE_ROTATE_SECONDS
+                        ):
+                            raise RotateAudioDevice("microphone input stayed digitally silent")
+
+                        clap_candidate, _, _ = detect_clap(
+                            samples,
+                            frontend.noise_peak,
+                            frontend.noise_rms,
+                            sensitivity,
+                        )
+                        frontend.observe_noise(metrics, transient=clap_candidate)
+                        is_clap = (
+                            clap_candidate and now - last_clap >= CLAP_DEBOUNCE
+                        )
                         if is_clap:
                             last_clap = now
                             clap_times = [stamp for stamp in clap_times if now - stamp <= DOUBLE_CLAP_WINDOW]
                             clap_times.append(now)
                             log(f"clap heard ({min(len(clap_times), 2)}/2)")
                             if len(clap_times) >= 2:
-                                if now - last_wake >= WAKE_COOLDOWN_SECONDS:
+                                if now - last_wake >= WAKE_DEDUP_SECONDS:
                                     last_wake = now
                                     wake_morice("double clap")
                                 else:
-                                    log("double clap ignored during wake cooldown")
+                                    log("duplicate double clap ignored")
                                 clap_times = []
+                                transcript.reset()
                                 if recognizer is not None and hasattr(recognizer, "Reset"):
                                     recognizer.Reset()
-                        else:
-                            ambient_peak = update_ambient(ambient_peak, peak, 8500.0)
-                            ambient_rms = update_ambient(ambient_rms, rms, 1400.0)
 
                     if recognizer is not None:
-                        heard = ""
-                        if recognizer.AcceptWaveform(data):
+                        conditioned_data = frontend.condition_for_speech(samples).tobytes()
+                        accepted = recognizer.AcceptWaveform(conditioned_data)
+                        if accepted:
                             heard = json.loads(recognizer.Result()).get("text", "")
                         else:
                             heard = json.loads(recognizer.PartialResult()).get("partial", "")
                         heard_norm = norm(heard)
+                        combined_heard = transcript.add(heard, now, final=accepted)
                         if heard_norm and now - last_heard_log >= HEARD_LOG_GAP:
                             last_heard_log = now
-                            log(f"heard: {heard_norm!r}")
-                        if any(phrase_matches(heard, phrase) for phrase in magic_phrases(wake_phrase)):
-                            if now - last_wake >= WAKE_COOLDOWN_SECONDS:
+                            log(
+                                f"heard: {heard_norm!r}; gain=x{frontend.gain:.1f}, "
+                                f"noise_rms={frontend.noise_rms:.0f}"
+                            )
+                        if any(
+                            phrase_matches(combined_heard, phrase)
+                            for phrase in magic_phrases(wake_phrase)
+                        ):
+                            if now - last_wake >= WAKE_DEDUP_SECONDS:
                                 last_wake = now
                                 wake_morice(f"magic words: {wake_phrase}")
                             else:
-                                log("magic words ignored during wake cooldown")
+                                log("duplicate magic words ignored")
                             clap_times = []
+                            transcript.reset()
                             if recognizer is not None and hasattr(recognizer, "Reset"):
                                 recognizer.Reset()
+        except RotateAudioDevice as exc:
+            stream_index = (stream_index + 1) % len(stream_options)
+            log(f"switching microphone input: {exc}")
+            time.sleep(0.2)
         except Exception as exc:  # noqa: BLE001
+            stream_index = (stream_index + 1) % len(stream_options)
             log(f"audio stream error; retrying in {STREAM_RETRY_SECONDS:.0f}s: {exc}")
             time.sleep(STREAM_RETRY_SECONDS)
 

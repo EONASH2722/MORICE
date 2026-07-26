@@ -294,7 +294,11 @@ Wake behavior:
 - Say the saved wake line, for example `wake up son`.
 - Or clap twice inside the wake window.
 - Either path launches the app if needed and sets MORICE awake automatically.
-- The listener has a wake cooldown so repeated partial voice matches or extra claps do not spam MORICE.
+- Adaptive noise-floor calibration and automatic gain make quiet speech usable on weak laptop and USB microphones without hard clipping.
+- Partial Vosk results are combined across audio blocks, so a broken-up `wake ... up ... son` can still match.
+- MORICE tries the preferred/default microphone first, then rotates through usable input devices and sample rates if a device is silent or rejects 16 kHz capture.
+- Double-clap thresholds follow the learned room noise; two transients are still required to avoid single-noise wakeups.
+- Short event de-duplication prevents repeated partial voice matches or extra clap edges from launching MORICE twice.
 - It detects both the packaged `MORICE.exe` app and manual Python runs, so it avoids launching duplicates during development.
 
 The wake line can be changed in the MORICE panel.
@@ -307,6 +311,7 @@ python morice_wake_listener.py --list-devices
 ```
 
 To force a specific microphone, set `MORICE_AUDIO_DEVICE` to the device index or device name before starting the listener.
+The default wake sensitivity is `high`. Set `MORICE_WAKE_SENSITIVITY` to `high`, `balanced`, or `conservative` if the room or microphone needs different behavior.
 
 Optional startup install:
 
