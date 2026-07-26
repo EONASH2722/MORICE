@@ -6670,7 +6670,11 @@ class MoriceWindow(QWidget):
         self.title_bar.sidebar_btn.setText("Close" if is_visible else "Panel")
 
     def toggle_workspace_panel(self):
-        if self.workspace_panel.isVisible():
+        is_open = self._panel_target_visibility.get(
+            self.workspace_panel,
+            self.workspace_panel.isVisible(),
+        )
+        if is_open:
             self._close_workspace()
         else:
             self._open_workspace(self.active_workspace_kind)

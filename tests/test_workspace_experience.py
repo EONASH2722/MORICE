@@ -156,6 +156,26 @@ class WorkspaceUiTests(unittest.TestCase):
         self.assertNotEqual(self.window.current_theme, before)
         self.assertIn(self.window.accent_color, self.window.styleSheet())
 
+    def test_lab_closes_from_project_mode_even_during_splitter_transition(self):
+        self.window._set_chat_mode("project")
+        self.window._open_workspace("graph")
+
+        # A splitter relayout can briefly report the old QWidget visibility.
+        # The requested panel state must remain authoritative for the toggle.
+        self.window.workspace_panel.setVisible(False)
+        self.assertTrue(
+            self.window._panel_target_visibility[self.window.workspace_panel]
+        )
+
+        self.window.toggle_workspace_panel()
+        self.app.processEvents()
+
+        self.assertFalse(
+            self.window._panel_target_visibility[self.window.workspace_panel]
+        )
+        self.assertFalse(self.window.workspace_panel.isVisible())
+        self.assertEqual(self.window.title_bar.workspace_btn.text(), "Lab")
+
     def test_appearance_controls_change_theme_emoji_and_font(self):
         self.assertEqual(
             [
