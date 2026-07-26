@@ -372,7 +372,10 @@ Project mode is designed for real workspace changes:
 - File building: describe the app, game, website, script, or tool you want, and MORICE writes the project files into the selected work folder.
 - If no folder is selected, MORICE prepares a safe default work folder outside the app at `~/MORICE Projects/Quick Build`.
 - Existing project awareness: MORICE reads a bounded snapshot of the work folder before editing, so it can update files instead of replacing blindly.
-- Local fallback building: if the selected model answers normally instead of returning a safe JSON file manifest, MORICE can still generate a practical starter project for common web, game, script, and tool requests.
+- Request contracts: explicitly named languages, frameworks, engines, platforms, dimensions, and product identities are treated as acceptance criteria rather than suggestions.
+- Semantic validation: heading-only pages, static game mockups, fake 3D, silent language switching, and unrelated substitute games are rejected before files are written.
+- Follow-up continuity: recent project conversation and the current file snapshot are supplied together, so requests such as `add Flappy Bird to it too` edit the existing project instead of turning the new prompt into a replacement heading.
+- Honest local fallback building: MORICE can recover selected deterministic projects such as a complete dependency-free Flappy Bird 3D browser game, but it refuses to invent an unrelated generic game when it cannot implement the requested one.
 - A right-side `Project changes` panel that shows unified diffs with green additions and red removals after each file-building action.
 - `Local mode` uses the selected folder and local model only.
 - `Online+local` can add web context for current libraries, docs, patterns, and examples.

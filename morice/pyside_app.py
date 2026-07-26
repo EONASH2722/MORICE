@@ -136,7 +136,11 @@ from .model_catalog import (
     search_huggingface_gguf,
     verify_ai_model_file,
 )
-from .project_builder import build_project_fallback_manifest
+from .project_builder import (
+    build_project_fallback_manifest,
+    project_request_contract,
+    validate_project_manifest_intent,
+)
 from .project_runtime import (
     ProjectValidationError,
     build_launch_plan,
@@ -7081,9 +7085,11 @@ class MoriceWindow(QWidget):
             "frm' as 'short form' and 'sory' as 'sorry' when the conversation makes that clear. "
             "When the user asks to build something, produce complete, practical source files that can run locally. "
             "Do not pretend a text file is a compiled app and never propose or emit fake .exe, .dll, .apk, .msi, or archive files. "
-            "For a new playable game, default to a complete self-contained HTML/CSS/JavaScript Canvas project that runs by opening index.html. "
-            "Only edit a Unity project when the chosen folder already contains a real Unity project and the request specifically asks for it; "
-            "never invent Unity scenes, prefabs, metadata, binary art/audio, or a compiled executable. "
+            "Treat an explicitly requested language, engine, framework, platform, and game/app identity as non-negotiable acceptance criteria. "
+            "Never replace the requested product with a generic landing page, unrelated mini-games, or a page that merely uses the prompt as its heading. "
+            "For a new playable game with no language or engine specified, default to a complete self-contained HTML/CSS/JavaScript project that runs by opening index.html. "
+            "For a new Unity request, create valid C# source and text configuration that can be imported into Unity; "
+            "only edit scenes, prefabs, and metadata when those files already exist. Never invent binary art/audio or a compiled executable. "
             "Prefer dependency-light HTML/CSS/JavaScript for browser games and apps. For Python, include a requirements.txt "
             "only for real third-party imports and make the source run with a normal Python installation. "
             "Use clean architecture, readable names, validation, useful error handling, responsive UI guidance, and "
@@ -7209,6 +7215,15 @@ class MoriceWindow(QWidget):
             and len(lowered.split()) <= 5
         )
 
+    def _project_has_files(self) -> bool:
+        if not self.project_folder or not os.path.isdir(self.project_folder):
+            return False
+        try:
+            with os.scandir(self.project_folder) as entries:
+                return any(entries)
+        except OSError:
+            return False
+
     def _project_snapshot(self) -> str:
         if not self.project_folder or not os.path.isdir(self.project_folder):
             return "Existing project snapshot: no files yet."
@@ -7269,8 +7284,8 @@ class MoriceWindow(QWidget):
             snapshot += "\n\nReadable file contents:" + "".join(content_blocks)
         return snapshot
 
-    def _project_manifest_instruction(self) -> str:
-        return (
+    def _project_manifest_instruction(self, request: str = "") -> str:
+        instruction = (
             "For this project request, do not give copy-paste instructions and do not ask the user to create files. "
             "Return only valid JSON with this shape: "
             '{"summary":"short result","files":[{"path":"relative/path.ext","content":"full file content"}],'
@@ -7279,11 +7294,17 @@ class MoriceWindow(QWidget):
             "When editing an existing file, include the full updated file content. "
             "Do not return a commands-only manifest; create or update at least one practical file whenever the request asks to build. "
             "Never create .exe, .dll, .msi, .apk, .zip, or another compiled/binary artifact. MORICE writes runnable source files only. "
-            "For a new game or browser app, create a complete self-contained index.html (plus CSS/JS when useful) rather than Unity files, fake assets, or pygame-only code. "
-            "Only edit existing Unity source scripts when the folder already contains that Unity project; never create .unity, .prefab, .meta, or binary asset files. "
+            "Honor every explicitly requested language, engine, framework, and platform. Do not silently switch languages. "
+            "For a new game with no requested language or engine, create a complete self-contained index.html (plus CSS/JS when useful) rather than Unity files, fake assets, or pygame-only code. "
+            "For Unity, create or edit complete C# source files and safe text configuration; never fabricate .unity, .prefab, .meta, or binary asset files. "
             "For a browser app, create a complete index.html. For a Python app, create a complete .py entry point and requirements.txt when packages are needed. "
+            "Implement the requested behavior itself. A title, description, mockup, TODO, or unrelated substitute does not satisfy the request. "
+            "On follow-up requests, preserve unrelated existing features and edit the current project instead of rebuilding it as a new prompt-title page. "
             "Do not wrap the JSON in markdown. Do not include explanations outside the JSON."
         )
+        if request:
+            instruction += "\n\n" + project_request_contract(request, self._project_has_files())
+        return instruction
 
     def _manifest_from_markdown_files(self, text: str) -> dict | None:
         default_names = {
@@ -7418,10 +7439,12 @@ class MoriceWindow(QWidget):
             rendered.append(f"<div style='white-space:pre;color:{color}'>{escaped}</div>")
         return "".join(rendered)
 
-    def _apply_project_manifest(self, reply) -> dict | None:
+    def _apply_project_manifest(self, reply, request: str = "") -> dict | None:
         manifest = reply if isinstance(reply, dict) else self._extract_project_manifest(reply)
         if not manifest:
             return None
+        if request:
+            validate_project_manifest_intent(manifest, request)
         files = manifest.get("files") or []
         if not self.project_folder:
             raise ValueError("No work folder selected.")
@@ -9039,7 +9062,7 @@ class MoriceWindow(QWidget):
                     if project_build_request:
                         self.thinking_update.emit("Reading the work folder so edits can be applied directly.")
                         extra_system += "\n\n" + self._project_snapshot()
-                        extra_system += "\n\n" + self._project_manifest_instruction()
+                        extra_system += "\n\n" + self._project_manifest_instruction(project_source_input)
                 response_style = self.response_style.strip()
                 if response_style:
                     extra_system += (
@@ -9083,11 +9106,13 @@ class MoriceWindow(QWidget):
                 model_user_input = user_input
                 model_history = self.history
                 if project_build_request:
-                    model_history = []
+                    model_history = self.history[-8:]
                     model_user_input = (
-                        "Create or update the project files for this request. "
+                        "Create or update the current project files for the authoritative request below. "
+                        "Use the existing project snapshot and recent project conversation to preserve prior work. "
                         "Return only the required JSON manifest with complete file contents.\n\n"
-                        f"USER_REQUEST:\n{project_source_input}"
+                        f"{project_request_contract(project_source_input, self._project_has_files())}\n\n"
+                        f"AUTHORITATIVE_USER_REQUEST:\n{project_source_input}"
                     )
                 reply = chat(
                     model_history,
@@ -9105,7 +9130,7 @@ class MoriceWindow(QWidget):
                     apply_error = ""
                     self.thinking_update.emit("Applying generated files to the selected work folder.")
                     try:
-                        project_result = self._apply_project_manifest(reply)
+                        project_result = self._apply_project_manifest(reply, project_source_input)
                     except Exception as exc:  # noqa: BLE001
                         apply_error = str(exc)
 
@@ -9121,23 +9146,29 @@ class MoriceWindow(QWidget):
                             repair_reply = chat(
                                 [],
                                 repair_prompt,
-                                extra_system=extra_system + "\n\n" + self._project_manifest_instruction(),
+                                extra_system=extra_system + "\n\n" + self._project_manifest_instruction(project_source_input),
                                 model=self.model_name or None,
                                 timeout=180,
                                 precision_mode=True,
                                 math_steps_mode=False,
                                 gguf_path=self.model_path,
                             )
-                            project_result = self._apply_project_manifest(repair_reply)
+                            project_result = self._apply_project_manifest(repair_reply, project_source_input)
                         except Exception as exc:  # noqa: BLE001
                             apply_error = str(exc)
 
                     if not project_result:
                         self.thinking_update.emit("Using MORICE's local Project fallback builder.")
                         try:
-                            fallback_manifest = build_project_fallback_manifest(project_source_input)
+                            fallback_manifest = build_project_fallback_manifest(
+                                project_source_input,
+                                self.project_folder,
+                            )
                             if fallback_manifest:
-                                project_result = self._apply_project_manifest(fallback_manifest)
+                                project_result = self._apply_project_manifest(
+                                    fallback_manifest,
+                                    project_source_input,
+                                )
                                 if project_result:
                                     project_result["summary"] = (
                                         project_result["summary"]

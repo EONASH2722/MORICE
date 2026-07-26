@@ -20,6 +20,10 @@ from morice.pyside_app import (
     _needs_web_rich_text,
     _web_assets_path,
 )
+from morice.project_builder import (
+    ProjectIntentError,
+    build_project_fallback_manifest,
+)
 from morice.project_runtime import ProjectValidationError
 from morice.science_engine import Particle, PhysicsArtifact
 from morice.visualization import VisualizationManager
@@ -368,6 +372,37 @@ class InlineVisualizationTests(unittest.TestCase):
 
             with open(target, "r", encoding="utf-8") as source_file:
                 self.assertEqual(source_file.read(), original)
+
+    def test_project_manifest_semantics_are_checked_before_any_write(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.window.project_folder = folder
+            request = "Build a fully playable Flappy Bird 3D game."
+            bad_manifest = {
+                "files": [
+                    {
+                        "path": "index.html",
+                        "content": "<h1>Build a fully playable Flappy Bird 3D game</h1>",
+                    }
+                ]
+            }
+
+            with self.assertRaises(ProjectIntentError):
+                self.window._apply_project_manifest(bad_manifest, request)
+
+            self.assertEqual(os.listdir(folder), [])
+
+    def test_project_manifest_writes_validated_flappy_game(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.window.project_folder = folder
+            request = "Build a polished Flappy Bird 3D game for the browser."
+            manifest = build_project_fallback_manifest(request, folder)
+
+            result = self.window._apply_project_manifest(manifest, request)
+
+            self.assertTrue(result["validated"])
+            self.assertTrue(os.path.isfile(os.path.join(folder, "index.html")))
+            self.assertTrue(os.path.isfile(os.path.join(folder, "game.js")))
+            self.assertIn("game.js", result["changed"])
 
     def test_vnext_visualization_is_normal_chat_only(self):
         self.window._set_chat_mode("project")
