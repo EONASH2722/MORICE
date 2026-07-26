@@ -26,6 +26,12 @@ from .domain_engine import (
     wants_diagram,
     wants_molecule,
 )
+from .educational_engine import (
+    build_biology_artifact,
+    build_data_structure_artifact,
+    wants_biology,
+    wants_data_structures,
+)
 
 
 ProgressCallback = Callable[[str, str, int], None]
@@ -251,6 +257,63 @@ class DiagramRendererPlugin:
         return (len(diagram.nodes) * 128 + len(diagram.edges) * 96) if diagram else 0
 
 
+class BiologyRendererPlugin:
+    renderer_id = "biology.educational"
+    label = "Interactive biology model"
+    interactive = True
+
+    def can_render(self, prompt: str) -> bool:
+        return wants_biology(prompt)
+
+    def render(self, prompt: str) -> ScienceArtifact | None:
+        return build_biology_artifact(prompt)
+
+    def validate(self, artifact: ScienceArtifact) -> tuple[bool, str]:
+        biology = artifact.biology
+        if artifact.kind != "biology" or biology is None:
+            return False, "The biology engine did not return a model artifact."
+        if len(biology.points) < 2 or not biology.labels:
+            return False, "The biology model contains no renderable geometry."
+        if any(
+            not all(_is_finite_number(value) for value in point)
+            for point in biology.points
+        ):
+            return False, "The biology model contains invalid coordinates."
+        return True, ""
+
+    def estimate_bytes(self, artifact: ScienceArtifact) -> int:
+        biology = artifact.biology
+        return len(biology.points) * 64 if biology else 0
+
+
+class DataStructureRendererPlugin:
+    renderer_id = "computer-science.data-structures"
+    label = "Interactive data-structure lab"
+    interactive = True
+
+    def can_render(self, prompt: str) -> bool:
+        return wants_data_structures(prompt)
+
+    def render(self, prompt: str) -> ScienceArtifact | None:
+        return build_data_structure_artifact(prompt)
+
+    def validate(self, artifact: ScienceArtifact) -> tuple[bool, str]:
+        data = artifact.data_structures
+        if artifact.kind != "data-structures" or data is None:
+            return False, "The data-structure engine did not return a lab artifact."
+        if not data.structures or not data.initial_values:
+            return False, "The data-structure lab has no structures or values."
+        return True, ""
+
+    def estimate_bytes(self, artifact: ScienceArtifact) -> int:
+        data = artifact.data_structures
+        return (
+            len(data.structures) * 256 + len(data.initial_values) * 16
+            if data
+            else 0
+        )
+
+
 class RendererRegistry:
     def __init__(self):
         self._plugins: dict[str, RendererPlugin] = {}
@@ -399,6 +462,8 @@ class VisualizationManager:
     ):
         self.registry = registry or RendererRegistry()
         if registry is None:
+            self.registry.register(BiologyRendererPlugin())
+            self.registry.register(DataStructureRendererPlugin())
             self.registry.register(GraphRendererPlugin())
             self.registry.register(PhysicsRendererPlugin())
             self.registry.register(MoleculeRendererPlugin())
@@ -418,6 +483,8 @@ class VisualizationManager:
                 "physics.simulation": "The request describes a supported dynamic physical system.",
                 "chemistry.molecule": "The request names a molecule in the validated VSEPR structure library.",
                 "diagram.structured": "The request maps to a validated structured-diagram template.",
+                "biology.educational": "The request describes a supported biology model.",
+                "computer-science.data-structures": "The request asks for interactive data-structure operations.",
             }.get(plugin.renderer_id, "A validated renderer supports this request.")
             return VisualizationDecision(plugin.renderer_id, reason, 1.0)
 
@@ -433,6 +500,42 @@ class VisualizationManager:
         if any(
             marker in lowered
             for marker in {
+                "biology",
+                "cell",
+                "chromosome",
+                "dna",
+                "double helix",
+                "genetics",
+                "neuron",
+                "protein",
+                "rna",
+            }
+        ):
+            return VisualizationDecision(
+                "biology.educational",
+                "The request explicitly asks for a supported biology visualization.",
+                0.97,
+            )
+        if any(
+            marker in lowered
+            for marker in {
+                "avl tree",
+                "binary search tree",
+                "data structure",
+                "hash table",
+                "linked list",
+                "queue",
+                "stack",
+            }
+        ):
+            return VisualizationDecision(
+                "computer-science.data-structures",
+                "The request explicitly asks for interactive data-structure operations.",
+                0.97,
+            )
+        if any(
+            marker in lowered
+            for marker in {
                 "atom",
                 "bond",
                 "chemistry",
@@ -441,9 +544,11 @@ class VisualizationManager:
                 "lewis structure",
                 "molecule",
                 "molecular",
-                "orbital",
                 "vsepr",
             }
+        ) or (
+            "orbital" in lowered
+            and any(marker in lowered for marker in {"atom", "electron", "quantum"})
         ):
             return VisualizationDecision(
                 "chemistry.molecule",

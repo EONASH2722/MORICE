@@ -163,8 +163,10 @@ def emoji_preference_instruction(value: str) -> str:
         )
     if level == "expressive":
         return (
-            "Emoji preference: use a lively but readable amount of relevant emoji in "
-            "headings and prose. Do not put emoji in code, paths, commands, or structured data."
+            "Emoji preference: Expressive. Actively use a lively but readable amount of "
+            "relevant emoji in headings and prose; include at least one relevant emoji in "
+            "ordinary conversational replies. This is an active style requirement, not merely "
+            "permission. Do not put emoji in code, paths, commands, or structured data."
         )
     return (
         "Emoji preference: use emoji sparingly, only where one improves scanning or tone. "
@@ -183,10 +185,12 @@ def maturity_preference_instruction(value: str) -> str:
     )
     if level == "full":
         tone_rule = (
-            "Maturity setting: Full. Strong profanity is allowed when it naturally strengthens "
-            "a blunt response, including during persistent disagreement. Do not use slurs, "
-            "threats, targeted humiliation, or attacks on protected traits, and do not replace "
-            "reasoning with insults."
+            "Maturity setting: Full. Strong profanity is allowed. Use blunt adult wording and "
+            "occasional natural profanity when emphasis, frustration, humor, or persistent "
+            "disagreement makes it fit. Treat this as an active tone preference, not merely "
+            "permission, but do not force profanity into every reply. Do not use slurs, threats, "
+            "targeted humiliation, or attacks on protected traits, and do not replace reasoning "
+            "with insults."
         )
     elif level == "medium":
         tone_rule = (
@@ -200,6 +204,35 @@ def maturity_preference_instruction(value: str) -> str:
             "when disagreeing without insulting the user."
         )
     return f"{truth_rule}\n{tone_rule}"
+
+
+def assistant_voice_instruction() -> str:
+    return (
+        "MORICE voice: sound half human and half precision machine. Use natural contractions, "
+        "brief human reactions, and confident conversational rhythm, paired with exact technical "
+        "reasoning and clear status language. Avoid stiff chatbot disclaimers, canned politeness, "
+        "and repetitive robotic phrasing. Stay honest, grounded, and recognizably MORICE."
+    )
+
+
+def apply_emoji_presentation(text: str, value: str) -> str:
+    reply = str(text or "").rstrip()
+    if not reply or normalize_emoji_level(value) != "expressive":
+        return reply
+    if re.search(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]", reply):
+        return reply
+    lowered = reply.lower()
+    if any(marker in lowered for marker in {"error", "failed", "could not", "unavailable"}):
+        marker = "⚠️"
+    elif any(marker in lowered for marker in {"code", "project", "file", "build"}):
+        marker = "🛠️"
+    elif any(marker in lowered for marker in {"graph", "simulation", "science", "model"}):
+        marker = "🔬"
+    elif any(marker in lowered for marker in {"done", "ready", "saved", "success"}):
+        marker = "✅"
+    else:
+        marker = "✨"
+    return f"{reply}\n\n{marker}"
 
 
 def _normalized_words(text: str) -> list[str]:

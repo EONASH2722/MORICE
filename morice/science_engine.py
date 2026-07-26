@@ -98,6 +98,8 @@ class ScienceArtifact:
     physics: PhysicsArtifact | None = None
     chemistry: object | None = None
     diagram: object | None = None
+    biology: object | None = None
+    data_structures: object | None = None
 
 
 class UnsafeExpression(ValueError):
@@ -173,6 +175,19 @@ def is_science_request(text: str) -> bool:
 
 def wants_graph(text: str) -> bool:
     lowered = (text or "").lower()
+    if any(
+        marker in lowered
+        for marker in {
+            "avl tree",
+            "binary search tree",
+            "data structure",
+            "hash table",
+            "linked list",
+            "queue",
+            "stack",
+        }
+    ):
+        return False
     if "polar" in lowered or "parametric" in lowered or re.search(r"\br\s*=", text or "", flags=re.IGNORECASE):
         return True
     if re.search(r"\b(?:y|f\s*\(\s*x\s*\))\s*=", text or "", flags=re.IGNORECASE):
@@ -188,7 +203,19 @@ def wants_physics(text: str) -> bool:
     lowered = (text or "").lower()
     return any(
         marker in lowered
-        for marker in {"animate", "simulate", "simulation", "physics", "particle", "projectile"}
+        for marker in {
+            "animate",
+            "draw",
+            "render",
+            "show",
+            "simulate",
+            "simulation",
+            "physics",
+            "particle",
+            "projectile",
+            "visualise",
+            "visualize",
+        }
     ) and any(
         marker in lowered
         for marker in {

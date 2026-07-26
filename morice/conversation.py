@@ -178,6 +178,9 @@ def saved_settings_instruction(
         emoji_instruction.strip(),
         maturity_instruction.strip(),
     ]
+    from .capabilities import assistant_voice_instruction
+
+    lines.append(assistant_voice_instruction())
     if style:
         lines.extend(
             [

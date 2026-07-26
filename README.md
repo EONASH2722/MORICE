@@ -39,6 +39,8 @@ Current VNext desktop runtime:
 - Surface graphs: validated `z=f(x,y)` data with linked 2D height-map and 3D mesh views.
 - Physics: particles, projectile, pendulum, spring, wave, circular motion, and orbital scenes with real simulation state.
 - Chemistry: curated VSEPR molecular structures with 2D/3D views, reference angles, rotation, and atom inspection.
+- Biology: validated DNA, neuron, and cell models with real geometry, labels, animation controls, and shared 2D/3D views.
+- Computer science: Binary Search Trees, AVL Trees, graphs, linked lists, queues, stacks, and hash tables with live Insert/Delete/Search operations, animated highlights, and complexity reporting.
 - Structured diagrams: networking, compiler, process-state, and explicit flow pipelines.
 - Rich answers: local Markdown, highlighted code, tables, and KaTeX equations.
 - Model-agnostic instruction shape: `simulationType`, `equations`, and `parameters`.
@@ -60,12 +62,12 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 - Trusted model browser with automatic GPU/VRAM detection, one-click trusted model lanes, compatibility scoring, worth scoring, official-source links, licenses, task metadata, and model-speciality summaries.
 - Project Mode with a readable right-side Files/Changes/Output workspace, project tree, source preview, green/red diffs, source validation, run actions, and an allowlisted direct-command terminal.
 - Project prompts become validated editable files in the selected folder; filename-labeled code blocks and the local fallback builder remain recovery paths.
-- VNext inline workspaces for real graphs, surfaces, physics, molecules, diagrams, and rich mathematics directly in Normal Chat.
+- VNext inline workspaces for real graphs, surfaces, physics, molecules, biology, data structures, diagrams, and rich mathematics directly in Normal Chat.
 - `@web` lookup for fresh information when needed, with results passed into the local reply pipeline instead of leaving the whole chat online by default.
 - `@notes` lookup for local knowledge files, so MORICE can answer from personal documents without uploading them.
 - Adaptive wake listener that can launch MORICE by saved phrase or double clap, amplify quiet speech, learn persistent room noise, recover split phrases, and rotate away from silent or incompatible microphones.
 - Message queue for follow-up steering while a long local reply is still generating.
-- Personalization and appearance panel for the user title, wake phrase, response style, emoji amount, maturity level, dark/light theme, and built-in or user-added fonts.
+- Personalization and appearance panel for the user title, wake phrase, response style, emoji amount, maturity level, dark/light theme, and built-in or user-added fonts. Expressive emoji mode actively shapes replies, while MORICE's voice combines human cadence with precise machine reasoning.
 - Typo-aware and short-form-aware intent handling, so rough wording can still land in the right workflow.
 - Verified capability answers: questions such as `what all rendering can you do` return a complete implemented-feature inventory instead of an improvised model reply.
 - MIT licensed, so the project can be studied, forked, customized, and improved.
@@ -78,9 +80,9 @@ MORICE now includes a persistent, resizable `Tools` dock and a `Ctrl+K` command 
 - `Files`: bounded local filename search plus safe text, JSON, image, and PDF previews; downloads have their own sub-tab.
 - `Activity`: timeline, queued tasks, live local logs, and an in-memory clipboard history that is never written to the session file.
 - `Tools`: CPU/GPU/RAM/storage/network/battery status, persistent local notes, an embedded browser when Qt WebEngine is available, local audio/video playback, and Windows media controls.
-- Appearance: dark and light themes, a user-selectable accent, built-in font choices, validated local TTF/OTF/TTC fonts, three emoji levels, three maturity levels, stable glass panels, compact native-style window controls, and motion that respects `MORICE_REDUCE_MOTION`.
-- Workspace continuity: atomic session saves restore bounded chat history, notes, recent items, panel visibility, theme, accent, and monitor-safe window geometry.
-- Conversation continuity: Normal Chat keeps complete recent user/assistant turns, resolves references such as `the previous message` (including common typos), and restores that bounded context with the session.
+- Appearance: dark and light themes with outlined sun/moon title-bar controls, a user-selectable accent, built-in font choices, validated local TTF/OTF/TTC fonts, three emoji levels, three maturity levels, stable glass panels, compact native-style window controls, and motion that respects `MORICE_REDUCE_MOTION`.
+- Workspace continuity: atomic session saves restore notes, recent items, panel visibility, theme, accent, and monitor-safe window geometry.
+- Conversation privacy: each application launch starts a fresh Normal Chat instead of restoring old messages. Within the current run, MORICE keeps complete recent turns and resolves references such as `the previous message` (including common typos).
 - Settings precedence: the current saved name, response style, emoji preference, and maturity level remain authoritative during follow-up answers, even when older chat text contains different preferences.
 - Truth-first disagreement: MORICE rechecks disputed claims and corrects genuine mistakes, but does not concede a supported answer merely because the user insists. Uncertainty is stated honestly instead of hidden.
 - Evaluation posture: conversational testing is direct and does not add MORICE-level morality lectures or canned refusals. Filesystem containment, generated-code validation, renderer validation, model-file validation, and confirmation before destructive desktop actions remain enabled because they prevent accidental machine damage rather than censoring answers.

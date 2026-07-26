@@ -155,6 +155,13 @@ class WorkspaceUiTests(unittest.TestCase):
         self.window.toggle_theme()
         self.assertNotEqual(self.window.current_theme, before)
         self.assertIn(self.window.accent_color, self.window.styleSheet())
+        self.assertEqual(
+            self.window.title_bar.theme_btn.accessibleName(),
+            "Light theme active"
+            if self.window.current_theme == "light"
+            else "Dark theme active",
+        )
+        self.assertFalse(self.window.title_bar.theme_btn.icon().isNull())
 
     def test_lab_closes_from_project_mode_even_during_splitter_transition(self):
         self.window._set_chat_mode("project")
@@ -339,6 +346,8 @@ class WorkspaceUiTests(unittest.TestCase):
                 assistant_hub_visible=True,
                 notes="restored note",
                 geometry=[40, 50, 1100, 720],
+                history=[{"role": "user", "content": "stale message"}],
+                user_messages=["stale message"],
             )
             save_workspace_state(state, workspace_state_path())
             restored = MoriceWindow()
@@ -349,6 +358,8 @@ class WorkspaceUiTests(unittest.TestCase):
                 self.assertEqual(restored.accent_color, "#234567")
                 self.assertEqual(restored.assistant_hub.notes.toPlainText(), "restored note")
                 self.assertTrue(restored.assistant_hub.isVisible())
+                self.assertEqual(restored.history, [])
+                self.assertEqual(restored.user_messages, [])
             finally:
                 restored.close()
                 self.app.processEvents()

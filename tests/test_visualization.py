@@ -10,6 +10,8 @@ os.environ.setdefault("MORICE_REDUCE_MOTION", "1")
 from PySide6.QtWidgets import QApplication
 
 from morice.pyside_app import (
+    InlineBiologyWorkspace,
+    InlineDataStructureWorkspace,
     InlineDiagramWorkspace,
     InlineGraphWorkspace,
     InlineMoleculeWorkspace,
@@ -78,6 +80,34 @@ class VisualizationManagerTests(unittest.TestCase):
             result.artifact.graph.instruction["parameters"]["views"],
             ["2d", "3d"],
         )
+
+    def test_data_structure_request_does_not_collapse_into_math_graph(self):
+        result = self._render(
+            "Visualize Binary Search Tree AVL Tree Graph Linked List Queue Stack "
+            "Hash Table. For every structure support Insert Delete Search, "
+            "highlight operations, animated transitions, and complexity display."
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.renderer_id, "computer-science.data-structures")
+        self.assertEqual(result.artifact.kind, "data-structures")
+        self.assertEqual(len(result.artifact.data_structures.structures), 7)
+
+    def test_biology_and_astronomy_route_to_their_own_engines(self):
+        biology = self._render("Render a DNA double helix with 2D and 3D views.")
+        astronomy = self._render(
+            "Visualize the solar system with orbital motion, labels, and play pause."
+        )
+
+        self.assertTrue(biology.ok)
+        self.assertEqual(biology.renderer_id, "biology.educational")
+        self.assertEqual(biology.artifact.biology.model_type, "dna")
+        self.assertEqual(
+            biology.artifact.biology.instruction["parameters"]["views"],
+            ["2d", "3d"],
+        )
+        self.assertTrue(astronomy.ok)
+        self.assertEqual(astronomy.renderer_id, "physics.simulation")
 
     def test_curated_chemistry_renderer_is_real_and_validated(self):
         result = self._render("Render an interactive 3D VSEPR model of SF4.")
@@ -227,6 +257,51 @@ class InlineVisualizationTests(unittest.TestCase):
             original_atoms,
             [(atom.x, atom.y, atom.z) for atom in workspace.artifact.atoms],
         )
+
+    def test_biology_workspace_renders_real_geometry_and_switches_views(self):
+        self.assertTrue(
+            self.window._handle_science_request(
+                "Render a DNA double helix with animated twisting and labels."
+            )
+        )
+        self._wait_for_jobs()
+        workspace = self.window.chat_list.findChildren(InlineBiologyWorkspace)[0]
+
+        self.assertGreater(len(workspace.canvas.artifact.points), 20)
+        workspace.dimension_select.setCurrentText("2D")
+        self.assertEqual(workspace.canvas.view_mode, "2d")
+        workspace.dimension_select.setCurrentText("3D")
+        self.assertEqual(workspace.canvas.view_mode, "3d")
+
+    def test_data_structure_workspace_runs_real_operations(self):
+        prompt = (
+            "Visualize Binary Search Tree, AVL Tree, Graph, Linked List, Queue, "
+            "Stack and Hash Table with Insert Delete Search and complexity display."
+        )
+        self.assertTrue(self.window._handle_science_request(prompt))
+        self._wait_for_jobs()
+        workspace = self.window.chat_list.findChildren(InlineDataStructureWorkspace)[0]
+
+        self.assertEqual(workspace.structure_select.count(), 7)
+        workspace.value_input.setText("25")
+        workspace._operate("insert")
+        self.assertIn(25, workspace._current_values())
+        workspace._operate("search")
+        self.assertIn(25, workspace.canvas.highlighted)
+        self.assertIn("Complexity", workspace.complexity.text())
+        workspace.structure_select.setCurrentText("AVL Tree")
+        self.assertEqual(
+            workspace.canvas._balanced_tree(workspace._current_values())[0],
+            40,
+        )
+        workspace.structure_select.setCurrentText("Queue")
+        queue_before = list(workspace._current_values())
+        workspace._operate("delete")
+        self.assertEqual(workspace._current_values(), queue_before[1:])
+        workspace.structure_select.setCurrentText("Stack")
+        stack_before = list(workspace._current_values())
+        workspace._operate("delete")
+        self.assertEqual(workspace._current_values(), stack_before[:-1])
 
     def test_diagram_replaces_progress_card_inside_chat(self):
         self.assertTrue(

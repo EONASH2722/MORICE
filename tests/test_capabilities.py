@@ -4,6 +4,8 @@ import unittest
 from unittest.mock import patch
 
 from morice.capabilities import (
+    apply_emoji_presentation,
+    assistant_voice_instruction,
     capability_answer,
     detect_capability_topic,
     emoji_preference_instruction,
@@ -67,6 +69,9 @@ class CapabilityRoutingTests(unittest.TestCase):
         self.assertIn("do not use emoji", emoji_preference_instruction("none"))
         self.assertIn("sparingly", emoji_preference_instruction("medium"))
         self.assertIn("lively but readable", emoji_preference_instruction("expressive"))
+        self.assertIn("active style requirement", emoji_preference_instruction("expressive"))
+        self.assertTrue(apply_emoji_presentation("Project files are ready.", "expressive").endswith("🛠️"))
+        self.assertEqual(apply_emoji_presentation("No decoration.", "none"), "No decoration.")
 
     def test_maturity_rules_stay_truth_first_at_every_level(self):
         clean = maturity_preference_instruction("none")
@@ -83,6 +88,8 @@ class CapabilityRoutingTests(unittest.TestCase):
         self.assertIn("Strong profanity is allowed", full)
         self.assertIn("Do not use slurs", full)
         self.assertIn("do not replace reasoning with insults", full)
+        self.assertIn("active tone preference", full)
+        self.assertIn("half human and half precision machine", assistant_voice_instruction())
 
     def test_long_reply_is_not_truncated(self):
         reply = "A" * 5000

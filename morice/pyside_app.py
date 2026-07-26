@@ -35,6 +35,7 @@ from PySide6.QtGui import (
     QIcon,
     QCursor,
     QPainter,
+    QPixmap,
     QPen,
     QPainterPath,
     QPolygon,
@@ -151,8 +152,10 @@ from .project_runtime import (
 )
 from .science_engine import GraphArtifact, GraphSurface, PhysicsArtifact, ScienceArtifact, is_science_request
 from .domain_engine import DiagramArtifact, MoleculeArtifact, atom_color
+from .educational_engine import BiologyArtifact, DataStructureArtifact
 from .visualization import VisualizationManager, VisualizationResult
 from .capabilities import (
+    apply_emoji_presentation,
     capability_answer,
     detect_capability_topic,
     emoji_preference_instruction,
@@ -368,6 +371,34 @@ def register_ui_font_file(path: str) -> str:
         return ""
     families = QFontDatabase.applicationFontFamilies(font_id)
     return normalize_font_family(families[0]) if families else ""
+
+
+def _theme_outline_icon(theme: str) -> QIcon:
+    pixmap = QPixmap(24, 24)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setPen(QPen(QColor(255, 255, 255, 245), 1.7, Qt.SolidLine, Qt.RoundCap))
+    painter.setBrush(Qt.NoBrush)
+    if normalize_theme(theme) == "light":
+        painter.drawEllipse(QPoint(12, 12), 4, 4)
+        for index in range(8):
+            angle = index * math.tau / 8
+            painter.drawLine(
+                QPoint(int(12 + math.cos(angle) * 7), int(12 + math.sin(angle) * 7)),
+                QPoint(int(12 + math.cos(angle) * 10), int(12 + math.sin(angle) * 10)),
+            )
+    else:
+        path = QPainterPath()
+        path.moveTo(15.5, 3.5)
+        path.cubicTo(10.0, 5.0, 7.2, 9.0, 8.2, 13.2)
+        path.cubicTo(9.2, 17.4, 13.2, 19.7, 18.2, 18.2)
+        path.cubicTo(16.0, 20.4, 12.7, 21.2, 9.6, 19.9)
+        path.cubicTo(4.2, 17.7, 1.8, 11.5, 4.1, 6.6)
+        path.cubicTo(6.1, 2.5, 11.0, 1.1, 15.5, 3.5)
+        painter.drawPath(path)
+    painter.end()
+    return QIcon(pixmap)
 
 
 def available_ui_font_families(selected_family: str = "") -> list[str]:
@@ -2736,6 +2767,375 @@ class DiagramCanvas(QWidget):
         )
 
 
+class BiologyCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("BiologyCanvas")
+        self.setMinimumHeight(360)
+        self.setMouseTracking(True)
+        self.artifact: BiologyArtifact | None = None
+        self.view_mode = "3d"
+        self.running = True
+        self.yaw = math.radians(28)
+        self.pitch = math.radians(18)
+        self.zoom = 1.0
+        self.phase = 0.0
+        self._dragging = False
+        self._last_mouse = QPoint()
+        self._hit_regions: list[tuple[QPoint, str]] = []
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(16)
+
+    def set_artifact(self, artifact: BiologyArtifact | None):
+        self.artifact = artifact
+        self.reset_view()
+
+    def set_view_mode(self, mode: str):
+        self.view_mode = "2d" if str(mode).lower().startswith("2") else "3d"
+        self.update()
+
+    def set_running(self, running: bool):
+        self.running = bool(running)
+
+    def reset_view(self):
+        self.yaw = math.radians(28)
+        self.pitch = math.radians(18)
+        self.zoom = 1.0
+        self.phase = 0.0
+        self.update()
+
+    def export_png(self, path: str) -> bool:
+        return bool(path and self.grab().save(path, "PNG"))
+
+    def _tick(self):
+        if self.running and self.artifact and self.artifact.model_type == "dna":
+            self.phase = (self.phase + 0.012) % math.tau
+            self.update()
+
+    def _project(self, point: tuple[float, float, float], plot: QRect) -> tuple[QPoint, float]:
+        x, y, z = point
+        yaw = self.yaw + (self.phase if self.artifact and self.artifact.model_type == "dna" else 0.0)
+        if self.view_mode == "2d":
+            if self.artifact and self.artifact.model_type == "dna":
+                scale_x = plot.width() * 0.28 * self.zoom
+                scale_y = plot.height() * 0.105 * self.zoom
+                return QPoint(
+                    int(plot.center().x() + z * scale_x),
+                    int(plot.center().y() - x * scale_y),
+                ), y
+            return QPoint(
+                int(plot.center().x() + x * plot.width() * 0.20 * self.zoom),
+                int(plot.center().y() - y * plot.height() * 0.22 * self.zoom),
+            ), z
+        cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+        x_rotated = x * cos_yaw - y * sin_yaw
+        y_rotated = x * sin_yaw + y * cos_yaw
+        vertical = z * math.cos(self.pitch) - y_rotated * math.sin(self.pitch)
+        depth = z * math.sin(self.pitch) + y_rotated * math.cos(self.pitch)
+        scale = min(plot.width(), plot.height()) * 0.25 * self.zoom
+        return QPoint(
+            int(plot.center().x() + x_rotated * scale),
+            int(plot.center().y() - vertical * scale),
+        ), depth
+
+    def wheelEvent(self, event):
+        if event.angleDelta().y():
+            self.zoom = max(0.5, min(2.8, self.zoom * (1.1 if event.angleDelta().y() > 0 else 0.9)))
+            self.update()
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._last_mouse = event.position().toPoint()
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        position = event.position().toPoint()
+        if self._dragging and self.view_mode == "3d":
+            delta = position - self._last_mouse
+            self._last_mouse = position
+            self.yaw += delta.x() * 0.009
+            self.pitch = max(-1.2, min(1.2, self.pitch + delta.y() * 0.009))
+            self.update()
+        elif self._hit_regions:
+            point, label = min(
+                self._hit_regions,
+                key=lambda item: math.hypot(item[0].x() - position.x(), item[0].y() - position.y()),
+            )
+            if math.hypot(point.x() - position.x(), point.y() - position.y()) < 18:
+                self.inspected.emit(label)
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = False
+        event.accept()
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(30, 44, -30, -56)
+        painter.fillRect(rect, QColor(5, 9, 14, 244))
+        painter.setPen(QPen(QColor(91, 214, 178, 95), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+        if not self.artifact:
+            painter.setPen(QColor(255, 255, 255, 160))
+            painter.drawText(rect, Qt.AlignCenter, "No validated biology model")
+            return
+
+        projected = [self._project(point, plot) for point in self.artifact.points]
+        connection_colors = {
+            "backbone": QColor(72, 185, 255, 220),
+            "base pair": QColor(242, 115, 172, 215),
+            "signal": QColor(255, 204, 92, 220),
+            "input": QColor(91, 214, 178, 220),
+            "output": QColor(190, 130, 255, 220),
+            "contains": QColor(125, 190, 235, 170),
+        }
+        for first, second, connection_type in self.artifact.connections:
+            if first >= len(projected) or second >= len(projected):
+                continue
+            painter.setPen(QPen(connection_colors.get(connection_type, QColor(175, 205, 235, 190)), 3))
+            painter.drawLine(projected[first][0], projected[second][0])
+
+        self._hit_regions = []
+        for index in sorted(range(len(projected)), key=lambda item: projected[item][1], reverse=True):
+            point, depth = projected[index]
+            if self.artifact.model_type == "dna":
+                color = QColor(72, 185, 255) if index % 2 == 0 else QColor(242, 115, 172)
+                label = ("Sugar-phosphate backbone A" if index % 2 == 0 else "Sugar-phosphate backbone B")
+                radius = 6
+            else:
+                color = (QColor("#5bd6b2"), QColor("#67b7ff"), QColor("#f0a6ca"))[index % 3]
+                label = self.artifact.labels[min(index, len(self.artifact.labels) - 1)]
+                radius = 13 if index else 18
+            if self.view_mode == "3d":
+                radius = max(5, int(radius * max(0.75, min(1.2, 1.0 - depth * 0.06))))
+            painter.setBrush(color)
+            painter.setPen(QPen(color.lighter(145), 2))
+            painter.drawEllipse(point, radius, radius)
+            if self.artifact.model_type != "dna":
+                painter.setPen(QColor(236, 245, 252, 225))
+                painter.drawText(QRect(point.x() + 15, point.y() - 11, 145, 24), Qt.AlignLeft | Qt.AlignVCenter, label)
+            self._hit_regions.append((point, label))
+
+        painter.setPen(QColor(255, 255, 255, 235))
+        title_font = painter.font()
+        title_font.setBold(True)
+        title_font.setPointSize(11)
+        painter.setFont(title_font)
+        painter.drawText(rect.adjusted(14, 8, -14, -8), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+        painter.setPen(QColor(190, 210, 228, 195))
+        mode = "2D schematic" if self.view_mode == "2d" else "3D perspective"
+        painter.drawText(
+            rect.adjusted(14, 0, -14, -10),
+            Qt.AlignBottom | Qt.AlignLeft,
+            f"{mode} | wheel zoom | drag rotate | hover to inspect",
+        )
+
+
+class DataStructureCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("DataStructureCanvas")
+        self.setMinimumHeight(350)
+        self.structure = "Binary Search Tree"
+        self.values: list[int] = []
+        self.highlighted: set[int] = set()
+        self.status = "Choose an operation."
+        self._pulse = 0.0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(28)
+
+    def set_state(self, structure: str, values: list[int], highlighted=None, status: str = ""):
+        self.structure = structure
+        self.values = list(values)
+        self.highlighted = set(highlighted or [])
+        self.status = status or "Choose an operation."
+        self._pulse = 0.0
+        self.update()
+
+    def _tick(self):
+        if self.highlighted:
+            self._pulse = (self._pulse + 0.12) % math.tau
+            self.update()
+
+    @staticmethod
+    def _bst(values: list[int]):
+        root = None
+        for value in values:
+            if root is None:
+                root = [value, None, None]
+                continue
+            node = root
+            while True:
+                branch = 1 if value < node[0] else 2
+                if value == node[0]:
+                    break
+                if node[branch] is None:
+                    node[branch] = [value, None, None]
+                    break
+                node = node[branch]
+        return root
+
+    @staticmethod
+    def _balanced_tree(values: list[int]):
+        items = sorted(set(values))
+
+        def build(subset):
+            if not subset:
+                return None
+            middle = len(subset) // 2
+            return [
+                subset[middle],
+                build(subset[:middle]),
+                build(subset[middle + 1:]),
+            ]
+
+        return build(items)
+
+    def _tree_positions(self, tree, plot: QRect):
+        positions: dict[int, QPoint] = {}
+
+        def walk(node, low: float, high: float, depth: int):
+            if not node:
+                return
+            x = plot.left() + int((low + high) * 0.5 * plot.width())
+            y = plot.top() + 35 + depth * max(58, plot.height() // 5)
+            positions[node[0]] = QPoint(x, y)
+            walk(node[1], low, (low + high) * 0.5, depth + 1)
+            walk(node[2], (low + high) * 0.5, high, depth + 1)
+
+        walk(tree, 0.0, 1.0, 0)
+        return positions
+
+    def _draw_node(self, painter: QPainter, point: QPoint, value: int, radius: int = 22):
+        active = value in self.highlighted
+        if active:
+            radius += int(3 + 2 * math.sin(self._pulse))
+        color = QColor("#38d9a9") if active else QColor("#315d91")
+        painter.setBrush(color)
+        painter.setPen(QPen(color.lighter(150), 2))
+        painter.drawEllipse(point, radius, radius)
+        painter.setPen(QColor(255, 255, 255, 245))
+        painter.drawText(QRect(point.x() - radius, point.y() - radius, radius * 2, radius * 2), Qt.AlignCenter, str(value))
+
+    def _draw_tree(self, painter: QPainter, plot: QRect, avl: bool):
+        tree = self._balanced_tree(self.values) if avl else self._bst(self.values)
+        positions = self._tree_positions(tree, plot)
+
+        def edges(node):
+            if not node:
+                return
+            for child in node[1:]:
+                if child:
+                    painter.drawLine(positions[node[0]], positions[child[0]])
+                    edges(child)
+
+        painter.setPen(QPen(QColor(105, 190, 245, 185), 2))
+        edges(tree)
+        for value, point in positions.items():
+            self._draw_node(painter, point, value)
+
+    def _draw_sequence(self, painter: QPainter, plot: QRect, mode: str):
+        if mode == "Stack":
+            width, height = min(180, plot.width() // 2), 42
+            left = plot.center().x() - width // 2
+            bottom = plot.bottom() - 25
+            for index, value in enumerate(self.values[-7:]):
+                box = QRect(left, bottom - (index + 1) * height, width, height - 4)
+                self._draw_box(painter, box, value)
+            return
+        shown = self.values[:9]
+        width = max(52, min(96, (plot.width() - 40) // max(1, len(shown))))
+        left = plot.center().x() - len(shown) * width // 2
+        for index, value in enumerate(shown):
+            box = QRect(left + index * width, plot.center().y() - 26, width - 8, 52)
+            self._draw_box(painter, box, value)
+            if mode in {"Linked List", "Queue"} and index < len(shown) - 1:
+                painter.setPen(QPen(QColor(115, 204, 255, 210), 2))
+                painter.drawLine(box.right(), box.center().y(), box.right() + 8, box.center().y())
+
+    def _draw_box(self, painter: QPainter, box: QRect, value: int):
+        active = value in self.highlighted
+        color = QColor("#38d9a9") if active else QColor("#315d91")
+        painter.setBrush(color)
+        painter.setPen(QPen(color.lighter(150), 2))
+        painter.drawRoundedRect(box, 5, 5)
+        painter.setPen(QColor(255, 255, 255, 245))
+        painter.drawText(box, Qt.AlignCenter, str(value))
+
+    def _draw_hash(self, painter: QPainter, plot: QRect):
+        buckets = {index: [] for index in range(8)}
+        for value in self.values:
+            buckets[value % 8].append(value)
+        row_height = max(30, min(42, plot.height() // 9))
+        top = plot.top() + 8
+        for index, values in buckets.items():
+            label = QRect(plot.left() + 30, top + index * row_height, 58, row_height - 5)
+            painter.setBrush(QColor("#243c58"))
+            painter.setPen(QPen(QColor("#5bd6b2"), 1))
+            painter.drawRoundedRect(label, 4, 4)
+            painter.setPen(QColor(255, 255, 255, 230))
+            painter.drawText(label, Qt.AlignCenter, str(index))
+            for offset, value in enumerate(values[:6]):
+                box = QRect(label.right() + 14 + offset * 64, label.top(), 58, label.height())
+                self._draw_box(painter, box, value)
+
+    def _draw_graph(self, painter: QPainter, plot: QRect):
+        shown = self.values[:9]
+        radius = min(plot.width(), plot.height()) * 0.32
+        points = [
+            QPoint(
+                int(plot.center().x() + math.cos(-math.pi / 2 + math.tau * index / max(1, len(shown))) * radius),
+                int(plot.center().y() + math.sin(-math.pi / 2 + math.tau * index / max(1, len(shown))) * radius),
+            )
+            for index in range(len(shown))
+        ]
+        painter.setPen(QPen(QColor(105, 190, 245, 175), 2))
+        for index in range(len(points)):
+            if len(points) > 1:
+                painter.drawLine(points[index], points[(index + 1) % len(points)])
+            if index + 2 < len(points) and index % 2 == 0:
+                painter.drawLine(points[index], points[index + 2])
+        for value, point in zip(shown, points):
+            self._draw_node(painter, point, value)
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(24, 46, -24, -55)
+        painter.fillRect(rect, QColor(5, 9, 14, 244))
+        painter.setPen(QPen(QColor(91, 214, 178, 95), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+        painter.setPen(QColor(255, 255, 255, 235))
+        title_font = painter.font()
+        title_font.setBold(True)
+        title_font.setPointSize(11)
+        painter.setFont(title_font)
+        painter.drawText(rect.adjusted(14, 8, -14, -8), Qt.AlignTop | Qt.AlignLeft, self.structure)
+        if self.structure == "Binary Search Tree":
+            self._draw_tree(painter, plot, False)
+        elif self.structure == "AVL Tree":
+            self._draw_tree(painter, plot, True)
+        elif self.structure == "Graph":
+            self._draw_graph(painter, plot)
+        elif self.structure == "Hash Table":
+            self._draw_hash(painter, plot)
+        else:
+            self._draw_sequence(painter, plot, self.structure)
+        painter.setPen(QColor(190, 210, 228, 205))
+        painter.drawText(rect.adjusted(14, 0, -14, -10), Qt.AlignBottom | Qt.AlignLeft, self.status)
+
+
 class PhysicsCanvas(QWidget):
     stats_changed = Signal(str)
 
@@ -3954,6 +4354,236 @@ class InlineDiagramWorkspace(QFrame):
         self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
 
 
+class InlineBiologyWorkspace(QFrame):
+    def __init__(self, artifact: BiologyArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(550)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Validated biology model")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        self.dimension_select = QComboBox()
+        self.dimension_select.setObjectName("InlineVisualizationSelect")
+        self.dimension_select.addItem("2D", "2d")
+        self.dimension_select.addItem("3D", "3d")
+        self.dimension_select.setCurrentText("3D")
+        pause = QPushButton("Pause")
+        pause.setObjectName("InlineVisualizationControl")
+        resume = QPushButton("Resume")
+        resume.setObjectName("InlineVisualizationControl")
+        reset = QPushButton("Reset view")
+        reset.setObjectName("InlineVisualizationControl")
+        export = QPushButton("PNG")
+        export.setObjectName("InlineVisualizationControl")
+        controls.addWidget(QLabel("View"))
+        controls.addWidget(self.dimension_select)
+        controls.addWidget(pause)
+        controls.addWidget(resume)
+        controls.addWidget(reset)
+        controls.addStretch(1)
+        controls.addWidget(export)
+
+        self.canvas = BiologyCanvas()
+        self.canvas.set_artifact(artifact)
+        self.canvas.set_view_mode("3d")
+        self.inspector = QLabel("Hover the model to inspect validated components.")
+        self.inspector.setObjectName("InlineVisualizationInspector")
+        self.inspector.setWordWrap(True)
+        self.canvas.inspected.connect(self.inspector.setText)
+        details = QLabel(" | ".join(artifact.notes))
+        details.setObjectName("InlineVisualizationEquation")
+        details.setWordWrap(True)
+        details.setVisible(bool(artifact.notes))
+
+        self.dimension_select.currentIndexChanged.connect(
+            lambda index: self.canvas.set_view_mode(str(self.dimension_select.itemData(index)))
+        )
+        pause.clicked.connect(lambda: self.canvas.set_running(False))
+        resume.clicked.connect(lambda: self.canvas.set_running(True))
+        reset.clicked.connect(self.canvas.reset_view)
+        export.clicked.connect(self._export_png)
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(details)
+        layout.addWidget(self.inspector)
+
+    def _export_png(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"Export {self.artifact.title}", "", "PNG image (*.png)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".png"):
+            path += ".png"
+        succeeded = self.canvas.export_png(path)
+        self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
+
+
+class InlineDataStructureWorkspace(QFrame):
+    COMPLEXITY = {
+        "Binary Search Tree": {
+            "insert": "average O(log n), worst O(n)",
+            "delete": "average O(log n), worst O(n)",
+            "search": "average O(log n), worst O(n)",
+        },
+        "AVL Tree": {"insert": "O(log n)", "delete": "O(log n)", "search": "O(log n)"},
+        "Graph": {"insert": "O(1)", "delete": "O(V + E)", "search": "O(V + E)"},
+        "Linked List": {"insert": "O(1)", "delete": "O(n)", "search": "O(n)"},
+        "Queue": {"insert": "O(1)", "delete": "O(1)", "search": "O(n)"},
+        "Stack": {"insert": "O(1)", "delete": "O(1)", "search": "O(n)"},
+        "Hash Table": {
+            "insert": "average O(1), worst O(n)",
+            "delete": "average O(1), worst O(n)",
+            "search": "average O(1), worst O(n)",
+        },
+    }
+
+    def __init__(self, artifact: DataStructureArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.values_by_structure = {
+            structure: list(artifact.initial_values) for structure in artifact.structures
+        }
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(590)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Interactive algorithm lab")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        self.structure_select = QComboBox()
+        self.structure_select.setObjectName("InlineVisualizationSelect")
+        self.structure_select.addItems(artifact.structures)
+        self.value_input = QLineEdit("25")
+        self.value_input.setObjectName("InlineVisualizationInput")
+        self.value_input.setPlaceholderText("Integer value")
+        self.value_input.setMaximumWidth(130)
+        controls.addWidget(self.structure_select)
+        controls.addWidget(self.value_input)
+        for operation in ("Insert", "Delete", "Search"):
+            button = QPushButton(operation)
+            button.setObjectName("InlineVisualizationControl")
+            button.clicked.connect(
+                lambda _checked=False, selected=operation.lower(): self._operate(selected)
+            )
+            controls.addWidget(button)
+        reset = QPushButton("Reset")
+        reset.setObjectName("InlineVisualizationControl")
+        reset.clicked.connect(self._reset)
+        controls.addWidget(reset)
+        controls.addStretch(1)
+
+        self.canvas = DataStructureCanvas()
+        self.complexity = QLabel()
+        self.complexity.setObjectName("InlineVisualizationInspector")
+        self.complexity.setWordWrap(True)
+        self.structure_select.currentTextChanged.connect(self._structure_changed)
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(self.complexity)
+        self._structure_changed(self.structure_select.currentText())
+
+    def _current_values(self) -> list[int]:
+        return self.values_by_structure.setdefault(
+            self.structure_select.currentText(), list(self.artifact.initial_values)
+        )
+
+    def _structure_changed(self, structure: str):
+        values = self.values_by_structure.setdefault(structure, list(self.artifact.initial_values))
+        self.canvas.set_state(structure, values, status="Ready for insert, delete, or search.")
+        complexity = self.COMPLEXITY.get(structure, {})
+        self.complexity.setText(
+            "Complexity: "
+            + " | ".join(f"{operation.title()} {value}" for operation, value in complexity.items())
+        )
+
+    def _operate(self, operation: str):
+        try:
+            value = int(self.value_input.text().strip())
+        except ValueError:
+            self.complexity.setText("Enter a valid integer before running an operation.")
+            return
+        structure = self.structure_select.currentText()
+        values = self._current_values()
+        highlighted: set[int] = set()
+        if operation == "insert":
+            if value not in values:
+                values.append(value)
+                status = f"Inserted {value}."
+            else:
+                status = f"{value} already exists; duplicate insertion was skipped."
+            highlighted.add(value)
+        elif operation == "delete":
+            if structure == "Queue" and values:
+                removed = values.pop(0)
+                status = f"Dequeued {removed} from the front."
+            elif structure == "Stack" and values:
+                removed = values.pop()
+                status = f"Popped {removed} from the top."
+            elif value in values:
+                values.remove(value)
+                status = f"Deleted {value}."
+            else:
+                status = f"{value} was not found; nothing was deleted."
+        else:
+            if structure in {"Binary Search Tree", "AVL Tree"}:
+                tree = (
+                    DataStructureCanvas._balanced_tree(values)
+                    if structure == "AVL Tree"
+                    else DataStructureCanvas._bst(values)
+                )
+                node = tree
+                while node:
+                    highlighted.add(node[0])
+                    if value == node[0]:
+                        break
+                    node = node[1] if value < node[0] else node[2]
+            elif value in values:
+                highlighted.add(value)
+            status = f"Found {value}." if value in values else f"{value} was not found."
+        complexity = self.COMPLEXITY[structure][operation]
+        self.canvas.set_state(
+            structure,
+            values,
+            highlighted,
+            f"{status} {operation.title()} complexity: {complexity}.",
+        )
+        self.complexity.setText(
+            f"{operation.title()} result: {status} Complexity: {complexity}. "
+            "Highlighted nodes show the visited or changed state."
+        )
+
+    def _reset(self):
+        structure = self.structure_select.currentText()
+        self.values_by_structure[structure] = list(self.artifact.initial_values)
+        self._structure_changed(structure)
+
+
 class TitleBar(QFrame):
     def __init__(self, parent: QWidget):
         super().__init__(parent)
@@ -4014,13 +4644,9 @@ class TitleBar(QFrame):
 
         self.theme_btn = QPushButton()
         self.theme_btn.setObjectName("TitleButton")
-        self.theme_btn.setIcon(
-            QApplication.style().standardIcon(QStyle.SP_DialogResetButton)
-        )
-        self.theme_btn.setToolTip("Toggle light or dark theme")
-        self.theme_btn.setAccessibleName("Toggle theme")
         self.theme_btn.setFixedWidth(34)
         self.theme_btn.clicked.connect(self._parent.toggle_theme)
+        self.set_theme_icon(getattr(self._parent, "current_theme", "dark"))
         layout.addWidget(self.theme_btn)
 
         self.min_btn = QPushButton()
@@ -4056,6 +4682,17 @@ class TitleBar(QFrame):
         layout.addWidget(self.min_btn)
         layout.addWidget(self.max_btn)
         layout.addWidget(self.close_btn)
+
+    def set_theme_icon(self, theme: str):
+        normalized = normalize_theme(theme)
+        self.theme_btn.setIcon(_theme_outline_icon(normalized))
+        self.theme_btn.setIconSize(QSize(22, 22))
+        self.theme_btn.setAccessibleName(
+            "Light theme active" if normalized == "light" else "Dark theme active"
+        )
+        self.theme_btn.setToolTip(
+            "Switch to dark theme" if normalized == "light" else "Switch to light theme"
+        )
 
     def _toggle_maximize(self):
         if self._parent.isMaximized() or getattr(self._parent, "_custom_maximized", False):
@@ -4196,7 +4833,9 @@ class MoriceWindow(QWidget):
         )
         self.current_theme = normalize_theme(self.workspace_state.theme)
         self.accent_color = normalize_accent(self.workspace_state.accent)
-        self.history = list(self.workspace_state.history)
+        # Every process launch starts a new conversation. Appearance, notes,
+        # geometry, and workspace preferences remain persistent.
+        self.history = []
         self.awake = os.getenv("MORICE_START_AWAKE", "").strip() == "1"
         self.last_notes_hits = []
         self.last_notes_term = ""
@@ -4207,8 +4846,8 @@ class MoriceWindow(QWidget):
         self._auto_scrolling = False
         self._last_scroll_max = 0
         self._user_scroll_guard_until = 0.0
-        self.user_messages: list[str] = list(self.workspace_state.user_messages)
-        self.first_user_message = self.user_messages[0] if self.user_messages else ""
+        self.user_messages: list[str] = []
+        self.first_user_message = ""
         self.is_busy = False
         self.thinking_bubble: ThinkingBubble | None = None
         self._thinking_token = 0
@@ -6002,7 +6641,8 @@ class MoriceWindow(QWidget):
         self._last_external_wake_notice = now
 
     def _address(self, reply: str) -> str:
-        return enforce_father(reply, self.user_title)
+        addressed = enforce_father(reply, self.user_title)
+        return apply_emoji_presentation(addressed, self.emoji_level)
 
     def _input_placeholder(self) -> str:
         return f"{self.user_title}: type here..."
@@ -6039,6 +6679,8 @@ class MoriceWindow(QWidget):
                 max(0, self.theme_select.findData(self.current_theme))
             )
             self.theme_select.blockSignals(False)
+        if hasattr(self, "title_bar"):
+            self.title_bar.set_theme_icon(self.current_theme)
         for rich_view in self.findChildren(RichContentView):
             rich_view.apply_appearance(self.current_theme, self.font_family)
 
@@ -6279,8 +6921,8 @@ class MoriceWindow(QWidget):
         self.workspace_state.assistant_hub_visible = bool(
             hasattr(self, "assistant_hub") and self.assistant_hub.isVisible()
         )
-        self.workspace_state.history = list(self.history[-160:])
-        self.workspace_state.user_messages = list(self.user_messages[-160:])
+        self.workspace_state.history = []
+        self.workspace_state.user_messages = []
         self.workspace_state.notes = (
             self.assistant_hub.notes.toPlainText()[:200_000]
             if hasattr(self, "assistant_hub")
@@ -8169,6 +8811,12 @@ class MoriceWindow(QWidget):
             workspace = InlineMoleculeWorkspace(artifact.chemistry)
         elif artifact.kind == "diagram" and isinstance(artifact.diagram, DiagramArtifact):
             workspace = InlineDiagramWorkspace(artifact.diagram)
+        elif artifact.kind == "biology" and isinstance(artifact.biology, BiologyArtifact):
+            workspace = InlineBiologyWorkspace(artifact.biology)
+        elif artifact.kind == "data-structures" and isinstance(
+            artifact.data_structures, DataStructureArtifact
+        ):
+            workspace = InlineDataStructureWorkspace(artifact.data_structures)
         else:
             message = "The renderer returned an unsupported artifact type, so nothing was displayed."
             card.set_error(message)
@@ -8247,6 +8895,25 @@ class MoriceWindow(QWidget):
                 f"{len(diagram.nodes)} validated nodes and {len(diagram.edges)} directed links. "
                 f"Hover nodes to inspect their connections, drag to pan, zoom with the wheel, "
                 f"or export it.{timing}"
+            )
+        if artifact and artifact.kind == "biology" and isinstance(
+            artifact.biology, BiologyArtifact
+        ):
+            biology = artifact.biology
+            return (
+                f"The interactive {biology.title} model above contains "
+                f"{len(biology.points)} validated geometry points. Switch between its 2D "
+                f"schematic and 3D perspective, pause or resume animation, zoom, rotate, "
+                f"and inspect labeled components.{timing}"
+            )
+        if artifact and artifact.kind == "data-structures" and isinstance(
+            artifact.data_structures, DataStructureArtifact
+        ):
+            data = artifact.data_structures
+            return (
+                f"The data-structure lab above includes {', '.join(data.structures)}. "
+                "Choose a structure and run real Insert, Delete, or Search operations; "
+                f"the changed or visited nodes animate and the operation complexity updates live.{timing}"
             )
         return "The renderer completed, but no supported interactive artifact was available."
 
