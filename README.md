@@ -371,6 +371,7 @@ Use the RGB three-line button on the left side of the title bar to open the mode
 Project mode is designed for real workspace changes:
 
 - A Project-only setup area that appears after clicking `Project`.
+- A closable project workspace for the file tree, green/red diffs, verification, run logs, Git status, and local commands. New file changes reopen it automatically after a manual close.
 - A `+` button for choosing or creating a work folder outside the MORICE app folder.
 - `Limited to folder`, which keeps project paths and commands inside the chosen folder and asks permission for any specific job outside it.
 - `Full access`, which treats normal requested project work as pre-approved while staying private, safe, and non-destructive.

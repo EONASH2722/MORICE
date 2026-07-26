@@ -315,10 +315,34 @@ class InlineVisualizationTests(unittest.TestCase):
             self.assertFalse(self.window.changes_content.isHidden())
             self.assertFalse(self.window.changes_minimized)
             self.assertGreaterEqual(self.window.changes_panel.width(), 440)
+            self.assertFalse(self.window.changes_close_btn.isHidden())
             self.window._set_project_workspace_tab(0)
             self.assertGreaterEqual(
                 self.window.project_file_tree.topLevelItem(0).childCount(),
                 1,
+            )
+
+            self.window._close_changes_panel()
+            self.app.processEvents()
+            self.assertTrue(self.window.changes_panel_dismissed)
+            self.assertFalse(
+                self.window._panel_target_visibility[self.window.changes_panel]
+            )
+
+            self.window._refresh_mode_panel()
+            self.app.processEvents()
+            self.assertFalse(
+                self.window._panel_target_visibility[self.window.changes_panel]
+            )
+
+            self.window._on_project_changes_ready(
+                "Updated main.py again",
+                "<p><span style='color:#7cf7b5'>+ print('again')</span></p>",
+            )
+            self.app.processEvents()
+            self.assertFalse(self.window.changes_panel_dismissed)
+            self.assertTrue(
+                self.window._panel_target_visibility[self.window.changes_panel]
             )
 
     def test_project_manifest_writes_validated_files_atomically(self):

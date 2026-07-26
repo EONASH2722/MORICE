@@ -4646,6 +4646,7 @@ class MoriceWindow(QWidget):
         self.changes_panel.setFixedWidth(440)
         self.changes_minimized = False
         self.changes_expanded = False
+        self.changes_panel_dismissed = False
         changes_layout = QVBoxLayout(self.changes_panel)
         changes_layout.setContentsMargins(14, 14, 14, 14)
         changes_layout.setSpacing(10)
@@ -4666,9 +4667,17 @@ class MoriceWindow(QWidget):
         self.changes_expand_btn.setObjectName("ChangesIconButton")
         self.changes_expand_btn.setToolTip("Widen project changes")
         self.changes_expand_btn.clicked.connect(self._toggle_changes_width)
+        self.changes_close_btn = QPushButton()
+        self.changes_close_btn.setObjectName("ChangesIconButton")
+        self.changes_close_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_TitleBarCloseButton)
+        )
+        self.changes_close_btn.setToolTip("Close project changes")
+        self.changes_close_btn.clicked.connect(self._close_changes_panel)
         changes_header.addWidget(self.changes_title, stretch=1)
         changes_header.addWidget(self.changes_minimize_btn)
         changes_header.addWidget(self.changes_expand_btn)
+        changes_header.addWidget(self.changes_close_btn)
 
         self.changes_summary = QLabel("Build something in Project mode to see file changes here.")
         self.changes_summary.setObjectName("ProjectChangesSummary")
@@ -6730,6 +6739,8 @@ class MoriceWindow(QWidget):
             self._refresh_mode_panel()
             return
         self.chat_mode = clean_mode
+        if self.chat_mode == "project":
+            self.changes_panel_dismissed = False
         self.settings["chat_mode"] = self.chat_mode
         self._save_project_settings()
         self._refresh_mode_panel()
@@ -7036,7 +7047,7 @@ class MoriceWindow(QWidget):
             return
         is_project = self.chat_mode == "project"
         self._set_project_details_visible(is_project)
-        if is_project:
+        if is_project and not self.changes_panel_dismissed:
             self._animate_panel_visibility(self.changes_panel, True)
             self._refresh_project_tree()
         else:
@@ -7619,16 +7630,14 @@ class MoriceWindow(QWidget):
 
     def _on_project_changes_ready(self, summary: str, diff_html: str):
         self._set_changes_minimized(False)
+        self.changes_panel_dismissed = False
         self.changes_summary.setText(summary or "Project files updated.")
         self.changes_view.setHtml(
             diff_html
             or "<span style='color:rgba(255,255,255,0.64)'>No visible file diff for this action.</span>"
         )
         if self.chat_mode == "project":
-            self.changes_panel.setVisible(True)
-            effect = self.changes_panel.graphicsEffect()
-            if isinstance(effect, QGraphicsOpacityEffect):
-                effect.setOpacity(1.0)
+            self._animate_panel_visibility(self.changes_panel, True)
         else:
             self._animate_panel_visibility(self.changes_panel, False)
         self._set_project_workspace_tab(1)
@@ -7875,6 +7884,10 @@ class MoriceWindow(QWidget):
 
     def _toggle_changes_minimized(self):
         self._set_changes_minimized(not self.changes_minimized)
+
+    def _close_changes_panel(self):
+        self.changes_panel_dismissed = True
+        self._animate_panel_visibility(self.changes_panel, False)
 
     def _set_changes_minimized(self, minimized: bool):
         self.changes_minimized = False
