@@ -139,11 +139,13 @@ class DiagnosticsDialog(QDialog):
         self.health_page = self._build_health()
         self.logs_page = self._build_logs()
         self.performance_page = self._build_performance()
+        self.agent_page = self._build_agent()
         self.components_page = self._build_components()
         self.tabs.addTab(self.overview_page, "Overview")
         self.tabs.addTab(self.health_page, "Health")
         self.tabs.addTab(self.logs_page, "Logs")
         self.tabs.addTab(self.performance_page, "Performance")
+        self.tabs.addTab(self.agent_page, "Agent")
         self.tabs.addTab(self.components_page, "Components")
         root.addLayout(header)
         root.addWidget(self.tabs, stretch=1)
@@ -250,6 +252,30 @@ class DiagnosticsDialog(QDialog):
         layout.addWidget(self.components_tree, stretch=1)
         return page
 
+    def _build_agent(self) -> QWidget:
+        page, layout = self._page()
+        self.agent_tree = QTreeWidget()
+        self.agent_tree.setHeaderLabels(["Agent state", "Value"])
+        self.agent_tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.agent_tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.agent_actions = QTableWidget(0, 6)
+        self.agent_actions.setHorizontalHeaderLabels(
+            ["Time", "Tool", "Result", "Verified", "Duration", "Files"]
+        )
+        self.agent_actions.setEditTriggers(QTableWidget.NoEditTriggers)
+        for column in (0, 1, 2, 3, 4):
+            self.agent_actions.horizontalHeader().setSectionResizeMode(
+                column,
+                QHeaderView.ResizeToContents,
+            )
+        self.agent_actions.horizontalHeader().setSectionResizeMode(
+            5,
+            QHeaderView.Stretch,
+        )
+        layout.addWidget(self.agent_tree, stretch=1)
+        layout.addWidget(self.agent_actions, stretch=2)
+        return page
+
     def showEvent(self, event) -> None:
         super().showEvent(event)
         self.refresh()
@@ -283,6 +309,7 @@ class DiagnosticsDialog(QDialog):
         self._refresh_health(snapshot)
         self._refresh_logs()
         self._refresh_performance(snapshot)
+        self._refresh_agent(snapshot)
         self._refresh_components(snapshot)
 
     def _append_mapping(
@@ -303,6 +330,13 @@ class DiagnosticsDialog(QDialog):
             "Platform": snapshot.platform,
             "Model": snapshot.model or {"status": "Not selected"},
             "GPU": snapshot.gpu or {"status": "Not detected"},
+            "Agent": {
+                "requests": snapshot.agent.get("requestCount", 0),
+                "activeRequest": snapshot.agent.get("activeRequestId", ""),
+                "activeIntents": snapshot.agent.get("activeIntents", ()),
+                "registeredTools": snapshot.agent.get("toolCount", 0),
+                "modelHealth": snapshot.agent.get("modelHealth", {}),
+            },
             "Workers": snapshot.workers,
             "Dependencies": snapshot.dependencies,
         }
@@ -425,6 +459,24 @@ class DiagnosticsDialog(QDialog):
         self.components_tree.addTopLevelItem(tools)
         for tool in snapshot.tools:
             tools.addChild(QTreeWidgetItem([tool, "Loaded", "MORICE desktop"]))
+        agent_tools = snapshot.agent.get("tools", ())
+        agent = QTreeWidgetItem(
+            ["Agent tools", str(len(agent_tools)), "Typed + validated"]
+        )
+        self.components_tree.addTopLevelItem(agent)
+        for tool in agent_tools:
+            agent.addChild(
+                QTreeWidgetItem(
+                    [
+                        str(tool.get("display_name") or tool.get("tool_id", "")),
+                        str(tool.get("health_status", "")).title(),
+                        (
+                            f"{tool.get('tool_id', '')} v{tool.get('version', '')} | "
+                            f"{tool.get('risk', '')}"
+                        ),
+                    ]
+                )
+            )
         workers = QTreeWidgetItem(
             [
                 "Worker threads",
@@ -437,7 +489,43 @@ class DiagnosticsDialog(QDialog):
             workers.addChild(QTreeWidgetItem([str(thread), "Active", "Python thread"]))
         renderers.setExpanded(True)
         tools.setExpanded(True)
+        agent.setExpanded(True)
         workers.setExpanded(True)
+
+    def _refresh_agent(self, snapshot: RuntimeSnapshot) -> None:
+        agent = snapshot.agent
+        self.agent_tree.clear()
+        sections = {
+            "Current request": {
+                "id": agent.get("activeRequestId", ""),
+                "intents": agent.get("activeIntents", ()),
+                "requestCount": agent.get("requestCount", 0),
+            },
+            "Pipeline stages": agent.get("activeStages", {}),
+            "Model health": agent.get("modelHealth", {}),
+        }
+        for label, values in sections.items():
+            item = QTreeWidgetItem([label, ""])
+            self.agent_tree.addTopLevelItem(item)
+            self._append_mapping(item, values)
+            item.setExpanded(True)
+        actions = list(agent.get("recentActions", ()))
+        self.agent_actions.setRowCount(len(actions))
+        for row, action in enumerate(reversed(actions)):
+            files = [
+                *action.get("modified_files", ()),
+                *action.get("generated_files", ()),
+            ]
+            values = (
+                str(action.get("timestamp", "")),
+                str(action.get("tool_id", "")),
+                "Success" if action.get("success") else "Failed",
+                "Yes" if action.get("verified") else "No",
+                f"{float(action.get('duration_ms', 0)):.2f} ms",
+                ", ".join(str(path) for path in files),
+            )
+            for column, value in enumerate(values):
+                self.agent_actions.setItem(row, column, QTableWidgetItem(value))
 
     def _open_logs(self) -> None:
         self.runtime.logs.directory.mkdir(parents=True, exist_ok=True)

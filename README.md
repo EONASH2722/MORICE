@@ -14,6 +14,7 @@ MORICE is a local desktop AI workspace for people who want an assistant that can
   <img src="https://img.shields.io/badge/base%20AI-Qwen2.5%20Coder%207B-0f766e" alt="Qwen2.5 Coder 7B">
   <img src="https://img.shields.io/badge/mode-Project%20Builder-111827" alt="Project Builder">
   <img src="https://img.shields.io/badge/VNext-Science%20Workspace-0891b2" alt="Science Workspace">
+  <img src="https://img.shields.io/badge/agent-typed%20tools-2563eb" alt="Typed agent tools">
   <img src="https://img.shields.io/badge/wake-adaptive%20audio-22c55e" alt="Adaptive wake audio">
 </p>
 
@@ -63,8 +64,8 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 - Glass desktop interface with a centered launch composer, animated galaxy/wave surfaces, and a Send button that stays calm instead of using a liquid-fill animation.
 - Local-first model routing through a bundled GGUF, a selected GGUF file, or an installed Ollama model.
 - Trusted model browser with automatic GPU/VRAM detection, one-click trusted model lanes, compatibility scoring, worth scoring, official-source links, licenses, task metadata, and model-speciality summaries.
-- Project Mode with a readable right-side Files/Changes/Output workspace, project tree, source preview, green/red diffs, source validation, run actions, and an allowlisted direct-command terminal.
-- Project prompts become validated editable files in the selected folder; filename-labeled code blocks and the local fallback builder remain recovery paths.
+- Project Mode with a readable right-side Files/Changes/Output workspace, project tree, source preview, green/red patch review, source validation, run actions, and a cancellable allowlisted terminal.
+- Project prompts become validated patch previews. `Apply patch` grants permission for that exact change set, `Reject` leaves the folder untouched, and `Undo` restores the previous file state.
 - VNext inline workspaces for real graphs, surfaces, physics, molecules, biology, data structures, numeric charts, component schematics, structured diagrams, local documents, and rich mathematics directly in Normal Chat.
 - `@web` lookup for fresh information when needed, with results passed into the local reply pipeline instead of leaving the whole chat online by default.
 - `@notes` lookup for local knowledge files, so MORICE can answer from personal documents without uploading them.
@@ -74,6 +75,49 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 - Typo-aware and short-form-aware intent handling, so rough wording can still land in the right workflow.
 - Verified capability answers: questions such as `what all rendering can you do` return a complete implemented-feature inventory instead of an improvised model reply.
 - MIT licensed, so the project can be studied, forked, customized, and improved.
+
+## Agent Runtime
+
+Every request enters a typed agent pipeline before MORICE replies:
+
+```text
+intent -> context -> memory -> project index -> capability -> plan
+       -> tool selection -> permission -> execution -> verification
+       -> renderer -> UI -> final response
+```
+
+The application executes actions; the model only reasons and prepares
+structured output. MORICE does not treat model prose as proof that a file,
+command, Git action, or renderer succeeded.
+
+- Multi-intent routing splits coding, search, terminal, science, document, and
+  conversation work into explicit subtasks.
+- The project index records bounded file metadata, languages, frameworks,
+  dependencies, symbols, imports, build systems, entry points, assets, recent
+  Git state, and request-relevant source context.
+- Typed tools publish schemas, permissions, platform support, dependencies,
+  timeout, cancellation, version, health, risk, and idempotency metadata.
+- Tool inputs and outputs are validated. Results contain real duration,
+  output, warnings, errors, files, artifacts, logs, screenshots, metadata, and
+  verification status.
+- Permission tokens are one-use and bound to the exact tool plus arguments.
+  A token cannot be reused for a different patch or command.
+- File patches are previewed before approval, written atomically, checked
+  after writing, and backed by a verified undo record.
+- Read-only actions can be replayed. Mutation actions are never replayed
+  automatically.
+- Terminal execution uses argument arrays rather than shell expansion,
+  captures stdout/stderr and exit status, supports timeout and cancellation,
+  and records the action.
+- Git status, diff, branches, history, and blame are read-only tools. Stash,
+  restore, checkout, commit, and push require exact explicit approval.
+- Model routing records task profile, latency, estimated throughput, context
+  usage, failures, fallback candidates, temperature, and GPU-layer metadata.
+- Context budgeting keeps current instructions and relevant recent/project
+  context while compressing older turns before overflow.
+
+See [`docs/phase-2-agent-architecture.md`](docs/phase-2-agent-architecture.md)
+for contracts, extension rules, verification behavior, and current limits.
 
 ## Diagnostics, Health, and Recovery
 
@@ -89,6 +133,8 @@ desktop tools to inspect:
 - CPU, memory, frame-time, FPS, task-queue, renderer-cache, and worker metrics;
 - application, Python, Qt, operating-system, model, GPU, renderer, and tool
   versions or capability states;
+- an `Agent` tab with the active pipeline stages, routed intents, model health,
+  registered typed tools, and recent verified or refused actions;
 - bounded crash recovery for recent chat history, drafts, and queued messages.
 
 Critical startup failures are shown explicitly instead of allowing a partially
@@ -400,16 +446,16 @@ Project mode is designed for real workspace changes:
 - A Project-only setup area that appears after clicking `Project`.
 - A closable project workspace for the file tree, green/red diffs, verification, run logs, Git status, and local commands. New file changes reopen it automatically after a manual close.
 - A `+` button for choosing or creating a work folder outside the MORICE app folder.
-- `Limited to folder`, which keeps project paths and commands inside the chosen folder and asks permission for any specific job outside it.
-- `Full access`, which treats normal requested project work as pre-approved while staying private, safe, and non-destructive.
-- File building: describe the app, game, website, script, or tool you want, and MORICE writes the project files into the selected work folder.
+- `Limited to folder`, which keeps project paths and commands inside the chosen folder and refuses path escapes.
+- `Full access`, which permits broader requested work but does not bypass confirmation for overwrites, executable runs, package installs, destructive Git operations, or system changes.
+- File building: describe the app, game, website, script, or tool you want. MORICE prepares complete files and a green/red patch; the folder changes only after `Apply patch`.
 - If no folder is selected, MORICE prepares a safe default work folder outside the app at `~/MORICE Projects/Quick Build`.
-- Existing project awareness: MORICE reads a bounded snapshot of the work folder before editing, so it can update files instead of replacing blindly.
+- Existing project awareness: MORICE builds a bounded semantic project index and retrieves relevant source files before editing, so it can update references instead of replacing blindly.
 - Request contracts: explicitly named languages, frameworks, engines, platforms, dimensions, and product identities are treated as acceptance criteria rather than suggestions.
 - Semantic validation: heading-only pages, static game mockups, fake 3D, silent language switching, and unrelated substitute games are rejected before files are written.
 - Follow-up continuity: recent project conversation and the current file snapshot are supplied together, so requests such as `add Flappy Bird to it too` edit the existing project instead of turning the new prompt into a replacement heading.
 - Honest local fallback building: MORICE can recover selected deterministic projects such as a complete dependency-free Flappy Bird 3D browser game, but it refuses to invent an unrelated generic game when it cannot implement the requested one.
-- A right-side `Project changes` panel that shows unified diffs with green additions and red removals after each file-building action.
+- A right-side `Project changes` panel with green additions, red removals, `Apply patch`, `Reject`, verified `Undo`, automatic source verification, and closable/widenable review controls.
 - `Local mode` uses the selected folder and local model only.
 - `Online+local` can add web context for current libraries, docs, patterns, and examples.
 - Stronger coding behavior for any requested language or framework.
@@ -504,6 +550,10 @@ Common places to edit:
 - Visualization registry, queue, validation, caching, and capability reporting: `morice/visualization.py`
 - Local model routing and token budget: `morice/llm_client.py`
 - Project fallback file builder: `morice/project_builder.py`
+- Agent pipeline and execution: `morice/agent_orchestrator.py`
+- Typed tools, permissions, history, and undo: `morice/agent_tools.py`
+- Intent and model routing: `morice/intent_router.py` and `morice/model_router.py`
+- Project indexing and semantic retrieval: `morice/project_index.py`
 - Model verification/search/VRAM scoring: `morice/model_catalog.py`
 - Wake listener sensitivity and magic words: `morice_wake_listener.py`
 - Saved personalization settings: `morice/settings.py`

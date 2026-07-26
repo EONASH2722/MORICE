@@ -253,7 +253,7 @@ class DiagnosticsUiTests(unittest.TestCase):
 
             self.assertEqual(
                 [dialog.tabs.tabText(index) for index in range(dialog.tabs.count())],
-                ["Overview", "Health", "Logs", "Performance", "Components"],
+                ["Overview", "Health", "Logs", "Performance", "Agent", "Components"],
             )
             self.assertGreater(dialog.overview_tree.topLevelItemCount(), 0)
             self.assertGreater(dialog.health_table.rowCount(), 0)

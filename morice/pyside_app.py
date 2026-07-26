@@ -7,6 +7,7 @@ import html
 import json
 import math
 import re
+import shlex
 import difflib
 import time
 import subprocess
@@ -42,6 +43,7 @@ from PySide6.QtGui import (
     QLinearGradient,
     QRadialGradient,
     QPdfWriter,
+    QTextCursor,
 )
 from PySide6.QtSvg import QSvgGenerator
 try:
@@ -150,6 +152,7 @@ from .project_runtime import (
     launch_project,
     validate_project_file,
 )
+from .agent_types import ToolCall
 from .science_engine import GraphArtifact, GraphSurface, PhysicsArtifact, ScienceArtifact, is_science_request
 from .domain_engine import DiagramArtifact, MoleculeArtifact, atom_color
 from .educational_engine import BiologyArtifact, DataStructureArtifact
@@ -5424,6 +5427,8 @@ class MoriceWindow(QWidget):
     thinking_update = Signal(str)
     project_changes_ready = Signal(str, str)
     project_output_ready = Signal(str)
+    project_patch_result = Signal(object)
+    project_command_state = Signal(bool)
     gpu_detected = Signal(object)
     visualization_progress = Signal(str, str, str, int)
     visualization_finished = Signal(object)
@@ -5565,6 +5570,10 @@ class MoriceWindow(QWidget):
         self.visualization_futures: dict[str, object] = {}
         self.active_workspace_kind = "graph"
         self.last_project_request = ""
+        self._active_agent_request_id = ""
+        self.pending_project_patch: dict | None = None
+        self.last_project_undo_id = ""
+        self._active_project_command_id = ""
         self._last_external_wake_notice = 0.0
 
         self.wake_signal_path = wake_signal_path()
@@ -5572,6 +5581,10 @@ class MoriceWindow(QWidget):
         self.thinking_update.connect(self._on_thinking_update)
         self.project_changes_ready.connect(self._on_project_changes_ready)
         self.project_output_ready.connect(self._append_project_output)
+        self.project_patch_result.connect(self._on_project_patch_result)
+        self.project_command_state.connect(
+            lambda running: self.project_command_stop_btn.setEnabled(running)
+        )
         self.gpu_detected.connect(self._on_gpu_detected)
         self.visualization_progress.connect(self._on_visualization_progress)
         self.visualization_finished.connect(self._on_visualization_finished)
@@ -6034,6 +6047,23 @@ class MoriceWindow(QWidget):
         self.changes_run_btn.setObjectName("ProjectActionButton")
         self.changes_run_btn.setToolTip("Run the project using its verified local entry point")
         self.changes_run_btn.clicked.connect(self._run_project)
+        self.changes_apply_btn = QPushButton("Apply patch")
+        self.changes_apply_btn.setObjectName("ProjectActionButton")
+        self.changes_apply_btn.setToolTip(
+            "Apply the reviewed file patch to the selected work folder"
+        )
+        self.changes_apply_btn.clicked.connect(self._apply_pending_project_patch)
+        self.changes_apply_btn.setEnabled(False)
+        self.changes_reject_btn = QPushButton("Reject")
+        self.changes_reject_btn.setObjectName("ProjectActionButton")
+        self.changes_reject_btn.setToolTip("Discard the pending file patch")
+        self.changes_reject_btn.clicked.connect(self._reject_pending_project_patch)
+        self.changes_reject_btn.setEnabled(False)
+        self.changes_undo_btn = QPushButton("Undo")
+        self.changes_undo_btn.setObjectName("ProjectActionButton")
+        self.changes_undo_btn.setToolTip("Restore files changed by the last MORICE patch")
+        self.changes_undo_btn.clicked.connect(self._undo_last_project_patch)
+        self.changes_undo_btn.setEnabled(False)
         self.changes_action_status = QLabel("No runnable project detected yet.")
         self.changes_action_status.setObjectName("ProjectChangesSummary")
         self.changes_action_status.setWordWrap(True)
@@ -6042,6 +6072,9 @@ class MoriceWindow(QWidget):
         action_row.setSpacing(8)
         action_row.addWidget(self.changes_verify_btn)
         action_row.addWidget(self.changes_run_btn)
+        action_row.addWidget(self.changes_apply_btn)
+        action_row.addWidget(self.changes_reject_btn)
+        action_row.addWidget(self.changes_undo_btn)
         changes_page_layout.addWidget(self.changes_summary)
         changes_page_layout.addWidget(self.changes_view, stretch=1)
         changes_page_layout.addLayout(action_row)
@@ -6081,8 +6114,15 @@ class MoriceWindow(QWidget):
         command_button = QPushButton("Run")
         command_button.setObjectName("ProjectActionButton")
         command_button.clicked.connect(self._run_project_command)
+        self.project_command_stop_btn = QPushButton("Stop")
+        self.project_command_stop_btn.setObjectName("ProjectActionButton")
+        self.project_command_stop_btn.setEnabled(False)
+        self.project_command_stop_btn.clicked.connect(
+            self._cancel_project_command
+        )
         command_row.addWidget(self.project_command_input, stretch=1)
         command_row.addWidget(command_button)
+        command_row.addWidget(self.project_command_stop_btn)
         output_layout.addLayout(output_header)
         output_layout.addWidget(self.project_output_view, stretch=1)
         output_layout.addLayout(command_row)
@@ -7299,6 +7339,101 @@ class MoriceWindow(QWidget):
             tools=context["tools"],
             gpu=context["gpu"],
         )
+
+    def _prepare_agent_request(
+        self,
+        request: str,
+        *,
+        include_project: bool = False,
+    ) -> str:
+        renderer_tools = tuple(
+            capability.renderer_id
+            for capability in self.visualization_manager.capabilities()
+            if capability.available
+        )
+        selected_model = (
+            self.model_name
+            or (os.path.basename(self.model_path) if self.model_path else "")
+        )
+        available_models = tuple(
+            item
+            for item in (
+                selected_model,
+                os.getenv("MORICE_MODEL", "").strip(),
+                "Bundled Qwen2.5 Coder 7B",
+            )
+            if item
+        )
+        persistent_context = saved_settings_instruction(
+            self.user_title,
+            self.response_style,
+            emoji_preference_instruction(self.emoji_level),
+            maturity_preference_instruction(self.maturity_level),
+        )
+        try:
+            context = self.runtime.agent.prepare_request(
+                request,
+                history=self.history,
+                project_root=(
+                    self.project_folder
+                    if include_project
+                    and self.chat_mode == "project"
+                    and os.path.isdir(self.project_folder)
+                    else ""
+                ),
+                selected_model=selected_model,
+                available_models=available_models,
+                capabilities=(
+                    *renderer_tools,
+                    *(definition.tool_id for definition in self.runtime.agent.tools.registry.definitions()),
+                ),
+                persistent_context=persistent_context,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.runtime.logs.log(
+                "ERROR",
+                f"Agent request preparation failed: {exc}",
+                category="agent",
+            )
+            return ""
+        self._active_agent_request_id = context.request_id
+        return context.request_id
+
+    def _complete_agent_ui(self, *, response_present: bool = True):
+        request_id = self._active_agent_request_id
+        if request_id:
+            self.runtime.agent.mark_ui_complete(
+                request_id,
+                response_present=response_present,
+            )
+
+    def _agent_project_prompt_context(self, request_id: str) -> str:
+        context = self.runtime.agent.request_context(request_id)
+        if context is None or not context.project.root:
+            return self._project_snapshot()
+        summary = context.project.summary
+        lines = [
+            "Indexed project context (verified from the selected work folder):",
+            f"Root: {context.project.root}",
+            f"Languages: {summary.get('languages', {})}",
+            f"Frameworks: {summary.get('frameworks', ())}",
+            f"Dependencies: {summary.get('dependencies', ())}",
+            f"Build systems: {summary.get('build_systems', ())}",
+            f"Entry points: {summary.get('entry_points', ())}",
+            f"Git: {summary.get('git', {})}",
+        ]
+        relevant = context.project.relevant_files
+        if relevant and any("content" in item for item in relevant):
+            lines.append("\nRelevant source files:")
+            for item in relevant:
+                content = str(item.get("content", ""))
+                if not content:
+                    continue
+                lines.append(
+                    f"\n--- {item.get('path', 'unknown')} ---\n{content}"
+                )
+            return "\n".join(lines)
+        return self._project_snapshot()
 
     def _open_diagnostics(self):
         self.runtime.logs.log(
@@ -8971,7 +9106,13 @@ class MoriceWindow(QWidget):
             rendered.append(f"<div style='white-space:pre;color:{color}'>{escaped}</div>")
         return "".join(rendered)
 
-    def _apply_project_manifest(self, reply, request: str = "") -> dict | None:
+    def _apply_project_manifest(
+        self,
+        reply,
+        request: str = "",
+        *,
+        preview_only: bool = False,
+    ) -> dict | None:
         manifest = reply if isinstance(reply, dict) else self._extract_project_manifest(reply)
         if not manifest:
             return None
@@ -9033,39 +9174,56 @@ class MoriceWindow(QWidget):
             changed.append(relative_path)
             diff_parts.append(self._diff_html(relative_path, old, content))
 
-        temporary_paths: list[tuple[str, str]] = []
-        try:
-            for content, target, _relative_path in pending_writes:
-                os.makedirs(os.path.dirname(target), exist_ok=True)
-                descriptor, temporary_path = tempfile.mkstemp(
-                    prefix=".morice-write-",
-                    suffix=".tmp",
-                    dir=os.path.dirname(target),
-                    text=True,
+        patch_arguments = {
+            "root": self.project_folder,
+            "changes": [
+                {"path": relative_path, "content": content}
+                for content, _target, relative_path in pending_writes
+            ],
+        }
+        patch_result = None
+        if pending_writes and preview_only:
+            preview_result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "filesystem.preview_patch",
+                    patch_arguments,
+                    call_id=f"project-preview-{time.time_ns()}",
                 )
-                with os.fdopen(
-                    descriptor,
-                    "w",
-                    encoding="utf-8",
-                    newline="",
-                ) as handle:
-                    handle.write(content)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                temporary_paths.append((temporary_path, target))
-            for temporary_path, target in temporary_paths:
-                os.replace(temporary_path, target)
-        finally:
-            for temporary_path, _target in temporary_paths:
-                if os.path.exists(temporary_path):
-                    try:
-                        os.remove(temporary_path)
-                    except OSError:
-                        pass
+            )
+            if not preview_result.success:
+                raise ProjectValidationError(
+                    "; ".join(preview_result.errors)
+                    or "MORICE could not validate the project patch preview."
+                )
+            self.pending_project_patch = patch_arguments
+        elif pending_writes:
+            permission_token = self.runtime.agent.permission_token(
+                "filesystem.apply_patch",
+                patch_arguments,
+            )
+            patch_result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "filesystem.apply_patch",
+                    patch_arguments,
+                    call_id=f"project-apply-{time.time_ns()}",
+                    permission_token=permission_token,
+                )
+            )
+            if not patch_result.success or not patch_result.verified:
+                raise ProjectValidationError(
+                    "; ".join(patch_result.errors)
+                    or "MORICE could not verify the applied project patch."
+                )
+            self.last_project_undo_id = str(
+                patch_result.metadata.get("undoId", "")
+            )
+            self.pending_project_patch = None
 
         summary = str(manifest.get("summary") or "").strip() or f"Updated {len(changed)} file(s)."
         if not changed:
             summary = summary + " No file content changed."
+        elif preview_only:
+            summary = f"Patch ready for review: {summary}"
         panel_html = "<div style='font-family:Consolas,monospace;font-size:11px'>" + "".join(diff_parts) + "</div>"
         commands = [
             str(command).strip()
@@ -9094,6 +9252,11 @@ class MoriceWindow(QWidget):
             f"Work folder: {self.project_folder}\n"
             f"Changed files: {', '.join(changed) if changed else 'none'}"
         )
+        if preview_only and changed:
+            message += (
+                "\n\nReview the green and red diff in Project changes, then choose "
+                "Apply patch or Reject."
+            )
         if commands:
             message += "\n\nSuggested run commands:\n" + "\n".join(f"- {command}" for command in commands)
         if notes:
@@ -9104,6 +9267,12 @@ class MoriceWindow(QWidget):
             "diff_html": panel_html,
             "changed": changed,
             "validated": True,
+            "pending": bool(preview_only and changed),
+            "verified": bool(
+                not changed
+                or (patch_result is not None and patch_result.verified)
+                or preview_only
+            ),
         }
 
     def _on_project_changes_ready(self, summary: str, diff_html: str):
@@ -9119,6 +9288,13 @@ class MoriceWindow(QWidget):
         else:
             self._animate_panel_visibility(self.changes_panel, False)
         self._set_project_workspace_tab(1)
+        has_pending_patch = bool(
+            self.pending_project_patch
+            and self.pending_project_patch.get("changes")
+        )
+        self.changes_apply_btn.setEnabled(has_pending_patch)
+        self.changes_reject_btn.setEnabled(has_pending_patch)
+        self.changes_undo_btn.setEnabled(bool(self.last_project_undo_id))
         self._refresh_project_tree()
         self._refresh_project_actions()
         self._record_activity(
@@ -9127,6 +9303,165 @@ class MoriceWindow(QWidget):
             category="project",
         )
         self._save_workspace_session()
+
+    def _apply_pending_project_patch(self):
+        arguments = copy.deepcopy(self.pending_project_patch or {})
+        if not arguments.get("changes"):
+            self.changes_action_status.setText("There is no pending patch to apply.")
+            return
+        permission_token = self.runtime.agent.permission_token(
+            "filesystem.apply_patch",
+            arguments,
+        )
+        self.changes_apply_btn.setEnabled(False)
+        self.changes_reject_btn.setEnabled(False)
+        self.changes_action_status.setText("Applying and verifying the approved patch...")
+
+        def worker():
+            result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "filesystem.apply_patch",
+                    arguments,
+                    call_id=f"project-approved-{time.time_ns()}",
+                    permission_token=permission_token,
+                )
+            )
+            self.project_patch_result.emit(
+                {"operation": "apply", "result": result, "arguments": arguments}
+            )
+
+        _start_background_task("project-apply-patch", worker)
+
+    def _reject_pending_project_patch(self):
+        self.pending_project_patch = None
+        self.changes_apply_btn.setEnabled(False)
+        self.changes_reject_btn.setEnabled(False)
+        self.changes_summary.setText("Pending patch rejected. No files were changed.")
+        self.changes_action_status.setText("Patch rejected.")
+        self._append_project_output("Pending MORICE patch rejected by the user.")
+
+    def _undo_last_project_patch(self):
+        undo_id = self.last_project_undo_id
+        if not undo_id:
+            self.changes_action_status.setText("There is no MORICE patch to undo.")
+            return
+        arguments = {"undo_id": undo_id}
+        permission_token = self.runtime.agent.permission_token(
+            "action.undo",
+            arguments,
+        )
+        self.changes_undo_btn.setEnabled(False)
+        self.changes_action_status.setText("Restoring the previous file state...")
+
+        def worker():
+            result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "action.undo",
+                    arguments,
+                    call_id=f"project-undo-{time.time_ns()}",
+                    permission_token=permission_token,
+                )
+            )
+            self.project_patch_result.emit(
+                {"operation": "undo", "result": result, "arguments": arguments}
+            )
+
+        _start_background_task("project-undo-patch", worker)
+
+    def _on_project_patch_result(self, payload: object):
+        value = payload if isinstance(payload, dict) else {}
+        operation = str(value.get("operation", ""))
+        result = value.get("result")
+        if result is None:
+            self.changes_action_status.setText("Project action returned no result.")
+            return
+        if operation == "verify":
+            output = result.output if isinstance(result.output, dict) else {}
+            checked = int(output.get("checked", 0))
+            failures = list(output.get("failures", ()))
+            launch = output.get("launch")
+            if failures:
+                self.changes_action_status.setText(
+                    "Verification failed: " + str(failures[0])
+                )
+                self._append_project_output(
+                    "Project verification failed:\n"
+                    + "\n".join(str(item) for item in failures[:30])
+                )
+            else:
+                entry = (
+                    os.path.basename(str(launch.get("target", "")))
+                    if isinstance(launch, dict)
+                    else ""
+                )
+                detail = (
+                    f" Entry point: {entry}."
+                    if entry
+                    else " No runnable entry point was detected."
+                )
+                self.changes_action_status.setText(
+                    f"Verified {checked} source file(s).{detail}"
+                )
+                self._append_project_output(
+                    f"Project verification passed: {checked} source file(s) checked."
+                    + detail
+                )
+            self.changes_verify_btn.setEnabled(True)
+            if isinstance(launch, dict):
+                self.changes_run_btn.setEnabled(True)
+                self.changes_run_btn.setText(
+                    str(launch.get("label", "Run project"))
+                )
+            else:
+                self.changes_run_btn.setEnabled(False)
+                self.changes_run_btn.setText("Run project")
+            return
+        verify_after_apply = False
+        if result.success and result.verified:
+            if operation == "apply":
+                self.pending_project_patch = None
+                self.last_project_undo_id = str(
+                    result.metadata.get("undoId", "")
+                )
+                changed = [
+                    *result.generated_files,
+                    *result.modified_files,
+                ]
+                self.changes_summary.setText(
+                    f"Applied and verified {len(changed)} file change(s)."
+                )
+                self.changes_action_status.setText(
+                    "Patch applied. Verification passed."
+                )
+                self._append_project_output(
+                    "Approved patch applied and verified.\n"
+                    + "\n".join(changed)
+                )
+                verify_after_apply = True
+            else:
+                self.last_project_undo_id = ""
+                restored = result.output.get("restored", []) if isinstance(result.output, dict) else []
+                self.changes_summary.setText(
+                    f"Undo completed for {len(restored)} file(s)."
+                )
+                self.changes_action_status.setText("Previous file state restored.")
+                self._append_project_output(
+                    "Undo completed and verified.\n" + "\n".join(restored)
+                )
+        else:
+            errors = "; ".join(result.errors) or "Unknown project action failure."
+            self.changes_action_status.setText(errors)
+            self._append_project_output(
+                f"Project {operation or 'patch'} failed:\n{errors}"
+            )
+        self.changes_apply_btn.setEnabled(bool(self.pending_project_patch))
+        self.changes_reject_btn.setEnabled(bool(self.pending_project_patch))
+        self.changes_undo_btn.setEnabled(bool(self.last_project_undo_id))
+        self._refresh_project_tree()
+        if verify_after_apply:
+            QTimer.singleShot(0, self._verify_project)
+        else:
+            self._refresh_project_actions()
 
     def _set_project_workspace_tab(self, index: int):
         if not hasattr(self, "project_workspace_stack"):
@@ -9242,7 +9577,7 @@ class MoriceWindow(QWidget):
             combined = "[Older output trimmed]\n\n" + combined[-220_000:]
         self.project_output_view.setPlainText(combined)
         cursor = self.project_output_view.textCursor()
-        cursor.movePosition(cursor.End)
+        cursor.movePosition(QTextCursor.End)
         self.project_output_view.setTextCursor(cursor)
 
     def _run_project_command(self):
@@ -9299,32 +9634,63 @@ class MoriceWindow(QWidget):
         self.project_command_input.clear()
         self._set_project_workspace_tab(2)
         self._append_project_output(f"> {command}")
+        try:
+            command_parts = shlex.split(command, posix=False)
+        except ValueError as exc:
+            self._append_project_output(f"Command not started: {exc}")
+            return
+        command_parts = [
+            part[1:-1] if len(part) >= 2 and part[0] == part[-1] == '"' else part
+            for part in command_parts
+        ]
+        arguments = {
+            "cwd": self.project_folder,
+            "command": command_parts,
+            "timeout": 300,
+        }
+        permission_token = self.runtime.agent.permission_token(
+            "terminal.run",
+            arguments,
+        )
+        command_call_id = f"project-command-{time.time_ns()}"
+        self._active_project_command_id = command_call_id
+        self.project_command_state.emit(True)
 
         def worker():
-            try:
-                completed = subprocess.run(
-                    command,
-                    cwd=self.project_folder,
-                    capture_output=True,
-                    text=True,
-                    errors="replace",
-                    timeout=300,
-                    shell=False,
-                    creationflags=(
-                        subprocess.CREATE_NO_WINDOW
-                        if os.name == "nt"
-                        else 0
-                    ),
+            result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "terminal.run",
+                    arguments,
+                    call_id=command_call_id,
+                    permission_token=permission_token,
                 )
-                output = (completed.stdout or "") + (completed.stderr or "")
-                self.project_output_ready.emit(
-                    (output.rstrip() or "(no output)")
-                    + f"\n[exit code {completed.returncode}]"
-                )
-            except (OSError, subprocess.SubprocessError) as exc:
-                self.project_output_ready.emit(f"Command failed: {exc}")
+            )
+            output = result.output if isinstance(result.output, dict) else {}
+            combined = (str(output.get("stdout", "")) + str(output.get("stderr", ""))).rstrip()
+            if result.errors:
+                combined += ("\n" if combined else "") + "\n".join(result.errors)
+            self.project_output_ready.emit(
+                (combined or "(no output)")
+                + f"\n[exit code {output.get('exitCode', 'unknown')}]"
+            )
+            self._active_project_command_id = ""
+            self.project_command_state.emit(False)
 
         _start_background_task("project-command", worker)
+
+    def _cancel_project_command(self):
+        call_id = self._active_project_command_id
+        if not call_id:
+            self.project_command_state.emit(False)
+            return
+        if self.runtime.agent.cancel(call_id):
+            self._append_project_output(
+                "Cancellation requested for the active command."
+            )
+        else:
+            self._append_project_output(
+                "The command already finished or could not be cancelled."
+            )
 
     def _show_project_git_status(self):
         if not self.project_folder or not os.path.isdir(self.project_folder):
@@ -9336,27 +9702,21 @@ class MoriceWindow(QWidget):
         self._append_project_output("> git status --short --branch")
 
         def worker():
-            try:
-                completed = subprocess.run(
-                    ["git", "status", "--short", "--branch"],
-                    cwd=self.project_folder,
-                    capture_output=True,
-                    text=True,
-                    errors="replace",
-                    timeout=30,
-                    creationflags=(
-                        subprocess.CREATE_NO_WINDOW
-                        if os.name == "nt"
-                        else 0
-                    ),
+            result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "git.status",
+                    {"root": self.project_folder},
+                    call_id=f"git-status-{time.time_ns()}",
                 )
-                output = (completed.stdout or "") + (completed.stderr or "")
-                self.project_output_ready.emit(
-                    (output.rstrip() or "Clean working tree.")
-                    + f"\n[exit code {completed.returncode}]"
-                )
-            except (OSError, subprocess.SubprocessError) as exc:
-                self.project_output_ready.emit(f"Git status failed: {exc}")
+            )
+            output = result.output if isinstance(result.output, dict) else {}
+            combined = (str(output.get("stdout", "")) + str(output.get("stderr", ""))).rstrip()
+            if result.errors:
+                combined += ("\n" if combined else "") + "\n".join(result.errors)
+            self.project_output_ready.emit(
+                (combined or "Clean working tree.")
+                + f"\n[exit code {output.get('exitCode', 'unknown')}]"
+            )
 
         _start_background_task("project-git-status", worker)
 
@@ -9399,39 +9759,23 @@ class MoriceWindow(QWidget):
         if not self.project_folder or not os.path.isdir(self.project_folder):
             self.changes_action_status.setText("Choose a project folder before verification.")
             return
-        failures = []
-        checked = 0
-        for dirpath, dirnames, filenames in os.walk(self.project_folder):
-            dirnames[:] = [name for name in dirnames if name not in PROJECT_IGNORED_DIRS]
-            for filename in filenames:
-                full_path = os.path.join(dirpath, filename)
-                relative_path = os.path.relpath(full_path, self.project_folder).replace("\\", "/")
-                if os.path.splitext(relative_path)[1].lower() not in PROJECT_TEXT_EXTENSIONS | {".bat"}:
-                    continue
-                try:
-                    with open(full_path, "r", encoding="utf-8", errors="replace") as handle:
-                        validate_project_file(relative_path, handle.read())
-                    checked += 1
-                except (OSError, ProjectValidationError) as exc:
-                    failures.append(f"{relative_path}: {exc}")
-        if failures:
-            self.changes_action_status.setText("Verification failed: " + failures[0])
-            self._append_project_output(
-                "Project verification failed:\n" + "\n".join(failures[:30])
+        self.changes_verify_btn.setEnabled(False)
+        self.changes_action_status.setText("Verifying project source files...")
+        arguments = {"root": self.project_folder}
+
+        def worker():
+            result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "project.verify",
+                    arguments,
+                    call_id=f"project-verify-{time.time_ns()}",
+                )
             )
-        else:
-            self.changes_action_status.setText(f"Verified {checked} source file(s).")
-            self._append_project_output(
-                f"Project verification passed: {checked} source file(s) checked."
+            self.project_patch_result.emit(
+                {"operation": "verify", "result": result, "arguments": arguments}
             )
-        plan = build_launch_plan(self.project_folder)
-        if plan:
-            self.changes_run_btn.setEnabled(True)
-            self.changes_run_btn.setText(plan.label)
-            if not failures:
-                self.changes_action_status.setText(f"Verified {checked} source file(s). Entry point: {os.path.basename(plan.target)}")
-        else:
-            self.changes_run_btn.setEnabled(False)
+
+        _start_background_task("project-verify", worker)
 
     def _run_project(self):
         plan = build_launch_plan(self.project_folder)
@@ -9639,6 +9983,7 @@ class MoriceWindow(QWidget):
             self._record_activity(
                 "Visualization failed", message, category="visualization"
             )
+            self._complete_agent_ui(response_present=True)
             self._save_workspace_session()
             return
 
@@ -9674,6 +10019,7 @@ class MoriceWindow(QWidget):
             self._record_activity(
                 "Visualization rejected", message, category="visualization"
             )
+            self._complete_agent_ui(response_present=True)
             self._save_workspace_session()
             return
 
@@ -9686,6 +10032,7 @@ class MoriceWindow(QWidget):
             f"{artifact.kind}: {artifact.title}",
             category="visualization",
         )
+        self._complete_agent_ui(response_present=True)
         self._save_workspace_session()
 
     def _science_ready_reply(
@@ -9841,6 +10188,7 @@ class MoriceWindow(QWidget):
         visible_reply = self._address(reply) if address else str(reply or "").strip()
         self._remember_conversation_turn(user_input, visible_reply)
         self.append_message(MORICE_NAME, visible_reply)
+        self._complete_agent_ui(response_present=bool(visible_reply))
         self._save_workspace_session()
 
     def _set_busy(self, is_busy: bool):
@@ -10036,6 +10384,7 @@ class MoriceWindow(QWidget):
             " ".join(message.split())[:240],
             category="chat",
         )
+        self._complete_agent_ui(response_present=bool(message))
         self._save_workspace_session()
         self._set_busy(False)
         QTimer.singleShot(120, self._send_queued_message_if_ready)
@@ -10455,6 +10804,7 @@ class MoriceWindow(QWidget):
         )
         if not self.first_user_message:
             self.first_user_message = user_input
+        self._prepare_agent_request(user_input)
 
         image_path = self.pending_image_path
         if image_path:
@@ -10683,6 +11033,12 @@ class MoriceWindow(QWidget):
 
         def worker():
             try:
+                if project_build_request:
+                    self._prepare_agent_request(
+                        project_source_input,
+                        include_project=True,
+                    )
+                agent_request_id = self._active_agent_request_id
                 self.thinking_update.emit("Checking saved response style and local context.")
                 context_input = project_source_input if project_build_request else user_input
                 context = retrieve_context(context_input) if should_use_context(context_input) else ""
@@ -10722,7 +11078,9 @@ class MoriceWindow(QWidget):
                     extra_system += "\n\n" + self._project_builder_system()
                     if project_build_request:
                         self.thinking_update.emit("Reading the work folder so edits can be applied directly.")
-                        extra_system += "\n\n" + self._project_snapshot()
+                        extra_system += "\n\n" + self._agent_project_prompt_context(
+                            agent_request_id
+                        )
                         extra_system += "\n\n" + self._project_manifest_instruction(project_source_input)
                 if image_path:
                     self.thinking_update.emit("Reading attached image context.")
@@ -10795,13 +11153,26 @@ class MoriceWindow(QWidget):
                         "estimatedTokensPerSecond": estimated_tps,
                     },
                 )
+                if agent_request_id:
+                    self.runtime.agent.record_model_result(
+                        agent_request_id,
+                        success=True,
+                        latency_ms=completion_ms,
+                        prompt_tokens=max(1, len(model_user_input) // 4),
+                        generated_tokens=max(1, len(reply) // 4),
+                        gpu_layers=int(os.getenv("MORICE_GPU_LAYERS", "0") or 0),
+                    )
                 visible_reply = reply
                 if project_build_request:
                     project_result = None
                     apply_error = ""
                     self.thinking_update.emit("Applying generated files to the selected work folder.")
                     try:
-                        project_result = self._apply_project_manifest(reply, project_source_input)
+                        project_result = self._apply_project_manifest(
+                            reply,
+                            project_source_input,
+                            preview_only=True,
+                        )
                     except Exception as exc:  # noqa: BLE001
                         apply_error = str(exc)
 
@@ -10824,7 +11195,11 @@ class MoriceWindow(QWidget):
                                 math_steps_mode=False,
                                 gguf_path=self.model_path,
                             )
-                            project_result = self._apply_project_manifest(repair_reply, project_source_input)
+                            project_result = self._apply_project_manifest(
+                                repair_reply,
+                                project_source_input,
+                                preview_only=True,
+                            )
                         except Exception as exc:  # noqa: BLE001
                             apply_error = str(exc)
 
@@ -10839,6 +11214,7 @@ class MoriceWindow(QWidget):
                                 project_result = self._apply_project_manifest(
                                     fallback_manifest,
                                     project_source_input,
+                                    preview_only=True,
                                 )
                                 if project_result:
                                     project_result["summary"] = (
@@ -10868,6 +11244,14 @@ class MoriceWindow(QWidget):
                 self.history.append({"role": "assistant", "content": visible_reply})
                 self.message_ready.emit(MORICE_NAME, self._address(visible_reply), False)
             except Exception as exc:  # noqa: BLE001
+                if self._active_agent_request_id:
+                    self.runtime.agent.record_model_result(
+                        self._active_agent_request_id,
+                        success=False,
+                        latency_ms=0,
+                        error=str(exc),
+                        gpu_layers=int(os.getenv("MORICE_GPU_LAYERS", "0") or 0),
+                    )
                 self.runtime.logs.log(
                     "ERROR",
                     f"Chat reply failed: {exc}",

@@ -641,6 +641,53 @@ class InlineVisualizationTests(unittest.TestCase):
                 any(name.startswith(".morice-write-") for name in os.listdir(folder))
             )
 
+    def test_project_patch_review_apply_and_undo_flow_is_real(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = os.path.join(folder, "main.py")
+            with open(target, "w", encoding="utf-8") as source:
+                source.write("print('before')\n")
+            self.window.project_folder = folder
+            result = self.window._apply_project_manifest(
+                {
+                    "summary": "Update main.",
+                    "files": [
+                        {
+                            "path": "main.py",
+                            "content": "print('after')\n",
+                        }
+                    ],
+                },
+                preview_only=True,
+            )
+            self.window._on_project_changes_ready(
+                result["summary"],
+                result["diff_html"],
+            )
+
+            self.assertTrue(result["pending"])
+            self.assertTrue(self.window.changes_apply_btn.isEnabled())
+            with open(target, encoding="utf-8") as source:
+                self.assertEqual(source.read(), "print('before')\n")
+
+            self.window._apply_pending_project_patch()
+            deadline = time.monotonic() + 5
+            while self.window.pending_project_patch and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(0.01)
+            self.app.processEvents()
+            with open(target, encoding="utf-8") as source:
+                self.assertEqual(source.read(), "print('after')\n")
+            self.assertTrue(self.window.changes_undo_btn.isEnabled())
+
+            self.window._undo_last_project_patch()
+            deadline = time.monotonic() + 5
+            while self.window.last_project_undo_id and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(0.01)
+            self.app.processEvents()
+            with open(target, encoding="utf-8") as source:
+                self.assertEqual(source.read(), "print('before')\n")
+
     def test_invalid_project_manifest_cannot_replace_existing_source(self):
         with tempfile.TemporaryDirectory() as folder:
             target = os.path.join(folder, "main.py")

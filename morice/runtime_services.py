@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from . import __version__
+from .agent_orchestrator import AgentOrchestrator
 
 APP_VERSION = __version__
 MAX_LOG_RECORDS = 2_000
@@ -900,6 +901,7 @@ class RuntimeSnapshot:
     profiler: dict[str, Any]
     health: HealthReport
     dependencies: dict[str, str]
+    agent: dict[str, Any]
 
 
 class RuntimeServices:
@@ -916,6 +918,7 @@ class RuntimeServices:
         self.workers = BackgroundTaskManager(self.logs, self.profiler)
         self.recovery = CrashRecoveryManager(base / "recovery")
         self.health_checker = StartupHealthChecker(project_root, base)
+        self.agent = AgentOrchestrator(base / "agent", logger=self.logs.log)
         self.health_report = HealthReport(_utc_now(), ())
         self.recovery_info = RecoveryInfo(False)
         self._started = False
@@ -1045,6 +1048,7 @@ class RuntimeServices:
             profiler=self.profiler.summary(),
             health=self.health_report,
             dependencies=dependencies,
+            agent=self.agent.snapshot(),
         )
 
     def save_recovery_snapshot(self, payload: dict[str, Any]) -> None:
