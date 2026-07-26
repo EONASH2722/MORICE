@@ -596,7 +596,6 @@ class ModelWebBrowserDialog(QDialog):
         self.quick_buttons = []
         for label, query in (
             ("Best fit", ""),
-            ("Hermes test", "hermes 3 8b"),
             ("Qwen coder", "qwen2.5 coder 7b"),
             ("Mistral", "mistral 7b instruct"),
             ("Gemma", "gemma 3 4b"),

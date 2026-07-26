@@ -53,15 +53,6 @@ Current VNext desktop runtime:
 
 See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, capability limits, and extension rules. The strict TypeScript engine in `vnext/` includes the coordinator, renderer manager, Plotly adapter, cache, and deterministic 2D/3D particle-state core.
 
-### Verified Live Renders
-
-These captures come from the running Windows app after the renderer artifacts passed validation. The graph shows independently checked calculus landmarks; the pendulum uses a 30-degree initial angle and physical gravity metadata.
-
-<p align="center">
-  <img src="docs/screenshots/morice-vnext-graph.png" alt="MORICE interactive cubic graph with validated landmarks" width="49%">
-  <img src="docs/screenshots/morice-vnext-physics.png" alt="MORICE live pendulum simulation with interactive controls" width="49%">
-</p>
-
 ## Highlights
 
 - Glass desktop interface with a centered launch composer, animated galaxy/wave surfaces, and a Send button that stays calm instead of using a liquid-fill animation.
@@ -532,7 +523,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the development checklist.
 
 ## Change The Model To Anything
 
-The base AI is Qwen2.5 Coder 7B, but MORICE is not locked to one brain. Open the mode panel, type any installed Ollama model name, pick a local GGUF with `Change model` -> `Files`, or install one through `Change model` -> `Web`. MORICE saves that choice and uses it on the next reply, so builders can change the model without editing code. Hermes is retained only as an optional comparison/test model.
+The base AI is Qwen2.5 Coder 7B, but MORICE is not locked to one brain. Open the mode panel, type any installed Ollama model name, pick a local GGUF with `Change model` -> `Files`, or install one through `Change model` -> `Web`. MORICE saves that choice and uses it on the next reply, so builders can change the model without editing code.
 
 ## License
 
