@@ -41,7 +41,10 @@ Current VNext desktop runtime:
 - Chemistry: curated VSEPR molecular structures with 2D/3D views, reference angles, rotation, and atom inspection.
 - Biology: validated DNA, neuron, and cell models with real geometry, labels, animation controls, and shared 2D/3D views.
 - Computer science: Binary Search Trees, AVL Trees, graphs, linked lists, queues, stacks, and hash tables with live Insert/Delete/Search operations, animated highlights, and complexity reporting.
-- Structured diagrams: networking, compiler, process-state, and explicit flow pipelines.
+- Numeric charts: bar, pie, line, scatter, and histogram views built directly from values supplied in the prompt, with exact-value inspection and PNG/SVG/PDF export.
+- Component schematics: labeled 2D/3D views for supported robots, drones, vehicles, aircraft, ships, buildings, bridges, engines, CPUs, GPUs, motherboards, cameras, and watches.
+- Structured diagrams: networking, operating systems, databases, AI, security, biology, circuits, geography, economics, compiler, process-state, timelines, and explicit user-supplied flow pipelines.
+- Local document previews: real in-chat text, source, JSON, CSV, image, and PDF views when the prompt contains a valid local path.
 - Rich answers: local Markdown, highlighted code, tables, and KaTeX equations.
 - Model-agnostic instruction shape: `simulationType`, `equations`, and `parameters`.
 - Renderer registry, capability detection, bounded scheduler, artifact cache, resource cleanup, and honest failure states.
@@ -62,7 +65,7 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 - Trusted model browser with automatic GPU/VRAM detection, one-click trusted model lanes, compatibility scoring, worth scoring, official-source links, licenses, task metadata, and model-speciality summaries.
 - Project Mode with a readable right-side Files/Changes/Output workspace, project tree, source preview, green/red diffs, source validation, run actions, and an allowlisted direct-command terminal.
 - Project prompts become validated editable files in the selected folder; filename-labeled code blocks and the local fallback builder remain recovery paths.
-- VNext inline workspaces for real graphs, surfaces, physics, molecules, biology, data structures, diagrams, and rich mathematics directly in Normal Chat.
+- VNext inline workspaces for real graphs, surfaces, physics, molecules, biology, data structures, numeric charts, component schematics, structured diagrams, local documents, and rich mathematics directly in Normal Chat.
 - `@web` lookup for fresh information when needed, with results passed into the local reply pipeline instead of leaving the whole chat online by default.
 - `@notes` lookup for local knowledge files, so MORICE can answer from personal documents without uploading them.
 - Adaptive wake listener that can launch MORICE by saved phrase or double clap, amplify quiet speech, learn persistent room noise, recover split phrases, and rotate away from silent or incompatible microphones.
@@ -412,7 +415,7 @@ chat prompt -> visualization decision -> renderer selection -> deterministic dat
 
 The AI model may help reason about the problem, but it never draws directly. The renderer manager turns supported instructions into graph data or simulation state, validates that output, and only then inserts a live workspace into chat. Unsupported or failed renderers display an explicit error instead of an imaginary screenshot or placeholder.
 
-The representative rendering-accuracy matrix currently passes 10/10 cases across Cartesian, implicit, polar, parametric, and surface graphs; projectile, pendulum, and 3D particle physics; VSEPR chemistry; and directed networking diagrams.
+The representative rendering-accuracy matrix covers Cartesian, implicit, polar, parametric, and surface graphs; projectile, pendulum, and 3D particle physics; VSEPR chemistry; directed domain diagrams; prompt-faithful numeric charts; all curated schematic families; and local file previews.
 
 ## Message Queue
 
@@ -475,6 +478,7 @@ Common places to edit:
 - UI and animations: `morice/pyside_app.py`
 - MORICE personality and reply rules: `morice/core.py`
 - Graph and physics instruction engine: `morice/science_engine.py`
+- Chart, local-document, and 2D/3D component-schematic engine: `morice/universal_engine.py`
 - Visualization registry, queue, validation, caching, and capability reporting: `morice/visualization.py`
 - Local model routing and token budget: `morice/llm_client.py`
 - Project fallback file builder: `morice/project_builder.py`

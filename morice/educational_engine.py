@@ -51,6 +51,19 @@ DATA_STRUCTURE_MARKERS = {
 
 def wants_biology(prompt: str) -> bool:
     lowered = (prompt or "").lower()
+    if any(
+        marker in lowered
+        for marker in {
+            "cell cycle",
+            "food chain",
+            "food web",
+            "photosynthesis",
+            "protein synthesis",
+            "transcription",
+            "translation",
+        }
+    ):
+        return False
     visual = bool(
         re.search(r"\b(?:animate|draw|model|render|show|visuali[sz]e)\b", lowered)
     )

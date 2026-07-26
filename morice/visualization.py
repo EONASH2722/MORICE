@@ -32,6 +32,14 @@ from .educational_engine import (
     wants_biology,
     wants_data_structures,
 )
+from .universal_engine import (
+    build_chart_artifact,
+    build_document_artifact,
+    build_scene_artifact,
+    wants_chart,
+    wants_document,
+    wants_scene,
+)
 
 
 ProgressCallback = Callable[[str, str, int], None]
@@ -314,6 +322,114 @@ class DataStructureRendererPlugin:
         )
 
 
+class ChartRendererPlugin:
+    renderer_id = "data.chart"
+    label = "Interactive data chart"
+    interactive = True
+
+    def can_render(self, prompt: str) -> bool:
+        return wants_chart(prompt)
+
+    def render(self, prompt: str) -> ScienceArtifact | None:
+        return build_chart_artifact(prompt)
+
+    def validate(self, artifact: ScienceArtifact) -> tuple[bool, str]:
+        chart = artifact.chart
+        if artifact.kind != "chart" or chart is None:
+            return False, "The chart engine did not return a chart artifact."
+        if chart.chart_type not in {"bar", "pie", "scatter", "histogram", "line"}:
+            return False, "The chart type is not supported."
+        if len(chart.points) < 2:
+            return False, "The chart contains fewer than two data points."
+        for point in chart.points:
+            if not point.label.strip() or not all(
+                _is_finite_number(value) for value in (point.x, point.y)
+            ):
+                return False, "The chart contains invalid numeric data."
+        return True, ""
+
+    def estimate_bytes(self, artifact: ScienceArtifact) -> int:
+        chart = artifact.chart
+        return len(chart.points) * 64 if chart else 0
+
+
+class SceneRendererPlugin:
+    renderer_id = "model.schematic-3d"
+    label = "Interactive 2D/3D component schematic"
+    interactive = True
+
+    def can_render(self, prompt: str) -> bool:
+        return wants_scene(prompt)
+
+    def render(self, prompt: str) -> ScienceArtifact | None:
+        return build_scene_artifact(prompt)
+
+    def validate(self, artifact: ScienceArtifact) -> tuple[bool, str]:
+        scene = artifact.scene
+        if artifact.kind != "scene" or scene is None:
+            return False, "The scene engine did not return a schematic artifact."
+        if not scene.primitives:
+            return False, "The scene contains no drawable components."
+        for primitive in scene.primitives:
+            if primitive.shape not in {"box", "sphere", "cylinder"}:
+                return False, "The scene contains an unsupported primitive."
+            if not primitive.label.strip():
+                return False, "The scene contains an unlabeled component."
+            if not all(
+                _is_finite_number(value)
+                for value in (*primitive.center, *primitive.size)
+            ):
+                return False, "The scene contains invalid component geometry."
+            if any(value <= 0 for value in primitive.size):
+                return False, "The scene contains a component with invalid dimensions."
+        for connection in scene.connections:
+            if (
+                connection.first < 0
+                or connection.second < 0
+                or connection.first >= len(scene.primitives)
+                or connection.second >= len(scene.primitives)
+            ):
+                return False, "The scene contains an invalid component connection."
+        return True, ""
+
+    def estimate_bytes(self, artifact: ScienceArtifact) -> int:
+        scene = artifact.scene
+        return (
+            len(scene.primitives) * 160 + len(scene.connections) * 32
+            if scene
+            else 0
+        )
+
+
+class DocumentRendererPlugin:
+    renderer_id = "viewer.document"
+    label = "Interactive local file preview"
+    interactive = True
+
+    def can_render(self, prompt: str) -> bool:
+        return wants_document(prompt)
+
+    def render(self, prompt: str) -> ScienceArtifact | None:
+        return build_document_artifact(prompt)
+
+    def validate(self, artifact: ScienceArtifact) -> tuple[bool, str]:
+        document = artifact.document
+        if artifact.kind != "document" or document is None:
+            return False, "The document engine did not return a preview artifact."
+        if not os.path.isfile(document.path):
+            return False, "The requested local file does not exist."
+        actual_size = os.path.getsize(document.path)
+        if actual_size != document.size_bytes:
+            return False, "The local file changed while its preview was being prepared."
+        if actual_size > 32 * 1024 * 1024:
+            return False, "In-chat document previews are limited to 32 MB."
+        return True, ""
+
+    def estimate_bytes(self, artifact: ScienceArtifact) -> int:
+        document = artifact.document
+        return min(document.size_bytes, 8 * 1024 * 1024) if document else 0
+
+
 class RendererRegistry:
     def __init__(self):
         self._plugins: dict[str, RendererPlugin] = {}
@@ -449,7 +565,6 @@ class CapabilityDetector:
 
 UNAVAILABLE_RENDERERS = {
     "model.generic-3d": "The general 3D renderer is not installed yet.",
-    "viewer.document": "The requested document viewer is not installed in the chat renderer yet.",
 }
 
 
@@ -464,6 +579,9 @@ class VisualizationManager:
         if registry is None:
             self.registry.register(BiologyRendererPlugin())
             self.registry.register(DataStructureRendererPlugin())
+            self.registry.register(ChartRendererPlugin())
+            self.registry.register(SceneRendererPlugin())
+            self.registry.register(DocumentRendererPlugin())
             self.registry.register(GraphRendererPlugin())
             self.registry.register(PhysicsRendererPlugin())
             self.registry.register(MoleculeRendererPlugin())
@@ -485,6 +603,9 @@ class VisualizationManager:
                 "diagram.structured": "The request maps to a validated structured-diagram template.",
                 "biology.educational": "The request describes a supported biology model.",
                 "computer-science.data-structures": "The request asks for interactive data-structure operations.",
+                "data.chart": "The request contains explicit numeric data for a supported chart.",
+                "model.schematic-3d": "The request names a supported labeled component schematic.",
+                "viewer.document": "The request names a supported local file for in-chat preview.",
             }.get(plugin.renderer_id, "A validated renderer supports this request.")
             return VisualizationDecision(plugin.renderer_id, reason, 1.0)
 

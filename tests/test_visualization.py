@@ -11,11 +11,14 @@ from PySide6.QtWidgets import QApplication
 
 from morice.pyside_app import (
     InlineBiologyWorkspace,
+    InlineChartWorkspace,
     InlineDataStructureWorkspace,
     InlineDiagramWorkspace,
+    InlineDocumentWorkspace,
     InlineGraphWorkspace,
     InlineMoleculeWorkspace,
     InlinePhysicsWorkspace,
+    InlineSceneWorkspace,
     MoriceWindow,
     PhysicsCanvas,
     SurfaceCanvas,
@@ -140,6 +143,148 @@ class VisualizationManagerTests(unittest.TestCase):
         self.assertEqual(diagram.title, "TCP three-way handshake")
         self.assertEqual(len(diagram.nodes), 4)
         self.assertEqual(len(diagram.edges), 3)
+
+    def test_numeric_chart_preserves_prompt_values(self):
+        result = self._render(
+            "Render a bar chart of Apples: 12, Bananas: 7, Cherries: 19."
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.renderer_id, "data.chart")
+        self.assertEqual(result.artifact.chart.chart_type, "bar")
+        self.assertEqual(
+            [(point.label, point.y) for point in result.artifact.chart.points],
+            [("Apples", 12.0), ("Bananas", 7.0), ("Cherries", 19.0)],
+        )
+
+    def test_scatter_chart_preserves_coordinate_pairs(self):
+        result = self._render(
+            "Show a scatter plot of (1, 4), (2, 8), (3.5, -2)."
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(
+            [(point.x, point.y) for point in result.artifact.chart.points],
+            [(1.0, 4.0), (2.0, 8.0), (3.5, -2.0)],
+        )
+
+    def test_supported_generic_scene_has_valid_2d_and_3d_geometry(self):
+        result = self._render(
+            "Render an interactive 3D drone model with labeled components."
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.renderer_id, "model.schematic-3d")
+        scene = result.artifact.scene
+        self.assertEqual(scene.scene_type, "drone")
+        self.assertEqual(scene.instruction["parameters"]["views"], ["2d", "3d"])
+        self.assertEqual(len(scene.primitives), 5)
+        self.assertTrue(
+            all(value > 0 for primitive in scene.primitives for value in primitive.size)
+        )
+
+    def test_every_curated_scene_family_validates(self):
+        for scene_type in (
+            "robot",
+            "drone",
+            "car",
+            "aircraft",
+            "ship",
+            "building",
+            "bridge",
+            "engine",
+            "CPU",
+            "GPU",
+            "motherboard",
+            "camera",
+            "watch",
+        ):
+            with self.subTest(scene_type=scene_type):
+                result = self._render(
+                    f"Render an interactive 3D {scene_type} with labeled components."
+                )
+                self.assertTrue(result.ok)
+                self.assertEqual(
+                    result.artifact.scene.instruction["parameters"]["views"],
+                    ["2d", "3d"],
+                )
+
+    def test_domain_diagram_templates_cover_database_ai_security_and_biology(self):
+        for prompt, title in (
+            ("Show an ER diagram.", "Entity-relationship model"),
+            ("Visualize transformer architecture.", "Transformer processing path"),
+            ("Draw the AES encryption flow.", "AES round structure"),
+            ("Show protein synthesis as a diagram.", "Protein synthesis"),
+        ):
+            with self.subTest(prompt=prompt):
+                result = self._render(prompt)
+                self.assertTrue(result.ok)
+                self.assertEqual(result.artifact.diagram.title, title)
+                self.assertGreaterEqual(len(result.artifact.diagram.nodes), 5)
+
+    def test_extended_domain_diagram_matrix_validates(self):
+        prompts = (
+            "Show the TLS handshake diagram.",
+            "Visualize packet routing.",
+            "Draw firewall flow.",
+            "Show virtual memory address translation.",
+            "Visualize CPU scheduling.",
+            "Draw a deadlock resource allocation graph.",
+            "Show an SQL join diagram.",
+            "Visualize a database transaction lifecycle.",
+            "Draw a B+ tree database index.",
+            "Show gradient descent optimization steps.",
+            "Visualize RSA encryption.",
+            "Draw a digital signature verification flow.",
+            "Show the cell cycle.",
+            "Visualize a food chain.",
+            "Draw an RC circuit diagram.",
+            "Show the water cycle.",
+            "Visualize plate tectonics.",
+            "Draw the supply and demand relationships.",
+        )
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                result = self._render(prompt)
+                self.assertTrue(result.ok, result.error)
+                self.assertEqual(result.renderer_id, "diagram.structured")
+                self.assertGreaterEqual(len(result.artifact.diagram.nodes), 4)
+
+    def test_user_supplied_timeline_is_rendered_without_invented_events(self):
+        result = self._render(
+            "Render a timeline: 1991: Web released, 2007: Smartphones expand, "
+            "2022: Generative AI adoption."
+        )
+
+        self.assertTrue(result.ok)
+        labels = [node.label for node in result.artifact.diagram.nodes]
+        self.assertEqual(
+            labels,
+            [
+                "1991: Web released",
+                "2007: Smartphones expand",
+                "2022: Generative AI adoption.",
+            ],
+        )
+
+    def test_unknown_generic_3d_object_still_fails_honestly(self):
+        result = self._render("Render an interactive 3D fictional flux orb.")
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.artifact)
+        self.assertIn("not installed", result.error)
+
+    def test_local_document_path_produces_validated_preview_artifact(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "research notes.txt")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("measured value: 42\n")
+            result = self._render(f'Show this file: "{path}"')
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.renderer_id, "viewer.document")
+        self.assertEqual(result.artifact.document.path, path)
+        self.assertGreater(result.artifact.document.size_bytes, 0)
 
     def test_invalid_expression_never_claims_success(self):
         result = self._render("Plot y = os.system(x)")
@@ -312,6 +457,53 @@ class InlineVisualizationTests(unittest.TestCase):
         workspaces = self.window.chat_list.findChildren(InlineDiagramWorkspace)
         self.assertEqual(len(workspaces), 1)
         self.assertEqual(len(workspaces[0].artifact.nodes), 7)
+
+    def test_chart_replaces_progress_card_and_exports_real_files(self):
+        self.assertTrue(
+            self.window._handle_science_request(
+                "Render a pie chart of Design: 35, Code: 45, Test: 20."
+            )
+        )
+        self._wait_for_jobs()
+        workspace = self.window.chat_list.findChildren(InlineChartWorkspace)[0]
+        self.assertEqual(len(workspace.canvas.artifact.points), 3)
+
+        with tempfile.TemporaryDirectory() as folder:
+            for extension, exporter in (
+                ("png", workspace.canvas.export_png),
+                ("svg", workspace.canvas.export_svg),
+                ("pdf", workspace.canvas.export_pdf),
+            ):
+                path = os.path.join(folder, f"chart.{extension}")
+                self.assertTrue(exporter(path))
+                self.assertGreater(os.path.getsize(path), 100)
+
+    def test_scene_replaces_progress_card_and_switches_views(self):
+        self.assertTrue(
+            self.window._handle_science_request(
+                "Render a 3D robot with labeled components."
+            )
+        )
+        self._wait_for_jobs()
+        workspace = self.window.chat_list.findChildren(InlineSceneWorkspace)[0]
+        self.assertEqual(workspace.artifact.scene_type, "robot")
+        workspace.dimension_select.setCurrentText("2D")
+        self.assertEqual(workspace.canvas.view_mode, "2d")
+        workspace.dimension_select.setCurrentText("3D")
+        self.assertEqual(workspace.canvas.view_mode, "3d")
+
+    def test_document_replaces_progress_card_with_real_file_preview(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "preview.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write('{"status": "ready", "value": 42}')
+            self.assertTrue(
+                self.window._handle_science_request(f'Preview local file "{path}"')
+            )
+            self._wait_for_jobs()
+            workspace = self.window.chat_list.findChildren(InlineDocumentWorkspace)[0]
+            self.assertEqual(workspace.preview.current_path, path)
+            self.assertIn("loaded", workspace.status.text().lower())
 
     def test_physics_replaces_progress_card_inside_chat(self):
         self.assertTrue(

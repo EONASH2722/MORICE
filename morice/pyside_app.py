@@ -153,6 +153,7 @@ from .project_runtime import (
 from .science_engine import GraphArtifact, GraphSurface, PhysicsArtifact, ScienceArtifact, is_science_request
 from .domain_engine import DiagramArtifact, MoleculeArtifact, atom_color
 from .educational_engine import BiologyArtifact, DataStructureArtifact
+from .universal_engine import ChartArtifact, DocumentArtifact, SceneArtifact, ScenePrimitive
 from .visualization import VisualizationManager, VisualizationResult
 from .capabilities import (
     apply_emoji_presentation,
@@ -186,6 +187,7 @@ from .ui_system import (
 from .ui_workspace import (
     AssistantHub,
     CommandPalette,
+    FilePreview,
     NotificationToast,
     install_command_shortcut,
 )
@@ -2767,6 +2769,399 @@ class DiagramCanvas(QWidget):
         )
 
 
+class ChartCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("ChartCanvas")
+        self.setMinimumHeight(340)
+        self.setMouseTracking(True)
+        self.artifact: ChartArtifact | None = None
+        self._regions: list[tuple[QRect, str]] = []
+
+    def set_artifact(self, artifact: ChartArtifact | None):
+        self.artifact = artifact
+        self.update()
+
+    def reset_view(self):
+        self.update()
+
+    def export_png(self, path: str) -> bool:
+        return bool(path and self.grab().save(path, "PNG"))
+
+    def export_svg(self, path: str) -> bool:
+        if not path:
+            return False
+        generator = QSvgGenerator()
+        generator.setFileName(path)
+        generator.setSize(self.size())
+        generator.setViewBox(self.rect())
+        generator.setTitle(self.artifact.title if self.artifact else "MORICE chart")
+        generator.setDescription("Validated chart exported from MORICE")
+        painter = QPainter(generator)
+        try:
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    def export_pdf(self, path: str) -> bool:
+        if not path:
+            return False
+        writer = QPdfWriter(path)
+        writer.setTitle(self.artifact.title if self.artifact else "MORICE chart")
+        writer.setCreator("MORICE")
+        writer.setResolution(144)
+        painter = QPainter(writer)
+        try:
+            viewport = painter.viewport()
+            target = self.size()
+            target.scale(viewport.size(), Qt.KeepAspectRatio)
+            painter.setViewport(
+                viewport.x() + (viewport.width() - target.width()) // 2,
+                viewport.y() + (viewport.height() - target.height()) // 2,
+                target.width(),
+                target.height(),
+            )
+            painter.setWindow(self.rect())
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    def mouseMoveEvent(self, event):
+        position = event.position().toPoint()
+        for region, detail in self._regions:
+            if region.contains(position):
+                self.inspected.emit(detail)
+                break
+        event.accept()
+
+    @staticmethod
+    def _palette(index: int) -> QColor:
+        colors = ("#52b7ff", "#62d6ad", "#a985ff", "#f2c45c", "#ef7080", "#48c3cf")
+        return QColor(colors[index % len(colors)])
+
+    def _draw_pie(self, painter: QPainter, plot: QRect):
+        values = [max(0.0, point.y) for point in self.artifact.points]
+        total = sum(values)
+        if total <= 0:
+            painter.setPen(QColor(255, 255, 255, 180))
+            painter.drawText(plot, Qt.AlignCenter, "Pie charts require positive values")
+            return
+        diameter = min(plot.width() * 0.58, plot.height() * 0.88)
+        pie_rect = QRect(
+            int(plot.left() + plot.width() * 0.04),
+            int(plot.center().y() - diameter / 2),
+            int(diameter),
+            int(diameter),
+        )
+        start = 90 * 16
+        self._regions = []
+        for index, (point, value) in enumerate(zip(self.artifact.points, values)):
+            span = int(round(value / total * 360 * 16))
+            painter.setBrush(self._palette(index))
+            painter.setPen(QPen(QColor(5, 8, 14, 220), 2))
+            painter.drawPie(pie_rect, start, -span)
+            start -= span
+        legend_x = int(plot.left() + plot.width() * 0.68)
+        for index, (point, value) in enumerate(zip(self.artifact.points, values)):
+            row = QRect(legend_x, plot.top() + 10 + index * 29, plot.right() - legend_x, 24)
+            painter.fillRect(QRect(row.left(), row.top() + 5, 14, 14), self._palette(index))
+            painter.setPen(QColor(235, 241, 250, 225))
+            percent = value / total * 100
+            painter.drawText(row.adjusted(22, 0, 0, 0), Qt.AlignVCenter, f"{point.label}: {value:g} ({percent:.1f}%)")
+            self._regions.append((row, f"{point.label} = {value:g} | {percent:.2f}%"))
+
+    def _draw_cartesian(self, painter: QPainter, plot: QRect):
+        points = self.artifact.points
+        values = [point.y for point in points]
+        min_y = min(0.0, min(values))
+        max_y = max(0.0, max(values))
+        if abs(max_y - min_y) < 1e-12:
+            max_y = min_y + 1.0
+        painter.setPen(QPen(QColor(255, 255, 255, 35), 1))
+        for index in range(6):
+            y = plot.top() + index * plot.height() / 5
+            painter.drawLine(plot.left(), int(y), plot.right(), int(y))
+            value = max_y - index * (max_y - min_y) / 5
+            painter.setPen(QColor(190, 205, 230, 170))
+            painter.drawText(plot.left() - 64, int(y) - 10, 58, 20, Qt.AlignRight | Qt.AlignVCenter, f"{value:g}")
+            painter.setPen(QPen(QColor(255, 255, 255, 35), 1))
+        zero_y = int(plot.bottom() - (0.0 - min_y) / (max_y - min_y) * plot.height())
+        painter.setPen(QPen(QColor(230, 238, 250, 110), 2))
+        painter.drawLine(plot.left(), zero_y, plot.right(), zero_y)
+        self._regions = []
+
+        if self.artifact.chart_type in {"bar", "histogram"}:
+            slot = plot.width() / max(1, len(points))
+            width = max(8, int(slot * 0.68))
+            for index, point in enumerate(points):
+                value_y = int(plot.bottom() - (point.y - min_y) / (max_y - min_y) * plot.height())
+                top = min(zero_y, value_y)
+                height = max(2, abs(value_y - zero_y))
+                bar = QRect(int(plot.left() + index * slot + (slot - width) / 2), top, width, height)
+                painter.setBrush(self._palette(index))
+                painter.setPen(QPen(QColor(180, 225, 255, 150), 1))
+                painter.drawRoundedRect(bar, 4, 4)
+                label_rect = QRect(int(plot.left() + index * slot), plot.bottom() + 7, int(slot), 36)
+                painter.setPen(QColor(220, 230, 244, 205))
+                painter.drawText(label_rect, Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, point.label[:18])
+                self._regions.append((bar.adjusted(-4, -4, 4, 4), f"{point.label} = {point.y:g}"))
+            return
+
+        x_values = [point.x for point in points]
+        min_x, max_x = min(x_values), max(x_values)
+        if abs(max_x - min_x) < 1e-12:
+            max_x = min_x + 1.0
+
+        def projected(point):
+            x = plot.left() + (point.x - min_x) / (max_x - min_x) * plot.width()
+            y = plot.bottom() - (point.y - min_y) / (max_y - min_y) * plot.height()
+            return QPoint(int(x), int(y))
+
+        projected_points = [projected(point) for point in points]
+        if self.artifact.chart_type == "line":
+            path = QPainterPath()
+            path.moveTo(projected_points[0])
+            for point in projected_points[1:]:
+                path.lineTo(point)
+            painter.setPen(QPen(QColor("#52b7ff"), 3))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPath(path)
+        for index, (point, screen_point) in enumerate(zip(points, projected_points)):
+            painter.setBrush(self._palette(index))
+            painter.setPen(QPen(QColor(5, 8, 14, 220), 2))
+            painter.drawEllipse(screen_point, 6, 6)
+            region = QRect(screen_point.x() - 10, screen_point.y() - 10, 20, 20)
+            self._regions.append((region, f"{point.label}: x={point.x:g}, y={point.y:g}"))
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(82, 48, -30, -58)
+        painter.fillRect(rect, QColor(5, 8, 14, 244))
+        painter.setPen(QPen(QColor(80, 190, 225, 80), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+        if not self.artifact:
+            painter.setPen(QColor(255, 255, 255, 160))
+            painter.drawText(rect, Qt.AlignCenter, "No validated chart data")
+            return
+        if self.artifact.chart_type == "pie":
+            self._draw_pie(painter, plot.adjusted(-45, 0, 0, 20))
+        else:
+            self._draw_cartesian(painter, plot)
+        painter.setPen(QColor(255, 255, 255, 235))
+        font = painter.font()
+        font.setBold(True)
+        font.setPointSize(11)
+        painter.setFont(font)
+        painter.drawText(rect.adjusted(14, 8, -14, -8), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+        painter.setPen(QColor(190, 205, 230, 180))
+        painter.drawText(
+            rect.adjusted(14, 0, -14, -9),
+            Qt.AlignBottom | Qt.AlignLeft,
+            f"{self.artifact.chart_type} | hover marks for exact values",
+        )
+
+
+class SceneCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("SceneCanvas")
+        self.setMinimumHeight(380)
+        self.setMouseTracking(True)
+        self.artifact: SceneArtifact | None = None
+        self.view_mode = "3d"
+        self.running = True
+        self.yaw = math.radians(28)
+        self.pitch = math.radians(18)
+        self.zoom = 1.0
+        self._dragging = False
+        self._last_mouse = QPoint()
+        self._hit_regions: list[tuple[QRect, str]] = []
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(32)
+
+    def set_artifact(self, artifact: SceneArtifact | None):
+        self.artifact = artifact
+        self.reset_view()
+
+    def set_view_mode(self, mode: str):
+        self.view_mode = "2d" if str(mode).lower().startswith("2") else "3d"
+        self.update()
+
+    def set_running(self, running: bool):
+        self.running = bool(running)
+
+    def reset_view(self):
+        self.yaw = math.radians(28)
+        self.pitch = math.radians(18)
+        self.zoom = 1.0
+        self.update()
+
+    def export_png(self, path: str) -> bool:
+        return bool(path and self.grab().save(path, "PNG"))
+
+    def _tick(self):
+        if self.running and self.isVisible() and self.view_mode == "3d":
+            self.yaw = (self.yaw + 0.006) % math.tau
+            self.update()
+
+    def wheelEvent(self, event):
+        if event.angleDelta().y():
+            self.zoom = max(0.45, min(2.8, self.zoom * (1.1 if event.angleDelta().y() > 0 else 0.9)))
+            self.update()
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._last_mouse = event.position().toPoint()
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        position = event.position().toPoint()
+        if self._dragging and self.view_mode == "3d":
+            delta = position - self._last_mouse
+            self._last_mouse = position
+            self.yaw += delta.x() * 0.009
+            self.pitch = max(-1.2, min(1.2, self.pitch + delta.y() * 0.009))
+            self.update()
+        else:
+            for region, label in self._hit_regions:
+                if region.contains(position):
+                    self.inspected.emit(label)
+                    break
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = False
+        event.accept()
+
+    def _rotate(self, point: tuple[float, float, float]) -> tuple[float, float, float]:
+        x, y, z = point
+        if self.view_mode == "2d":
+            return x, y, z
+        cos_yaw, sin_yaw = math.cos(self.yaw), math.sin(self.yaw)
+        x_rotated = x * cos_yaw - z * sin_yaw
+        z_rotated = x * sin_yaw + z * cos_yaw
+        cos_pitch, sin_pitch = math.cos(self.pitch), math.sin(self.pitch)
+        y_rotated = y * cos_pitch - z_rotated * sin_pitch
+        depth = y * sin_pitch + z_rotated * cos_pitch
+        return x_rotated, y_rotated, depth
+
+    def _project(self, point: tuple[float, float, float], plot: QRect) -> tuple[QPoint, float]:
+        x, y, depth = self._rotate(point)
+        scale = min(plot.width(), plot.height()) * 0.19 * self.zoom
+        return QPoint(
+            int(plot.center().x() + x * scale),
+            int(plot.center().y() - y * scale),
+        ), depth
+
+    @staticmethod
+    def _corners(primitive: ScenePrimitive) -> list[tuple[float, float, float]]:
+        cx, cy, cz = primitive.center
+        sx, sy, sz = (value / 2.0 for value in primitive.size)
+        return [
+            (cx + dx * sx, cy + dy * sy, cz + dz * sz)
+            for dx, dy, dz in (
+                (-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+                (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1),
+            )
+        ]
+
+    def _draw_primitive(self, painter: QPainter, primitive: ScenePrimitive, plot: QRect) -> tuple[QRect, float]:
+        center, depth = self._project(primitive.center, plot)
+        color = QColor(primitive.color)
+        color.setAlpha(175)
+        outline = QColor(primitive.color)
+        outline.setAlpha(235)
+        scale = min(plot.width(), plot.height()) * 0.19 * self.zoom
+        if primitive.shape == "box":
+            projected = [self._project(point, plot)[0] for point in self._corners(primitive)]
+            painter.setBrush(color)
+            painter.setPen(QPen(outline, 1.7))
+            face = QPolygon([projected[index] for index in (4, 5, 6, 7)])
+            painter.drawPolygon(face)
+            for first, second in (
+                (0, 1), (1, 2), (2, 3), (3, 0),
+                (4, 5), (5, 6), (6, 7), (7, 4),
+                (0, 4), (1, 5), (2, 6), (3, 7),
+            ):
+                painter.drawLine(projected[first], projected[second])
+            xs = [point.x() for point in projected]
+            ys = [point.y() for point in projected]
+            region = QRect(min(xs), min(ys), max(8, max(xs) - min(xs)), max(8, max(ys) - min(ys)))
+        else:
+            width = max(10, int(primitive.size[0] * scale))
+            height = max(10, int(primitive.size[1] * scale))
+            if primitive.shape == "cylinder":
+                height = max(height, int(primitive.size[2] * scale * 0.55))
+            region = QRect(center.x() - width // 2, center.y() - height // 2, width, height)
+            painter.setBrush(color)
+            painter.setPen(QPen(outline, 1.8))
+            painter.drawEllipse(region)
+            if primitive.shape == "cylinder":
+                painter.drawLine(region.left(), region.center().y(), region.right(), region.center().y())
+        return region, depth
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(36, 48, -36, -62)
+        painter.fillRect(rect, QColor(5, 8, 14, 244))
+        painter.setPen(QPen(QColor(130, 165, 255, 75), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+        if not self.artifact:
+            painter.setPen(QColor(255, 255, 255, 160))
+            painter.drawText(rect, Qt.AlignCenter, "No validated scene data")
+            return
+
+        centers = [self._project(item.center, plot) for item in self.artifact.primitives]
+        painter.setPen(QPen(QColor(119, 202, 255, 170), 2))
+        for connection in self.artifact.connections:
+            painter.drawLine(centers[connection.first][0], centers[connection.second][0])
+
+        ordered = sorted(
+            enumerate(self.artifact.primitives),
+            key=lambda item: self._rotate(item[1].center)[2],
+        )
+        self._hit_regions = []
+        for index, primitive in ordered:
+            region, _depth = self._draw_primitive(painter, primitive, plot)
+            painter.setPen(QColor(245, 248, 255, 235))
+            label_rect = QRect(region.left() - 35, region.bottom() + 3, region.width() + 70, 22)
+            painter.drawText(label_rect, Qt.AlignHCenter | Qt.AlignTop, primitive.label)
+            self._hit_regions.append(
+                (
+                    region.adjusted(-5, -5, 5, 24),
+                    f"{primitive.label} | shape {primitive.shape} | schematic size "
+                    f"{primitive.size[0]:g} x {primitive.size[1]:g} x {primitive.size[2]:g}",
+                )
+            )
+
+        painter.setPen(QColor(255, 255, 255, 235))
+        font = painter.font()
+        font.setBold(True)
+        font.setPointSize(11)
+        painter.setFont(font)
+        painter.drawText(rect.adjusted(14, 8, -14, -8), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+        painter.setPen(QColor(190, 205, 230, 185))
+        mode = "3D rotatable schematic" if self.view_mode == "3d" else "2D orthographic schematic"
+        painter.drawText(
+            rect.adjusted(14, 0, -14, -9),
+            Qt.AlignBottom | Qt.AlignLeft,
+            f"{mode} | wheel zoom | drag rotate | hover labeled components",
+        )
+
+
 class BiologyCanvas(QWidget):
     inspected = Signal(str)
 
@@ -4352,6 +4747,218 @@ class InlineDiagramWorkspace(QFrame):
             "pdf": self.canvas.export_pdf,
         }[export_format](path)
         self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
+
+
+class InlineChartWorkspace(QFrame):
+    def __init__(self, artifact: ChartArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(540)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Validated numeric chart")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        reset = QPushButton("Reset view")
+        reset.setObjectName("InlineVisualizationControl")
+        large = QPushButton("Open large")
+        large.setObjectName("InlineVisualizationControl")
+        reset.clicked.connect(self._reset)
+        large.clicked.connect(self._open_large)
+        controls.addWidget(reset)
+        controls.addWidget(large)
+        controls.addStretch(1)
+        for label, export_format in (("PNG", "png"), ("SVG", "svg"), ("PDF", "pdf")):
+            button = QPushButton(label)
+            button.setObjectName("InlineVisualizationControl")
+            button.clicked.connect(
+                lambda _checked=False, selected=export_format: self._export(selected)
+            )
+            controls.addWidget(button)
+
+        self.canvas = ChartCanvas()
+        self.canvas.set_artifact(artifact)
+        self.inspector = QLabel("Hover a mark for the exact value.")
+        self.inspector.setObjectName("InlineVisualizationInspector")
+        self.inspector.setWordWrap(True)
+        self.canvas.inspected.connect(self.inspector.setText)
+        details = QLabel(" | ".join(artifact.notes))
+        details.setObjectName("InlineVisualizationEquation")
+        details.setWordWrap(True)
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(details)
+        layout.addWidget(self.inspector)
+
+    def _reset(self):
+        self.canvas.reset_view()
+        self.inspector.setText("View reset. Hover a mark for the exact value.")
+
+    def _open_large(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.artifact.title)
+        dialog.setWindowIcon(QIcon(_icon_path()))
+        dialog.resize(1120, 760)
+        layout = QVBoxLayout(dialog)
+        canvas = ChartCanvas()
+        canvas.set_artifact(self.artifact)
+        layout.addWidget(canvas)
+        dialog.exec()
+
+    def _export(self, export_format: str):
+        selected_filter, extension = {
+            "png": ("PNG image (*.png)", ".png"),
+            "svg": ("SVG vector image (*.svg)", ".svg"),
+            "pdf": ("PDF document (*.pdf)", ".pdf"),
+        }[export_format]
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"Export {self.artifact.title}", "", selected_filter
+        )
+        if not path:
+            return
+        if not path.lower().endswith(extension):
+            path += extension
+        succeeded = {
+            "png": self.canvas.export_png,
+            "svg": self.canvas.export_svg,
+            "pdf": self.canvas.export_pdf,
+        }[export_format](path)
+        self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
+
+
+class InlineSceneWorkspace(QFrame):
+    def __init__(self, artifact: SceneArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(580)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Validated component schematic")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        self.dimension_select = QComboBox()
+        self.dimension_select.setObjectName("InlineVisualizationSelect")
+        self.dimension_select.addItem("2D", "2d")
+        self.dimension_select.addItem("3D", "3d")
+        self.dimension_select.setCurrentText("3D")
+        pause = QPushButton("Pause")
+        resume = QPushButton("Resume")
+        reset = QPushButton("Reset view")
+        large = QPushButton("Open large")
+        export = QPushButton("PNG")
+        for button in (pause, resume, reset, large, export):
+            button.setObjectName("InlineVisualizationControl")
+        controls.addWidget(QLabel("View"))
+        controls.addWidget(self.dimension_select)
+        controls.addWidget(pause)
+        controls.addWidget(resume)
+        controls.addWidget(reset)
+        controls.addWidget(large)
+        controls.addStretch(1)
+        controls.addWidget(export)
+
+        self.canvas = SceneCanvas()
+        self.canvas.set_artifact(artifact)
+        self.canvas.set_view_mode("3d")
+        self.inspector = QLabel("Hover a component to inspect it. Drag to rotate the 3D schematic.")
+        self.inspector.setObjectName("InlineVisualizationInspector")
+        self.inspector.setWordWrap(True)
+        self.canvas.inspected.connect(self.inspector.setText)
+        details = QLabel(" | ".join(artifact.notes))
+        details.setObjectName("InlineVisualizationEquation")
+        details.setWordWrap(True)
+
+        self.dimension_select.currentIndexChanged.connect(
+            lambda index: self.canvas.set_view_mode(str(self.dimension_select.itemData(index)))
+        )
+        pause.clicked.connect(lambda: self.canvas.set_running(False))
+        resume.clicked.connect(lambda: self.canvas.set_running(True))
+        reset.clicked.connect(self.canvas.reset_view)
+        large.clicked.connect(self._open_large)
+        export.clicked.connect(self._export_png)
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(details)
+        layout.addWidget(self.inspector)
+
+    def _open_large(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.artifact.title)
+        dialog.setWindowIcon(QIcon(_icon_path()))
+        dialog.resize(1120, 780)
+        layout = QVBoxLayout(dialog)
+        canvas = SceneCanvas()
+        canvas.set_artifact(self.artifact)
+        canvas.set_view_mode(self.dimension_select.currentData())
+        layout.addWidget(canvas)
+        dialog.exec()
+
+    def _export_png(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"Export {self.artifact.title}", "", "PNG image (*.png)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".png"):
+            path += ".png"
+        succeeded = self.canvas.export_png(path)
+        self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
+
+
+class InlineDocumentWorkspace(QFrame):
+    def __init__(self, artifact: DocumentArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(640)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel(f"Validated local {artifact.extension.lstrip('.').upper()} preview")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        self.preview = FilePreview()
+        loaded, message = self.preview.show_file(artifact.path)
+        self.status = QLabel(message)
+        self.status.setObjectName("InlineVisualizationInspector")
+        self.status.setWordWrap(True)
+        if not loaded:
+            self.status.setText(f"Preview failed after validation: {message}")
+
+        layout.addLayout(header)
+        layout.addWidget(self.preview, stretch=1)
+        layout.addWidget(self.status)
 
 
 class InlineBiologyWorkspace(QFrame):
@@ -8652,6 +9259,11 @@ class MoriceWindow(QWidget):
                 "physics": "Physics",
                 "chemistry": "Molecule",
                 "diagram": "Diagram",
+                "biology": "Biology",
+                "data-structures": "Data structures",
+                "chart": "Chart",
+                "scene": "3D schematic",
+                "document": "Document",
             }.get(artifact.kind, "Artifact")
             item = QListWidgetItem(f"{prefix}: {artifact.title}")
             item.setData(Qt.UserRole, artifact.kind)
@@ -8817,6 +9429,14 @@ class MoriceWindow(QWidget):
             artifact.data_structures, DataStructureArtifact
         ):
             workspace = InlineDataStructureWorkspace(artifact.data_structures)
+        elif artifact.kind == "chart" and isinstance(artifact.chart, ChartArtifact):
+            workspace = InlineChartWorkspace(artifact.chart)
+        elif artifact.kind == "scene" and isinstance(artifact.scene, SceneArtifact):
+            workspace = InlineSceneWorkspace(artifact.scene)
+        elif artifact.kind == "document" and isinstance(
+            artifact.document, DocumentArtifact
+        ):
+            workspace = InlineDocumentWorkspace(artifact.document)
         else:
             message = "The renderer returned an unsupported artifact type, so nothing was displayed."
             card.set_error(message)
@@ -8914,6 +9534,34 @@ class MoriceWindow(QWidget):
                 f"The data-structure lab above includes {', '.join(data.structures)}. "
                 "Choose a structure and run real Insert, Delete, or Search operations; "
                 f"the changed or visited nodes animate and the operation complexity updates live.{timing}"
+            )
+        if artifact and artifact.kind == "chart" and isinstance(
+            artifact.chart, ChartArtifact
+        ):
+            chart = artifact.chart
+            return (
+                f"The interactive {chart.chart_type} chart above contains "
+                f"{len(chart.points)} validated numeric points taken directly from your prompt. "
+                f"Hover marks for exact values or export PNG, SVG, or PDF.{timing}"
+            )
+        if artifact and artifact.kind == "scene" and isinstance(
+            artifact.scene, SceneArtifact
+        ):
+            scene = artifact.scene
+            return (
+                f"The labeled {scene.scene_type} schematic above contains "
+                f"{len(scene.primitives)} validated components. Switch between 2D and 3D, "
+                f"pause rotation, zoom, drag to inspect the assembly, or export PNG. "
+                f"It is an educational component schematic, not a dimensionally certified CAD model.{timing}"
+            )
+        if artifact and artifact.kind == "document" and isinstance(
+            artifact.document, DocumentArtifact
+        ):
+            document = artifact.document
+            return (
+                f"The validated local preview above displays {document.title} "
+                f"({document.size_bytes / 1024:.1f} KB). The file was read from the exact "
+                f"path you supplied and no substitute content was generated.{timing}"
             )
         return "The renderer completed, but no supported interactive artifact was available."
 

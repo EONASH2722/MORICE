@@ -29,7 +29,12 @@ returns a validated artifact.
 | Surface graphs | Sampled `z=f(x,y)` mesh and matching 2D height map | 2D/3D switch, rotate, zoom, hover, PNG/SVG/PDF | Safe two-variable AST, finite grid, exact sampled min/max |
 | Physics | Particles, projectile, pendulum, spring, wave, circular motion, and orbit | Pause, resume, step, step back, reset, speed, gravity, trails, vectors, 2D/3D projection where supported, PNG/JSON | Deterministic initial state, bounded values, mass-aware collisions, finite state |
 | Molecules | Curated VSEPR structures | 2D/3D switch, rotate, zoom, atom inspection, PNG/SVG/PDF | Known topology, validated atom/bond indices, reference-angle coordinate models |
-| Diagrams | OSI, TCP/IP, TCP handshake, DNS, compiler, process lifecycle, and explicit arrow flows | Pan, zoom, node inspection, PNG/SVG/PDF | Known nodes, valid edge endpoints, deterministic layout |
+| Biology | DNA, neuron, and cell geometry | 2D/3D switch, rotate, zoom, pause, labels, PNG | Finite geometry, valid connections, deterministic layout |
+| Data structures | BST, AVL, graph, linked list, queue, stack, and hash table | Insert, delete, search, animated highlights, complexity display | Deterministic state and structure-specific operation rules |
+| Numeric charts | Bar, pie, line, scatter, and histogram from prompt-supplied values | Exact-value hover, large view, PNG/SVG/PDF | At least two finite labeled points; no invented values |
+| Component schematics | Curated robot, drone, vehicle, aircraft, ship, building, bridge, engine, CPU, GPU, motherboard, camera, and watch assemblies | 2D/3D switch, rotate, zoom, pause, component inspection, PNG | Positive finite primitive geometry and valid component links |
+| Diagrams | Networking, OS, database, AI, security, biology, circuits, geography, economics, compiler, timelines, and explicit user-supplied flows | Pan, zoom, node inspection, PNG/SVG/PDF | Known or user-supplied nodes, valid edge endpoints, deterministic layout |
+| Local documents | Text, source, JSON, CSV, images, and PDF from an explicit local path | Native in-chat preview and open-in-default-app action | Existing file, stable size, supported extension, 32 MB pipeline limit |
 | Rich answers | Markdown, code highlighting, tables, and KaTeX math | Selection and copying inside the answer view | Local bundled assets; no network dependency |
 
 The 2D and 3D controls are projections of one validated artifact. Switching
@@ -47,8 +52,9 @@ views does not ask the model to regenerate values.
   `idealized-vsepr`; measured/reference angles remain separate from the
   schematic coordinates.
 - Unsupported SPH fluids, soft bodies, rigid-body constraint systems, arbitrary
-  molecules, arbitrary 3D objects, and embedded document viewers return a
-  capability error. MORICE never substitutes an unrelated animation.
+  molecules, and arbitrary non-curated 3D objects return a capability error.
+  Local document viewing requires a valid path to a supported file. MORICE
+  never substitutes an unrelated animation, guessed data, or invented geometry.
 
 These are interactive educational and engineering visualizations, not a
 certified CFD, quantum chemistry, or finite-element solver.
@@ -60,6 +66,9 @@ certified CFD, quantum chemistry, or finite-element solver.
 - `morice/science_engine.py`: graph/surface generation and deterministic physics
   instructions.
 - `morice/domain_engine.py`: curated chemistry and structured-diagram artifacts.
+- `morice/educational_engine.py`: biology and interactive data-structure artifacts.
+- `morice/universal_engine.py`: numeric charts, local documents, and curated
+  2D/3D component schematics.
 - `morice/pyside_app.py`: in-chat workspaces, rendering, controls, exports,
   resource cleanup, and Project Mode IDE panel.
 - `vnext/`: strict TypeScript contracts, coordinator, renderer manager, Plotly
@@ -101,8 +110,10 @@ RTX 3050 Mobile 6 GB systems.
 
 Python tests cover graph landmarks, discontinuities, repeated roots, implicit
 contours, piecewise functions, surfaces, physics configuration, replay, 2D/3D
-state, molecular angles, inline widget replacement, exports, honest failures,
-Project Mode safety, desktop identity, and long-answer continuation.
+state, molecular angles, biology geometry, data-structure operations, chart
+value preservation, all curated schematic families, the extended domain
+diagram matrix, local file previews, inline widget replacement, exports, honest
+failures, Project Mode safety, desktop identity, and long-answer continuation.
 
 `tests/test_rendering_accuracy_matrix.py` adds a representative ten-case
 contract across Cartesian, implicit, polar, parametric, and surface graphs;

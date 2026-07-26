@@ -100,6 +100,9 @@ class ScienceArtifact:
     diagram: object | None = None
     biology: object | None = None
     data_structures: object | None = None
+    chart: object | None = None
+    scene: object | None = None
+    document: object | None = None
 
 
 class UnsafeExpression(ValueError):
