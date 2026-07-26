@@ -75,6 +75,28 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 - Verified capability answers: questions such as `what all rendering can you do` return a complete implemented-feature inventory instead of an improvised model reply.
 - MIT licensed, so the project can be studied, forked, customized, and improved.
 
+## Diagnostics, Health, and Recovery
+
+MORICE now has one runtime-services layer for application health instead of
+scattered background work and session-only status messages. Open
+`/diagnostics`, use the System tab, or choose **Advanced diagnostics** from the
+desktop tools to inspect:
+
+- startup checks for storage, assets, dependencies, settings, model, GPU,
+  desktop tools, and renderer plugins;
+- searchable rotating JSONL logs with timestamps, levels, categories, thread
+  names, and structured metadata;
+- CPU, memory, frame-time, FPS, task-queue, renderer-cache, and worker metrics;
+- application, Python, Qt, operating-system, model, GPU, renderer, and tool
+  versions or capability states;
+- bounded crash recovery for recent chat history, drafts, and queued messages.
+
+Critical startup failures are shown explicitly instead of allowing a partially
+initialized desktop session. Owned model processes and managed worker threads
+are stopped during normal shutdown. See
+[`docs/phase-1-foundation-audit.md`](docs/phase-1-foundation-audit.md) for the
+architecture audit, verification contract, and remaining modularity work.
+
 ## Desktop Workspace
 
 MORICE now includes a persistent, resizable `Tools` dock and a `Ctrl+K` command palette. This desktop layer is separate from VNext: it organizes conversations and local computer tools while the existing inline renderer continues to own graphs and simulations.

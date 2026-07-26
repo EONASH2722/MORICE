@@ -105,6 +105,12 @@ DEFAULT_COMMANDS = (
     CommandItem("open-file", "Open file", "Preview a local file", "browse"),
     CommandItem("find-files", "Find files", "Search common local folders", "search"),
     CommandItem("system", "System status", "CPU, memory, storage, battery", "hardware"),
+    CommandItem(
+        "diagnostics",
+        "Advanced diagnostics",
+        "Health, logs, renderers, workers, and performance",
+        "debug profiler crash recovery",
+    ),
     CommandItem("screenshot", "Capture screenshot", "Save the current display", "screen"),
     CommandItem("theme", "Toggle light or dark theme", "Change appearance", "color"),
     CommandItem("accent", "Choose accent color", "Personalize the workspace", "theme"),
@@ -586,6 +592,7 @@ class AssistantHub(QFrame):
         self.system_summary.setTextInteractionFlags(Qt.TextSelectableByMouse)
         actions = QHBoxLayout()
         actions.addWidget(self._button("Refresh", "system"))
+        actions.addWidget(self._button("Diagnostics", "diagnostics"))
         actions.addWidget(self._button("Screenshot", "screenshot"))
         actions.addWidget(self._button("Downloads", "open-downloads"))
         layout.addWidget(self.system_summary)

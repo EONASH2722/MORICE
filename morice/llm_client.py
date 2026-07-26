@@ -27,12 +27,21 @@ OFFICIAL_QWEN_GGUF = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
 
 
 def reset_model_runtime() -> None:
+    global _OLLAMA_PROCESS
     try:
         from .llama_server import stop_server
 
         stop_server()
     except Exception:
         pass
+    if _OLLAMA_PROCESS and _OLLAMA_PROCESS.poll() is None:
+        _OLLAMA_PROCESS.terminate()
+        try:
+            _OLLAMA_PROCESS.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            _OLLAMA_PROCESS.kill()
+            _OLLAMA_PROCESS.wait(timeout=8)
+    _OLLAMA_PROCESS = None
     try:
         from .local_llama import clear_cache
 

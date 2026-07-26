@@ -99,4 +99,5 @@ def ensure_server(model_path: str, n_ctx: int, n_gpu_layers: int, n_threads: int
             return base_url
         time.sleep(0.5)
 
+    stop_server()
     raise RuntimeError("llama-server failed to start")

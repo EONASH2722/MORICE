@@ -714,7 +714,54 @@ class VisualizationManager:
         return VisualizationRequest(uuid.uuid4().hex, prompt.strip(), decision)
 
     def submit(self, request: VisualizationRequest, progress: ProgressCallback) -> Future:
-        return self.scheduler.submit(request.job_id, self.render, request, progress)
+        from .runtime_services import get_runtime_services
+
+        runtime = get_runtime_services()
+        if runtime.started:
+            runtime.profiler.set_current_renderer(request.decision.renderer_id)
+            runtime.logs.log(
+                "INFO",
+                f"Renderer queued: {request.decision.renderer_id}",
+                category="renderer",
+                metadata={"jobId": request.job_id},
+            )
+        future = self.scheduler.submit(request.job_id, self.render, request, progress)
+
+        def record_result(completed: Future) -> None:
+            if not runtime.started:
+                return
+            try:
+                result = completed.result()
+                runtime.profiler.record_duration(
+                    request.decision.renderer_id,
+                    result.duration_ms,
+                )
+                runtime.logs.log(
+                    "INFO" if result.status == "ready" else "ERROR",
+                    (
+                        f"Renderer {result.renderer_id} completed with "
+                        f"status {result.status} in {result.duration_ms:.1f} ms."
+                    ),
+                    category="renderer",
+                    metadata={
+                        "jobId": request.job_id,
+                        "validated": result.validated,
+                        "fromCache": result.from_cache,
+                        "error": result.error,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                runtime.logs.log(
+                    "ERROR",
+                    f"Renderer worker result failed: {exc}",
+                    category="renderer",
+                    metadata={"jobId": request.job_id},
+                )
+            finally:
+                runtime.profiler.set_current_renderer("")
+
+        future.add_done_callback(record_result)
+        return future
 
     def render(self, request: VisualizationRequest, progress: ProgressCallback) -> VisualizationResult:
         started = time.perf_counter()

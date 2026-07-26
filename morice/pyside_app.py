@@ -187,10 +187,13 @@ from .ui_system import (
 from .ui_workspace import (
     AssistantHub,
     CommandPalette,
+    DEFAULT_COMMANDS,
     FilePreview,
     NotificationToast,
     install_command_shortcut,
 )
+from .diagnostics_ui import DiagnosticsDialog
+from .runtime_services import RecoveryInfo, RuntimeServices, get_runtime_services
 from .workspace_state import (
     WorkspaceState,
     load_workspace_state,
@@ -219,6 +222,25 @@ from .settings import (
 )
 from .web_search import search_web
 from .vision import describe_image
+
+
+def _start_background_task(name: str, target):
+    runtime = get_runtime_services()
+    if runtime.started:
+        return runtime.workers.submit(name, target)
+    try:
+        thread = threading.Thread(
+            target=target,
+            daemon=True,
+            name=f"morice-{name}",
+        )
+    except TypeError:
+        # Some test and embedding hosts provide a minimal Thread-compatible
+        # adapter without Python's optional naming argument.
+        thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    return thread
+
 
 PROJECT_TEXT_EXTENSIONS = {
     ".bat",
@@ -1041,7 +1063,7 @@ class ModelWebBrowserDialog(QDialog):
             profile = detect_gpu_profile()
             self.gpu_detected.emit(profile)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("model-gpu-detection", worker)
 
     def _on_gpu_detected(self, profile: GpuProfile):
         self._gpu_detection_busy = False
@@ -1151,7 +1173,7 @@ class ModelWebBrowserDialog(QDialog):
                 error = str(exc)
             self.search_finished.emit(results, error)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("model-search", worker)
 
     def _on_search_finished(self, results: list[dict], error: str):
         self._set_busy(False)
@@ -1223,7 +1245,7 @@ class ModelWebBrowserDialog(QDialog):
                 error = str(exc)
             self.download_finished.emit(path, error)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("model-download", worker)
 
     def _on_download_progress(self, percent: int, message: str):
         if percent > 0:
@@ -3959,6 +3981,9 @@ class PhysicsCanvas(QWidget):
         if self._frames % 20 == 0:
             elapsed = max(1e-6, time.perf_counter() - self._stats_started)
             measured_fps = self._frames / elapsed
+            runtime = get_runtime_services()
+            if runtime.started and measured_fps > 0:
+                runtime.profiler.set_frame_time(1000.0 / measured_fps)
             kinetic_energy = sum(
                 0.5
                 * particle.mass
@@ -5406,8 +5431,15 @@ class MoriceWindow(QWidget):
     file_search_ready = Signal(object)
     desktop_action_ready = Signal(str, bool)
 
-    def __init__(self):
+    def __init__(
+        self,
+        runtime_services: RuntimeServices | None = None,
+        recovery_info: RecoveryInfo | None = None,
+    ):
         super().__init__()
+        self.runtime = runtime_services or get_runtime_services()
+        self.recovery_info = recovery_info or RecoveryInfo(False)
+        self._owns_runtime_lifecycle = recovery_info is not None
         _load_ui_fonts()
         application = QApplication.instance()
         if application is not None:
@@ -7127,6 +7159,16 @@ class MoriceWindow(QWidget):
         self.command_palette.action_requested.connect(self._execute_palette_command)
         self.command_shortcut = install_command_shortcut(self, self.command_palette)
         self.notification_toast = NotificationToast(self)
+        self.diagnostics_dialog = DiagnosticsDialog(
+            self.runtime,
+            self._diagnostics_context,
+            self,
+        )
+        self.recovery_timer = QTimer(self)
+        self.recovery_timer.setInterval(10_000)
+        self.recovery_timer.timeout.connect(self._save_recovery_snapshot)
+        if self._owns_runtime_lifecycle:
+            self.recovery_timer.start()
         self._apply_theme()
         self._update_style_badge()
         self._refresh_queue_list()
@@ -7219,6 +7261,162 @@ class MoriceWindow(QWidget):
             _enable_acrylic(hwnd)
         except Exception:
             pass
+        if self.recovery_info.available:
+            QTimer.singleShot(350, self._offer_crash_recovery)
+
+    def _diagnostics_context(self) -> dict:
+        gpu = {
+            "name": self.gpu_profile.name,
+            "vramMb": self.gpu_profile.vram_mb,
+            "detected": self.gpu_profile.detected,
+            "source": self.gpu_profile.source,
+        }
+        model_path = self.model_path or os.getenv("MORICE_GGUF_PATH", "")
+        model = {
+            "name": self.model_name or os.getenv("MORICE_MODEL", "") or "Not selected",
+            "path": model_path,
+            "exists": bool(model_path and os.path.isfile(model_path)),
+        }
+        return {
+            "renderer_capabilities": self.visualization_manager.capabilities(),
+            "model": model,
+            "gpu": gpu,
+            "tools": tuple(command.title for command in DEFAULT_COMMANDS),
+            "task_queue": (
+                len(self.message_queue)
+                + self.visualization_manager.scheduler.queued_jobs
+                + (1 if self.is_busy else 0)
+            ),
+            "renderer_cache_bytes": self.visualization_manager.resources.used_bytes,
+        }
+
+    def _run_startup_health_check(self):
+        context = self._diagnostics_context()
+        return self.runtime.run_health_check(
+            renderer_capabilities=context["renderer_capabilities"],
+            model_path=self.model_path or os.getenv("MORICE_GGUF_PATH", ""),
+            model_name=self.model_name or os.getenv("MORICE_MODEL", ""),
+            tools=context["tools"],
+            gpu=context["gpu"],
+        )
+
+    def _open_diagnostics(self):
+        self.runtime.logs.log(
+            "INFO",
+            "Diagnostics window opened.",
+            category="ui",
+        )
+        self.diagnostics_dialog.show()
+        self.diagnostics_dialog.raise_()
+        self.diagnostics_dialog.activateWindow()
+
+    def _save_recovery_snapshot(self):
+        if not self._owns_runtime_lifecycle:
+            return
+        self.runtime.save_recovery_snapshot(
+            {
+                "history": list(self.history),
+                "messageQueue": list(self.message_queue),
+                "draft": self.input.text() if hasattr(self, "input") else "",
+                "chatMode": self.chat_mode,
+                "projectFolder": self.project_folder,
+                "projectAccess": self.project_access,
+                "projectLookupMode": self.project_lookup_mode,
+            }
+        )
+
+    def _offer_crash_recovery(self):
+        if not self.recovery_info.available:
+            return
+        if os.getenv("MORICE_DISABLE_RECOVERY", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }:
+            return
+        crash_message = str(self.recovery_info.crash.get("message", "")).strip()
+        detail = self.recovery_info.reason
+        if crash_message:
+            detail += f"\n\nLast error: {crash_message[:400]}"
+        detail += "\n\nRestore the crash-only conversation snapshot?"
+        choice = QMessageBox.question(
+            self,
+            "Recover previous MORICE session",
+            detail,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if choice == QMessageBox.Yes:
+            self._restore_crash_recovery(self.recovery_info.payload)
+        else:
+            self.runtime.logs.log(
+                "INFO",
+                "Crash recovery snapshot was declined.",
+                category="recovery",
+            )
+        self.recovery_info = RecoveryInfo(False)
+
+    def _restore_crash_recovery(self, payload: dict):
+        history = payload.get("history", [])
+        if not isinstance(history, list):
+            history = []
+        self._start_new_chat()
+        restored: list[dict[str, str]] = []
+        for entry in history[-160:]:
+            if not isinstance(entry, dict):
+                continue
+            role = str(entry.get("role", "")).strip().lower()
+            content = str(entry.get("content", "")).replace("\x00", "").strip()
+            if role not in {"user", "assistant"} or not content:
+                continue
+            restored.append({"role": role, "content": content[:120_000]})
+            if role == "user":
+                self.append_message(
+                    self.user_title,
+                    content,
+                    is_user=True,
+                    force_scroll=False,
+                )
+            else:
+                self.append_message(
+                    MORICE_NAME,
+                    self._address(content),
+                    force_scroll=False,
+                )
+        self.history = restored
+        queue = payload.get("messageQueue", [])
+        self.message_queue = [
+            str(item)[:20_000]
+            for item in queue
+            if str(item).strip()
+        ][:80]
+        draft = str(payload.get("draft", "")).replace("\x00", "")[:20_000]
+        self.input.setText(draft)
+        recovered_folder = normalize_project_folder(
+            str(payload.get("projectFolder", ""))
+        )
+        if recovered_folder and os.path.isdir(recovered_folder):
+            self.project_folder = recovered_folder
+            self.project_access = normalize_project_access(
+                str(payload.get("projectAccess", self.project_access))
+            )
+            self.project_lookup_mode = normalize_project_lookup_mode(
+                str(payload.get("projectLookupMode", self.project_lookup_mode))
+            )
+        self._refresh_queue_list()
+        self._refresh_mode_panel()
+        self._dock_composer_immediate()
+        self._scroll_to_latest()
+        self.runtime.logs.log(
+            "INFO",
+            f"Recovered {len(restored)} conversation entries after an unclean shutdown.",
+            category="recovery",
+        )
+        self._show_notification(
+            f"Recovered {len(restored)} conversation entries from the crash snapshot.",
+            "success",
+            7000,
+        )
 
     def _check_external_wake_signal(self):
         if not os.path.exists(self.wake_signal_path):
@@ -7274,6 +7472,12 @@ class MoriceWindow(QWidget):
         )
         if hasattr(self, "command_palette"):
             self.command_palette.setStyleSheet(
+                premium_theme_stylesheet(
+                    self.current_theme, self.accent_color, self.font_family
+                )
+            )
+        if hasattr(self, "diagnostics_dialog"):
+            self.diagnostics_dialog.setStyleSheet(
                 premium_theme_stylesheet(
                     self.current_theme, self.accent_color, self.font_family
                 )
@@ -7487,6 +7691,12 @@ class MoriceWindow(QWidget):
         self, title: str, detail: str = "", category: str = "general"
     ):
         self.workspace_state.add_activity(title, detail, category)
+        self.runtime.logs.log(
+            "INFO",
+            title,
+            category=category,
+            metadata={"detail": detail} if detail else None,
+        )
         self._refresh_workspace_hub()
 
     def _show_notification(
@@ -7538,6 +7748,11 @@ class MoriceWindow(QWidget):
         try:
             save_workspace_state(self.workspace_state)
         except OSError as exc:
+            self.runtime.logs.log(
+                "ERROR",
+                f"Workspace state save failed: {exc}",
+                category="storage",
+            )
             self._show_notification(f"Session could not be saved: {exc}", "error")
 
     def _execute_palette_command(self, command: str):
@@ -7588,6 +7803,9 @@ class MoriceWindow(QWidget):
                 self._set_assistant_hub_visible(True)
                 self.assistant_hub.show_tab("Files")
                 self.assistant_hub.file_query.setFocus()
+            return
+        if command == "diagnostics":
+            self._open_diagnostics()
             return
         if command == "system":
             self._refresh_system_snapshot()
@@ -7728,7 +7946,7 @@ class MoriceWindow(QWidget):
                 result = []
             self.file_search_ready.emit({"query": query, "paths": result})
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("file-search", worker)
 
     def _on_file_search_ready(self, result: object):
         data = result if isinstance(result, dict) else {}
@@ -7754,7 +7972,7 @@ class MoriceWindow(QWidget):
                 snapshot = exc
             self.system_snapshot_ready.emit(snapshot)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("system-snapshot", worker)
 
     def _on_system_snapshot_ready(self, snapshot: object):
         if isinstance(snapshot, Exception):
@@ -7796,7 +8014,7 @@ class MoriceWindow(QWidget):
         self._show_notification(f"Screenshot saved to {target}", "success", 7000)
 
     def _open_new_window(self):
-        window = MoriceWindow()
+        window = MoriceWindow(self.runtime)
         window.setAttribute(Qt.WA_DeleteOnClose, True)
         window.destroyed.connect(
             lambda: self._child_windows.remove(window)
@@ -7815,7 +8033,7 @@ class MoriceWindow(QWidget):
             except Exception as exc:  # noqa: BLE001
                 self.desktop_action_ready.emit(str(exc), False)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("desktop-action", worker)
 
     def _on_desktop_action_ready(self, message: str, succeeded: bool):
         self.append_message(MORICE_NAME, self._address(message), force_scroll=True)
@@ -7836,7 +8054,8 @@ class MoriceWindow(QWidget):
                 MORICE_NAME,
                 self._address(
                     "Unknown command. Try /system, /find, /open, /site, "
-                    "/screenshot, /workspace, /theme, /new-window, or a media command."
+                    "/diagnostics, /screenshot, /workspace, /theme, /new-window, "
+                    "or a media command."
                 ),
             )
             return True
@@ -7845,6 +8064,16 @@ class MoriceWindow(QWidget):
             self.append_message(
                 MORICE_NAME,
                 self._address("System status is opening in Tools."),
+            )
+            return True
+        if action.kind == "diagnostics":
+            self._open_diagnostics()
+            self.append_message(
+                MORICE_NAME,
+                self._address(
+                    "Diagnostics is open with health checks, structured logs, "
+                    "worker state, renderers, and live performance."
+                ),
             )
             return True
         if action.kind == "find":
@@ -7895,7 +8124,7 @@ class MoriceWindow(QWidget):
                 except Exception as exc:  # noqa: BLE001
                     self.desktop_action_ready.emit(str(exc), False)
 
-            threading.Thread(target=close_worker, daemon=True).start()
+            _start_background_task("close-application", close_worker)
             return True
         self._execute_desktop_action_async(action)
         return True
@@ -8100,7 +8329,7 @@ class MoriceWindow(QWidget):
             profile = detect_gpu_profile()
             self.gpu_detected.emit(profile)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("gpu-detection", worker)
 
     def _on_gpu_detected(self, profile: GpuProfile):
         self._gpu_detection_busy = False
@@ -9095,7 +9324,7 @@ class MoriceWindow(QWidget):
             except (OSError, subprocess.SubprocessError) as exc:
                 self.project_output_ready.emit(f"Command failed: {exc}")
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("project-command", worker)
 
     def _show_project_git_status(self):
         if not self.project_folder or not os.path.isdir(self.project_folder):
@@ -9129,7 +9358,7 @@ class MoriceWindow(QWidget):
             except (OSError, subprocess.SubprocessError) as exc:
                 self.project_output_ready.emit(f"Git status failed: {exc}")
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("project-git-status", worker)
 
     def _toggle_changes_minimized(self):
         self._set_changes_minimized(not self.changes_minimized)
@@ -10538,15 +10767,33 @@ class MoriceWindow(QWidget):
                         f"{project_request_contract(project_source_input, self._project_has_files())}\n\n"
                         f"AUTHORITATIVE_USER_REQUEST:\n{project_source_input}"
                     )
-                reply = chat(
-                    model_history,
-                    model_user_input,
-                    extra_system=extra_system,
-                    model=self.model_name or None,
-                    timeout=180,
-                    precision_mode=self.precision_mode,
-                    math_steps_mode=self.math_steps_mode or wants_steps_detail(user_input),
-                    gguf_path=self.model_path,
+                completion_started = time.perf_counter()
+                with self.runtime.profiler.measure("completion", "model"):
+                    reply = chat(
+                        model_history,
+                        model_user_input,
+                        extra_system=extra_system,
+                        model=self.model_name or None,
+                        timeout=180,
+                        precision_mode=self.precision_mode,
+                        math_steps_mode=self.math_steps_mode or wants_steps_detail(user_input),
+                        gguf_path=self.model_path,
+                    )
+                completion_ms = (time.perf_counter() - completion_started) * 1000
+                estimated_tps = self.runtime.profiler.record_model_completion(
+                    len(reply),
+                    completion_ms,
+                )
+                self.runtime.logs.log(
+                    "INFO",
+                    "Model completion finished.",
+                    category="model",
+                    metadata={
+                        "projectMode": project_build_request,
+                        "replyCharacters": len(reply),
+                        "durationMs": completion_ms,
+                        "estimatedTokensPerSecond": estimated_tps,
+                    },
                 )
                 visible_reply = reply
                 if project_build_request:
@@ -10621,9 +10868,14 @@ class MoriceWindow(QWidget):
                 self.history.append({"role": "assistant", "content": visible_reply})
                 self.message_ready.emit(MORICE_NAME, self._address(visible_reply), False)
             except Exception as exc:  # noqa: BLE001
+                self.runtime.logs.log(
+                    "ERROR",
+                    f"Chat reply failed: {exc}",
+                    category="model",
+                )
                 self.message_ready.emit(MORICE_NAME, self._address(f"I hit an app error: {exc}"), False)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("chat-reply", worker)
 
     def on_attach(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -10650,6 +10902,7 @@ class MoriceWindow(QWidget):
 
     def closeEvent(self, event):
         self._save_workspace_session()
+        self._save_recovery_snapshot()
         if (
             self._motion_enabled
             and self.isVisible()
@@ -10665,13 +10918,21 @@ class MoriceWindow(QWidget):
                 finished=self.close,
             )
             return
+        self.recovery_timer.stop()
+        self.diagnostics_dialog.close()
         self.visualization_manager.shutdown()
         self.animation_engine.stop_all()
         super().closeEvent(event)
+        if self._owns_runtime_lifecycle:
+            application = QApplication.instance()
+            if application is not None:
+                QTimer.singleShot(0, application.quit)
 
 
 def run_app():
     _set_windows_app_id()
+    runtime = get_runtime_services()
+    recovery_info = runtime.start()
     app = QApplication(sys.argv)
     _load_ui_fonts()
     app.setApplicationName("MORICE")
@@ -10680,10 +10941,28 @@ def run_app():
     icon_path = _icon_path()
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
-    window = MoriceWindow()
+    window = MoriceWindow(runtime, recovery_info)
+    health_report = window._run_startup_health_check()
+    if health_report.critical_failures:
+        failure_text = "\n".join(
+            f"- {check.name}: {check.detail}"
+            for check in health_report.critical_failures
+        )
+        QMessageBox.critical(
+            window,
+            "MORICE startup health check failed",
+            "MORICE cannot start safely because required components failed:\n\n"
+            + failure_text,
+        )
+        runtime.shutdown(clean=True)
+        return 2
     window.show()
-    sys.exit(app.exec())
+    try:
+        return app.exec()
+    finally:
+        reset_model_runtime()
+        runtime.shutdown(clean=True)
 
 
 if __name__ == "__main__":
-    run_app()
+    raise SystemExit(run_app())

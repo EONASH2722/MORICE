@@ -170,6 +170,11 @@ def parse_desktop_command(text: str) -> DesktopAction | None:
     argument = argument.strip().strip('"')
     if name in {"/system", "/status"}:
         return DesktopAction("system", description="Refresh system information")
+    if name in {"/diagnostics", "/diag"}:
+        return DesktopAction(
+            "diagnostics",
+            description="Open MORICE runtime diagnostics",
+        )
     if name == "/find" and argument:
         return DesktopAction("find", argument=argument, description=f"Find files matching {argument}")
     if name == "/open" and argument:
