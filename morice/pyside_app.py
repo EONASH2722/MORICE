@@ -157,6 +157,13 @@ from .capabilities import (
     detect_capability_topic,
     emoji_preference_instruction,
 )
+from .conversation import (
+    conversation_reference_instruction,
+    previous_user_message,
+    saved_settings_instruction,
+    select_recent_history,
+    wants_previous_user_message,
+)
 from .desktop_assistant import (
     DesktopAction,
     close_application,
@@ -8222,6 +8229,27 @@ class MoriceWindow(QWidget):
 
         self._schedule_latest_scroll(force=force_scroll)
 
+    def _remember_conversation_turn(self, user_input: str, assistant_reply: str):
+        user_text = str(user_input or "").strip()
+        reply_text = str(assistant_reply or "").strip()
+        if user_text:
+            self.history.append({"role": "user", "content": user_text})
+        if reply_text:
+            self.history.append({"role": "assistant", "content": reply_text})
+        self.history = self.history[-160:]
+
+    def _append_direct_reply(
+        self,
+        user_input: str,
+        reply: str,
+        *,
+        address: bool = True,
+    ):
+        visible_reply = self._address(reply) if address else str(reply or "").strip()
+        self._remember_conversation_turn(user_input, visible_reply)
+        self.append_message(MORICE_NAME, visible_reply)
+        self._save_workspace_session()
+
     def _set_busy(self, is_busy: bool):
         self.is_busy = is_busy
         self.input.setEnabled(True)
@@ -8841,12 +8869,16 @@ class MoriceWindow(QWidget):
 
         wake_message = wake_up_response(user_input, self.wake_phrase, self.user_title)
         if wake_message:
-            self.append_message(MORICE_NAME, wake_message)
+            self._append_direct_reply(user_input, wake_message, address=False)
             self.awake = True
             return
 
         if not self.awake:
-            self.append_message(MORICE_NAME, f"I am asleep, {self.user_title}. Say '{self.wake_phrase}'.")
+            self._append_direct_reply(
+                user_input,
+                f"I am asleep, {self.user_title}. Say '{self.wake_phrase}'.",
+                address=False,
+            )
             return
 
         if self._handle_desktop_command(user_input):
@@ -8855,95 +8887,104 @@ class MoriceWindow(QWidget):
 
         summon_message = summon_response(user_input, self.user_title)
         if summon_message:
-            self.append_message(MORICE_NAME, summon_message)
+            self._append_direct_reply(user_input, summon_message, address=False)
             return
 
         riddle_reply = riddle_response(user_input)
         if riddle_reply:
-            self.append_message(MORICE_NAME, self._address(riddle_reply))
+            self._append_direct_reply(user_input, riddle_reply)
             return
 
         emotional_reply = emotional_checkin_response(user_input, self.user_title)
         if emotional_reply:
-            self.append_message(MORICE_NAME, self._address(emotional_reply))
+            self._append_direct_reply(user_input, emotional_reply)
             return
 
         father_reply = father_identity_response(user_input, self.user_title)
         if father_reply:
-            self.append_message(MORICE_NAME, self._address(father_reply))
+            self._append_direct_reply(user_input, father_reply)
             return
 
         datetime_reply = current_datetime_response(user_input)
         if datetime_reply:
-            self.append_message(MORICE_NAME, self._address(datetime_reply))
+            self._append_direct_reply(user_input, datetime_reply)
             return
 
         if wants_first_message(user_input) and self.first_user_message:
-            self.append_message(MORICE_NAME, self._address(self.first_user_message))
+            self._append_direct_reply(user_input, self.first_user_message)
+            return
+
+        prior_user_messages = self.user_messages[:-1]
+        if wants_previous_user_message(user_input):
+            previous_message = previous_user_message(prior_user_messages)
+            reply = (
+                f'Your previous message was: "{previous_message}"'
+                if previous_message
+                else "There is no previous user message in this chat yet."
+            )
+            self._append_direct_reply(user_input, reply)
             return
 
         if wants_memory_list(user_input):
-            recent = self.user_messages[-5:]
+            recent = prior_user_messages[-5:]
             if recent:
-                self.append_message(MORICE_NAME, self._address(" | ".join(recent)))
+                self._append_direct_reply(user_input, " | ".join(recent))
             else:
-                self.append_message(MORICE_NAME, self._address("No messages yet."))
+                self._append_direct_reply(user_input, "No earlier messages yet.")
             return
 
         if wants_memory_search(user_input):
             terms = extract_memory_terms(user_input)
             matches = []
-            for msg in reversed(self.user_messages):
+            for msg in reversed(prior_user_messages):
                 if all(term in msg.lower() for term in terms):
                     matches.append(msg)
                 if len(matches) >= 3:
                     break
             if matches:
-                self.append_message(MORICE_NAME, self._address(" | ".join(matches)))
+                self._append_direct_reply(user_input, " | ".join(matches))
             else:
-                self.append_message(MORICE_NAME, self._address("I do not see that in your messages."))
+                self._append_direct_reply(user_input, "I do not see that in your earlier messages.")
             return
 
         if is_acknowledgement(user_input):
-            self.append_message(MORICE_NAME, self._address("Understood."))
+            self._append_direct_reply(user_input, "Understood.")
             return
 
         capability_topic = detect_capability_topic(user_input)
         if capability_topic:
-            self.append_message(
-                MORICE_NAME,
-                self._address(
-                    capability_answer(capability_topic, self.emoji_level)
-                ),
+            self._append_direct_reply(
+                user_input,
+                capability_answer(capability_topic, self.emoji_level),
             )
             return
 
         if wants_help(user_input):
-            self.append_message(MORICE_NAME, self._address(help_text()))
+            self._append_direct_reply(user_input, help_text())
             return
 
         if wants_model_identity(user_input):
-            self.append_message(MORICE_NAME, self._address(self._model_status_line()))
+            self._append_direct_reply(user_input, self._model_status_line())
             return
 
         if wants_precision_on(user_input):
             self._set_precision_state(True)
-            self.append_message(MORICE_NAME, self._address("Precision mode enabled."))
+            self._append_direct_reply(user_input, "Precision mode enabled.")
             return
 
         if wants_precision_off(user_input):
             self._set_precision_state(False)
-            self.append_message(MORICE_NAME, self._address("Precision mode disabled."))
+            self._append_direct_reply(user_input, "Precision mode disabled.")
             return
 
         if wants_math_steps_on(user_input):
             self.math_steps_mode = True
-            self.append_message(MORICE_NAME, self._address("Math steps mode enabled."))
+            self._append_direct_reply(user_input, "Math steps mode enabled.")
             return
 
         if wants_math_steps_off(user_input):
             self.math_steps_mode = False
-            self.append_message(MORICE_NAME, self._address("Math steps mode disabled."))
+            self._append_direct_reply(user_input, "Math steps mode disabled.")
             return
 
         if wants_unity_movement(user_input):
@@ -8951,11 +8992,19 @@ class MoriceWindow(QWidget):
                 script = unity_3d_movement_script()
             else:
                 script = unity_2d_movement_script()
-            self.append_message(MORICE_NAME, f"{self.user_title}, here is the script.\n{script}")
+            self._append_direct_reply(
+                user_input,
+                f"{self.user_title}, here is the script.\n{script}",
+                address=False,
+            )
             return
 
         if wants_html_cube_movement(user_input):
-            self.append_message(MORICE_NAME, f"{self.user_title}, here is the script.\n{html_cube_movement_script()}")
+            self._append_direct_reply(
+                user_input,
+                f"{self.user_title}, here is the script.\n{html_cube_movement_script()}",
+                address=False,
+            )
             return
 
         # A simulation prompt can contain a bare number (for example, "80 particles").
@@ -8963,7 +9012,7 @@ class MoriceWindow(QWidget):
         if not self.math_steps_mode and not wants_steps_detail(user_input) and not is_science_request(user_input):
             math_result = compute_math(user_input)
             if math_result is not None:
-                self.append_message(MORICE_NAME, self._address(shorten_reply(math_result)))
+                self._append_direct_reply(user_input, shorten_reply(math_result))
                 return
 
         if wants_notes_search(user_input):
@@ -8973,16 +9022,23 @@ class MoriceWindow(QWidget):
                 self.last_notes_hits = hits
                 self.last_notes_term = term
                 if hits:
-                    self.append_message(MORICE_NAME, self._address(f"Found {len(hits)} match(es) for {term}."))
-                    for hit in hits:
-                        self.append_message(MORICE_NAME, f"{hit['source']}: {hit['text']}")
+                    details = "\n".join(
+                        f"{hit['source']}: {hit['text']}" for hit in hits
+                    )
+                    self._append_direct_reply(
+                        user_input,
+                        f"Found {len(hits)} match(es) for {term}.\n\n{details}",
+                    )
                 else:
-                    self.append_message(MORICE_NAME, self._address(f"No matches for {term} in notes."))
+                    self._append_direct_reply(
+                        user_input,
+                        f"No matches for {term} in notes.",
+                    )
                 return
 
         if wants_notes_summary(user_input) and self.last_notes_hits:
             summary = summarize_notes_hits(self.last_notes_hits)
-            self.append_message(MORICE_NAME, self._address(summary))
+            self._append_direct_reply(user_input, summary)
             return
 
         if self._handle_science_request(user_input):
@@ -8994,9 +9050,9 @@ class MoriceWindow(QWidget):
         if project_build_request and not retry_project_request:
             self.last_project_request = user_input
         if project_build_request and not self._ensure_project_folder_for_build():
-            self.append_message(
-                MORICE_NAME,
-                self._address("Choose a work folder with the + button, then I can create and edit the project files there."),
+            self._append_direct_reply(
+                user_input,
+                "Choose a work folder with the + button, then I can create and edit the project files there.",
             )
             return
 
@@ -9006,9 +9062,9 @@ class MoriceWindow(QWidget):
             and not extract_web_query(user_input)
             and not project_online_lookup
         ):
-            self.append_message(
-                MORICE_NAME,
-                self._address("Offline mode is active. Start the message with @web <query> when you want web search."),
+            self._append_direct_reply(
+                user_input,
+                "Offline mode is active. Start the message with @web <query> when you want web search.",
             )
             return
 
@@ -9049,13 +9105,23 @@ class MoriceWindow(QWidget):
                     if not web_context:
                         web_context = "Web lookup returned no results."
 
-                extra_system = (
-                    f"Saved name preference from the user: address the user as '{self.user_title}'. "
-                    "Do not call the user 'All Father' unless that is the saved name preference."
+                model_history = select_recent_history(
+                    self.history,
+                    max_messages=48,
+                    max_chars=48_000,
                 )
-                extra_system += "\n\n" + emoji_preference_instruction(
-                    self.emoji_level
+                extra_system = saved_settings_instruction(
+                    self.user_title,
+                    self.response_style,
+                    emoji_preference_instruction(self.emoji_level),
                 )
+                reference_instruction = conversation_reference_instruction(
+                    user_input,
+                    model_history,
+                    self.user_messages[:-1],
+                )
+                if reference_instruction:
+                    extra_system += "\n\n" + reference_instruction
                 if self.chat_mode == "project":
                     self.thinking_update.emit("Project builder mode: applying workspace, access, and coding rules.")
                     extra_system += "\n\n" + self._project_builder_system()
@@ -9063,13 +9129,6 @@ class MoriceWindow(QWidget):
                         self.thinking_update.emit("Reading the work folder so edits can be applied directly.")
                         extra_system += "\n\n" + self._project_snapshot()
                         extra_system += "\n\n" + self._project_manifest_instruction(project_source_input)
-                response_style = self.response_style.strip()
-                if response_style:
-                    extra_system += (
-                        "\n\n"
-                        "Saved response style from the user. Follow it directly for this reply:\n"
-                        f"{response_style}"
-                    )
                 if image_path:
                     self.thinking_update.emit("Reading attached image context.")
                     image_context = describe_image(image_path)
@@ -9104,9 +9163,8 @@ class MoriceWindow(QWidget):
                     else "Asking Qwen to compose the final answer."
                 )
                 model_user_input = user_input
-                model_history = self.history
                 if project_build_request:
-                    model_history = self.history[-8:]
+                    model_history = model_history[-8:]
                     model_user_input = (
                         "Create or update the current project files for the authoritative request below. "
                         "Use the existing project snapshot and recent project conversation to preserve prior work. "

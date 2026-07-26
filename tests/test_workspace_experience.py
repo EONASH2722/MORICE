@@ -207,6 +207,78 @@ class WorkspaceUiTests(unittest.TestCase):
             self.assertEqual(self.window.font_family, selected_family)
             self.assertIn(selected_family, self.window.styleSheet())
 
+    def test_normal_chat_remembers_fast_replies_and_resolves_previous_message(self):
+        self.window.input.setText("what all rendering can you do")
+        self.window.on_send()
+        self.app.processEvents()
+
+        self.assertEqual(self.window.history[-2]["role"], "user")
+        self.assertEqual(
+            self.window.history[-2]["content"],
+            "what all rendering can you do",
+        )
+        self.assertEqual(self.window.history[-1]["role"], "assistant")
+
+        self.window.input.setText("what did i say in my previus msg")
+        self.window.on_send()
+        self.app.processEvents()
+
+        self.assertIn(
+            "what all rendering can you do",
+            self.window.history[-1]["content"],
+        )
+        self.assertNotIn(
+            "what did i say in my previus msg",
+            self.window.history[-1]["content"],
+        )
+
+    def test_contextual_follow_up_receives_history_and_current_settings(self):
+        calls = []
+
+        class ImmediateThread:
+            def __init__(self, target, daemon=True):
+                self.target = target
+
+            def start(self):
+                self.target()
+
+        def fake_chat(history, user_message, **kwargs):
+            calls.append((history, user_message, kwargs))
+            return "I used the earlier dashboard request."
+
+        self.window.user_title = "Captain"
+        self.window.response_style = "Be concise and technical."
+        self.window.emoji_level = "none"
+        self.window.history = [
+            {"role": "user", "content": "Make the dashboard teal."},
+            {"role": "assistant", "content": "I will use teal."},
+        ]
+        self.window.user_messages = ["Make the dashboard teal."]
+        self.window.first_user_message = "Make the dashboard teal."
+
+        with patch("morice.pyside_app.threading.Thread", ImmediateThread), patch(
+            "morice.pyside_app.chat",
+            side_effect=fake_chat,
+        ):
+            self.window.input.setText(
+                "In the previous message I said so; now make it darker."
+            )
+            self.window.on_send()
+            self.app.processEvents()
+
+        self.assertEqual(len(calls), 1)
+        history, _, kwargs = calls[0]
+        self.assertEqual(history[-2]["content"], "Make the dashboard teal.")
+        self.assertEqual(history[-1]["content"], "I will use teal.")
+        extra_system = kwargs["extra_system"]
+        self.assertIn("Address the user as 'Captain'", extra_system)
+        self.assertIn("Be concise and technical.", extra_system)
+        self.assertIn("do not use emoji", extra_system)
+        self.assertIn(
+            "<previous_user_message>Make the dashboard teal.</previous_user_message>",
+            extra_system,
+        )
+
     def test_invalid_custom_font_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "fake.ttf")

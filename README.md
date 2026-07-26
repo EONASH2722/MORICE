@@ -80,6 +80,8 @@ MORICE now includes a persistent, resizable `Tools` dock and a `Ctrl+K` command 
 - `Tools`: CPU/GPU/RAM/storage/network/battery status, persistent local notes, an embedded browser when Qt WebEngine is available, local audio/video playback, and Windows media controls.
 - Appearance: dark and light themes, a user-selectable accent, built-in font choices, validated local TTF/OTF/TTC fonts, three emoji levels, stable glass panels, compact native-style window controls, and motion that respects `MORICE_REDUCE_MOTION`.
 - Workspace continuity: atomic session saves restore bounded chat history, notes, recent items, panel visibility, theme, accent, and monitor-safe window geometry.
+- Conversation continuity: Normal Chat keeps complete recent user/assistant turns, resolves references such as `the previous message` (including common typos), and restores that bounded context with the session.
+- Settings precedence: the current saved name, response style, and emoji preference remain authoritative during follow-up answers, even when older chat text contains different preferences.
 - Safety: file search is read-only and skips dependency/system folders; closing another application always requires explicit confirmation; unsupported previews fail honestly.
 
 Useful commands:
