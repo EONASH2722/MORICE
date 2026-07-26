@@ -14,6 +14,7 @@ MORICE is a local desktop AI workspace for people who want an assistant that can
   <img src="https://img.shields.io/badge/base%20AI-Qwen2.5%20Coder%207B-0f766e" alt="Qwen2.5 Coder 7B">
   <img src="https://img.shields.io/badge/mode-Project%20Builder-111827" alt="Project Builder">
   <img src="https://img.shields.io/badge/VNext-Science%20Workspace-0891b2" alt="Science Workspace">
+  <img src="https://img.shields.io/badge/wake-adaptive%20audio-22c55e" alt="Adaptive wake audio">
 </p>
 
 <p align="center">
@@ -71,7 +72,7 @@ These captures come from the running Windows app after the renderer artifacts pa
 - VNext inline workspaces for real graphs, surfaces, physics, molecules, diagrams, and rich mathematics directly in Normal Chat.
 - `@web` lookup for fresh information when needed, with results passed into the local reply pipeline instead of leaving the whole chat online by default.
 - `@notes` lookup for local knowledge files, so MORICE can answer from personal documents without uploading them.
-- Wake listener that can launch or wake MORICE by saved phrase or clap pattern.
+- Adaptive wake listener that can launch MORICE by saved phrase or double clap, amplify quiet speech, learn persistent room noise, recover split phrases, and rotate away from silent or incompatible microphones.
 - Message queue for follow-up steering while a long local reply is still generating.
 - Personalization and appearance panel for the user title, wake phrase, response style, emoji amount, dark/light theme, and built-in or user-added fonts.
 - Typo-aware and short-form-aware intent handling, so rough wording can still land in the right workflow.
@@ -301,7 +302,7 @@ Wake behavior:
 - Short event de-duplication prevents repeated partial voice matches or extra clap edges from launching MORICE twice.
 - It detects both the packaged `MORICE.exe` app and manual Python runs, so it avoids launching duplicates during development.
 
-The wake line can be changed in the MORICE panel.
+The wake line can be changed in the MORICE panel. Voice wake requires a local Vosk model; double-clap wake remains available without one.
 
 Wake diagnostics:
 
@@ -310,8 +311,24 @@ python morice_wake_listener.py --self-test
 python morice_wake_listener.py --list-devices
 ```
 
-To force a specific microphone, set `MORICE_AUDIO_DEVICE` to the device index or device name before starting the listener.
-The default wake sensitivity is `high`. Set `MORICE_WAKE_SENSITIVITY` to `high`, `balanced`, or `conservative` if the room or microphone needs different behavior.
+Wake configuration:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `MORICE_WAKE_SENSITIVITY` | `high` | Use `high` for quiet or inexpensive microphones, `balanced` for ordinary rooms, or `conservative` where sudden background sounds cause false clap detections. |
+| `MORICE_AUDIO_DEVICE` | System default | Force a microphone by device index or name. Run `--list-devices` to find valid values. |
+
+The listener accepts common 16 kHz, 44.1 kHz, and 48 kHz capture paths and resamples voice input for Vosk automatically.
+
+### Weak Or Noisy Microphone Troubleshooting
+
+1. Start with `MORICE_WAKE_SENSITIVITY=high`.
+2. Run `python morice_wake_listener.py --list-devices` and select the intended microphone with `MORICE_AUDIO_DEVICE`.
+3. Keep the listener running briefly so its adaptive noise floor can learn persistent fan noise, electrical hiss, or a noisy USB input.
+4. Check `morice_wake_listener.log` for the active device, capture rate, learned noise level, software gain, recognized partial text, and automatic device rotation.
+5. Run `python morice_wake_listener.py --self-test` to verify the conditioning, weak-clap, and phrase-matching pipeline.
+
+The software can improve quiet, noisy, clipped, and wrong-rate microphone input, but it cannot reconstruct speech when the microphone delivers no usable signal.
 
 Optional startup install:
 
