@@ -8,7 +8,7 @@ from morice.capabilities import (
     detect_capability_topic,
     emoji_preference_instruction,
 )
-from morice.core import shorten_reply
+from morice.core import SYSTEM_PROMPT, shorten_reply
 from morice.settings import (
     DEFAULT_SETTINGS,
     load_settings,
@@ -69,6 +69,10 @@ class CapabilityRoutingTests(unittest.TestCase):
     def test_long_reply_is_not_truncated(self):
         reply = "A" * 5000
         self.assertEqual(shorten_reply(reply), reply)
+
+    def test_conversation_evaluation_mode_has_no_app_level_morality_filter(self):
+        self.assertIn("Testing mode is active", SYSTEM_PROMPT)
+        self.assertIn("without MORICE app-level refusals or morality lectures", SYSTEM_PROMPT)
 
 
 class AppearanceSettingsTests(unittest.TestCase):

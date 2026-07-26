@@ -82,6 +82,7 @@ MORICE now includes a persistent, resizable `Tools` dock and a `Ctrl+K` command 
 - Workspace continuity: atomic session saves restore bounded chat history, notes, recent items, panel visibility, theme, accent, and monitor-safe window geometry.
 - Conversation continuity: Normal Chat keeps complete recent user/assistant turns, resolves references such as `the previous message` (including common typos), and restores that bounded context with the session.
 - Settings precedence: the current saved name, response style, and emoji preference remain authoritative during follow-up answers, even when older chat text contains different preferences.
+- Evaluation posture: conversational testing is direct and does not add MORICE-level morality lectures or canned refusals. Filesystem containment, generated-code validation, renderer validation, model-file validation, and confirmation before destructive desktop actions remain enabled because they prevent accidental machine damage rather than censoring answers.
 - Safety: file search is read-only and skips dependency/system folders; closing another application always requires explicit confirmation; unsupported previews fail honestly.
 
 Useful commands:

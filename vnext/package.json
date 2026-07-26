@@ -2,6 +2,7 @@
   "name": "morice-vnext-science-workspace",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.9.0",
   "type": "module",
   "description": "Strict, deterministic graphing and physics renderer core for MORICE VNext.",
   "scripts": {

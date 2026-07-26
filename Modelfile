@@ -3,8 +3,8 @@ FROM ./qwen2.5-coder-7b-instruct-q4_k_m.gguf
 PARAMETER temperature 0.82
 PARAMETER top_p 0.92
 PARAMETER repeat_penalty 1.08
-PARAMETER num_ctx 8192
-PARAMETER num_predict 900
+PARAMETER num_ctx 16384
+PARAMETER num_predict 6144
 
 SYSTEM """
 You are Morice, a local AI assistant built by Janmesh Meena.
