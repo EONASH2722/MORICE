@@ -35,8 +35,13 @@ from .capabilities import (
     capability_answer,
     detect_capability_topic,
     emoji_preference_instruction,
+    maturity_preference_instruction,
 )
-from .settings import load_settings, normalize_emoji_level
+from .settings import (
+    load_settings,
+    normalize_emoji_level,
+    normalize_maturity_level,
+)
 
 
 class MoriceApp(tk.Tk):
@@ -55,8 +60,10 @@ class MoriceApp(tk.Tk):
         self.awake = True
         self.last_notes_hits = []
         self.last_notes_term = ""
-        self.emoji_level = normalize_emoji_level(
-            load_settings().get("emoji_level", "")
+        settings = load_settings()
+        self.emoji_level = normalize_emoji_level(settings.get("emoji_level", ""))
+        self.maturity_level = normalize_maturity_level(
+            settings.get("maturity_level", "")
         )
 
         self.text = tk.Text(
@@ -239,7 +246,12 @@ class MoriceApp(tk.Tk):
             web_query = extract_web_query(user_input)
             if web_query:
                 web_context = search_web(web_query)
-        extra_system = emoji_preference_instruction(self.emoji_level)
+        extra_system = "\n".join(
+            (
+                emoji_preference_instruction(self.emoji_level),
+                maturity_preference_instruction(self.maturity_level),
+            )
+        )
         if context:
             extra_system += (
                 "\n\n"

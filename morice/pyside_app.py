@@ -156,6 +156,7 @@ from .capabilities import (
     capability_answer,
     detect_capability_topic,
     emoji_preference_instruction,
+    maturity_preference_instruction,
 )
 from .conversation import (
     conversation_reference_instruction,
@@ -202,6 +203,7 @@ from .settings import (
     normalize_gpu_name,
     normalize_gpu_vram_mb,
     normalize_emoji_level,
+    normalize_maturity_level,
     normalize_font_family,
     normalize_custom_font_path,
     normalize_user_title,
@@ -4233,6 +4235,9 @@ class MoriceWindow(QWidget):
         self.emoji_level = normalize_emoji_level(
             self.settings.get("emoji_level", "")
         )
+        self.maturity_level = normalize_maturity_level(
+            self.settings.get("maturity_level", "")
+        )
         self.font_family = normalize_font_family(
             self.settings.get("font_family", "")
         )
@@ -4899,6 +4904,19 @@ class MoriceWindow(QWidget):
         self.emoji_select.setCurrentIndex(max(0, emoji_index))
         self.emoji_select.currentIndexChanged.connect(self._on_emoji_selection_changed)
 
+        maturity_label = QLabel("Maturity")
+        maturity_label.setObjectName("StyleLabel")
+        self.maturity_select = QComboBox()
+        self.maturity_select.setObjectName("AppearanceSelect")
+        self.maturity_select.addItem("None", "none")
+        self.maturity_select.addItem("Medium", "medium")
+        self.maturity_select.addItem("Full", "full")
+        maturity_index = self.maturity_select.findData(self.maturity_level)
+        self.maturity_select.setCurrentIndex(max(0, maturity_index))
+        self.maturity_select.currentIndexChanged.connect(
+            self._on_maturity_selection_changed
+        )
+
         font_label = QLabel("App font")
         font_label.setObjectName("StyleLabel")
         self.font_select = QComboBox()
@@ -4971,6 +4989,8 @@ class MoriceWindow(QWidget):
         sidebar_layout.addWidget(self.theme_select)
         sidebar_layout.addWidget(emoji_label)
         sidebar_layout.addWidget(self.emoji_select)
+        sidebar_layout.addWidget(maturity_label)
+        sidebar_layout.addWidget(self.maturity_select)
         sidebar_layout.addWidget(font_label)
         sidebar_layout.addWidget(self.font_select)
         sidebar_layout.addWidget(self.add_font_btn)
@@ -6040,6 +6060,7 @@ class MoriceWindow(QWidget):
 
     def _save_appearance_settings(self):
         self.settings["emoji_level"] = self.emoji_level
+        self.settings["maturity_level"] = self.maturity_level
         self.settings["font_family"] = self.font_family
         self.settings["custom_font_path"] = self.custom_font_path
         save_settings(self.settings)
@@ -6053,6 +6074,20 @@ class MoriceWindow(QWidget):
         self._record_activity(
             "Emoji preference changed",
             self.emoji_level.title(),
+            category="appearance",
+        )
+
+    def _on_maturity_selection_changed(self, _index: int):
+        self.maturity_level = normalize_maturity_level(
+            self.maturity_select.currentData()
+        )
+        self._save_appearance_settings()
+        self.style_status.setText(
+            f"Maturity level saved: {self.maturity_level.title()}."
+        )
+        self._record_activity(
+            "Maturity preference changed",
+            self.maturity_level.title(),
             category="appearance",
         )
 
@@ -6773,6 +6808,7 @@ class MoriceWindow(QWidget):
 
     def _save_project_settings(self):
         self.settings["emoji_level"] = self.emoji_level
+        self.settings["maturity_level"] = self.maturity_level
         self.settings["font_family"] = self.font_family
         self.settings["custom_font_path"] = self.custom_font_path
         self.settings["chat_mode"] = self.chat_mode
@@ -8261,6 +8297,7 @@ class MoriceWindow(QWidget):
         self.wake_input.setEnabled(not is_busy)
         self.theme_select.setEnabled(not is_busy)
         self.emoji_select.setEnabled(not is_busy)
+        self.maturity_select.setEnabled(not is_busy)
         self.font_select.setEnabled(not is_busy)
         self.add_font_btn.setEnabled(not is_busy)
         self.save_style_btn.setEnabled(not is_busy)
@@ -9114,6 +9151,7 @@ class MoriceWindow(QWidget):
                     self.user_title,
                     self.response_style,
                     emoji_preference_instruction(self.emoji_level),
+                    maturity_preference_instruction(self.maturity_level),
                 )
                 reference_instruction = conversation_reference_instruction(
                     user_input,

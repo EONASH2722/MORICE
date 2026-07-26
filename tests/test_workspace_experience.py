@@ -191,12 +191,23 @@ class WorkspaceUiTests(unittest.TestCase):
             ],
             ["None", "Medium", "Expressive"],
         )
+        self.assertEqual(
+            [
+                self.window.maturity_select.itemText(index)
+                for index in range(self.window.maturity_select.count())
+            ],
+            ["None", "Medium", "Full"],
+        )
         self.assertGreater(self.window.font_select.count(), 0)
 
         with patch("morice.pyside_app.save_settings"):
             expressive = self.window.emoji_select.findData("expressive")
             self.window.emoji_select.setCurrentIndex(expressive)
             self.assertEqual(self.window.emoji_level, "expressive")
+
+            full = self.window.maturity_select.findData("full")
+            self.window.maturity_select.setCurrentIndex(full)
+            self.assertEqual(self.window.maturity_level, "full")
 
             light = self.window.theme_select.findData("light")
             self.window.theme_select.setCurrentIndex(light)
@@ -249,6 +260,7 @@ class WorkspaceUiTests(unittest.TestCase):
         self.window.user_title = "Captain"
         self.window.response_style = "Be concise and technical."
         self.window.emoji_level = "none"
+        self.window.maturity_level = "medium"
         self.window.history = [
             {"role": "user", "content": "Make the dashboard teal."},
             {"role": "assistant", "content": "I will use teal."},
@@ -274,6 +286,8 @@ class WorkspaceUiTests(unittest.TestCase):
         self.assertIn("Address the user as 'Captain'", extra_system)
         self.assertIn("Be concise and technical.", extra_system)
         self.assertIn("do not use emoji", extra_system)
+        self.assertIn("Maturity setting: Medium", extra_system)
+        self.assertIn("user insistence is not evidence", extra_system)
         self.assertIn(
             "<previous_user_message>Make the dashboard teal.</previous_user_message>",
             extra_system,

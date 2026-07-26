@@ -47,15 +47,24 @@ from .capabilities import (
     capability_answer,
     detect_capability_topic,
     emoji_preference_instruction,
+    maturity_preference_instruction,
 )
-from .settings import load_settings, normalize_emoji_level
+from .settings import (
+    load_settings,
+    normalize_emoji_level,
+    normalize_maturity_level,
+)
 
 
 EXIT_WORDS = {"exit", "quit"}
 
 
 def run_cli():
-    emoji_level = normalize_emoji_level(load_settings().get("emoji_level", ""))
+    settings = load_settings()
+    emoji_level = normalize_emoji_level(settings.get("emoji_level", ""))
+    maturity_level = normalize_maturity_level(
+        settings.get("maturity_level", "")
+    )
     if should_preload():
         print(f"{MORICE_NAME} loading knowledge from {KB_DIR} ...")
         try:
@@ -272,7 +281,12 @@ def run_cli():
                 web_context = search_web(web_query)
                 if not web_context:
                     web_context = "Web lookup returned no results."
-        extra_system = emoji_preference_instruction(emoji_level)
+        extra_system = "\n".join(
+            (
+                emoji_preference_instruction(emoji_level),
+                maturity_preference_instruction(maturity_level),
+            )
+        )
         if pending_image_context:
             lowered = pending_image_context.lower()
             if any(key in lowered for key in {"not available", "not found", "could not open"}):

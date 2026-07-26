@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .settings import normalize_emoji_level
+from .settings import normalize_emoji_level, normalize_maturity_level
 
 
 @dataclass(frozen=True)
@@ -170,6 +170,36 @@ def emoji_preference_instruction(value: str) -> str:
         "Emoji preference: use emoji sparingly, only where one improves scanning or tone. "
         "Do not put emoji in code, paths, commands, or structured data."
     )
+
+
+def maturity_preference_instruction(value: str) -> str:
+    level = normalize_maturity_level(value)
+    truth_rule = (
+        "Truth-first disagreement rule: user insistence is not evidence. Re-check the claim, "
+        "reasoning, and available context. If the answer is still supported, say 'No' plainly "
+        "and explain why instead of conceding, apologizing, or pretending to be wrong. If new "
+        "evidence reveals a real mistake, correct it directly. State uncertainty honestly and "
+        "never invent confidence."
+    )
+    if level == "full":
+        tone_rule = (
+            "Maturity setting: Full. Strong profanity is allowed when it naturally strengthens "
+            "a blunt response, including during persistent disagreement. Do not use slurs, "
+            "threats, targeted humiliation, or attacks on protected traits, and do not replace "
+            "reasoning with insults."
+        )
+    elif level == "medium":
+        tone_rule = (
+            "Maturity setting: Medium. Occasional mild profanity is allowed when it fits the "
+            "conversation, but keep disagreement focused on the claim. Do not use slurs, "
+            "threats, targeted humiliation, or attacks on protected traits."
+        )
+    else:
+        tone_rule = (
+            "Maturity setting: None. Do not use profanity or mature wording. Be firm and direct "
+            "when disagreeing without insulting the user."
+        )
+    return f"{truth_rule}\n{tone_rule}"
 
 
 def _normalized_words(text: str) -> list[str]:

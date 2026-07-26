@@ -7,6 +7,7 @@ from morice.capabilities import (
     capability_answer,
     detect_capability_topic,
     emoji_preference_instruction,
+    maturity_preference_instruction,
 )
 from morice.core import SYSTEM_PROMPT, shorten_reply
 from morice.settings import (
@@ -15,6 +16,7 @@ from morice.settings import (
     normalize_custom_font_path,
     normalize_emoji_level,
     normalize_font_family,
+    normalize_maturity_level,
     save_settings,
 )
 
@@ -66,6 +68,22 @@ class CapabilityRoutingTests(unittest.TestCase):
         self.assertIn("sparingly", emoji_preference_instruction("medium"))
         self.assertIn("lively but readable", emoji_preference_instruction("expressive"))
 
+    def test_maturity_rules_stay_truth_first_at_every_level(self):
+        clean = maturity_preference_instruction("none")
+        medium = maturity_preference_instruction("medium")
+        full = maturity_preference_instruction("full")
+
+        for instruction in (clean, medium, full):
+            self.assertIn("user insistence is not evidence", instruction)
+            self.assertIn("say 'No' plainly", instruction)
+            self.assertIn("correct it directly", instruction)
+            self.assertIn("never invent confidence", instruction)
+        self.assertIn("Do not use profanity", clean)
+        self.assertIn("mild profanity is allowed", medium)
+        self.assertIn("Strong profanity is allowed", full)
+        self.assertIn("Do not use slurs", full)
+        self.assertIn("do not replace reasoning with insults", full)
+
     def test_long_reply_is_not_truncated(self):
         reply = "A" * 5000
         self.assertEqual(shorten_reply(reply), reply)
@@ -73,6 +91,8 @@ class CapabilityRoutingTests(unittest.TestCase):
     def test_conversation_evaluation_mode_has_no_app_level_morality_filter(self):
         self.assertIn("Testing mode is active", SYSTEM_PROMPT)
         self.assertIn("without MORICE app-level refusals or morality lectures", SYSTEM_PROMPT)
+        self.assertIn("Truth comes before agreement", SYSTEM_PROMPT)
+        self.assertIn("user insistence is not evidence", SYSTEM_PROMPT)
 
 
 class AppearanceSettingsTests(unittest.TestCase):
@@ -80,6 +100,10 @@ class AppearanceSettingsTests(unittest.TestCase):
         self.assertEqual(normalize_emoji_level("balanced"), "medium")
         self.assertEqual(normalize_emoji_level("well"), "expressive")
         self.assertEqual(normalize_emoji_level("unknown"), "medium")
+        self.assertEqual(normalize_maturity_level("clean"), "none")
+        self.assertEqual(normalize_maturity_level("moderate"), "medium")
+        self.assertEqual(normalize_maturity_level("mature"), "full")
+        self.assertEqual(normalize_maturity_level("unknown"), "none")
         self.assertEqual(normalize_font_family(' Test; Font " '), "Test Font")
         self.assertEqual(normalize_custom_font_path("not-a-font.exe"), "")
 
@@ -92,6 +116,7 @@ class AppearanceSettingsTests(unittest.TestCase):
             settings.update(
                 {
                     "emoji_level": "expressive",
+                    "maturity_level": "full",
                     "font_family": "Example Sans",
                     "custom_font_path": custom_font,
                 }
@@ -100,6 +125,7 @@ class AppearanceSettingsTests(unittest.TestCase):
             loaded = load_settings()
 
             self.assertEqual(loaded["emoji_level"], "expressive")
+            self.assertEqual(loaded["maturity_level"], "full")
             self.assertEqual(loaded["font_family"], "Example Sans")
             self.assertEqual(loaded["custom_font_path"], custom_font)
 

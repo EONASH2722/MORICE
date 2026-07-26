@@ -65,7 +65,7 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 - `@notes` lookup for local knowledge files, so MORICE can answer from personal documents without uploading them.
 - Adaptive wake listener that can launch MORICE by saved phrase or double clap, amplify quiet speech, learn persistent room noise, recover split phrases, and rotate away from silent or incompatible microphones.
 - Message queue for follow-up steering while a long local reply is still generating.
-- Personalization and appearance panel for the user title, wake phrase, response style, emoji amount, dark/light theme, and built-in or user-added fonts.
+- Personalization and appearance panel for the user title, wake phrase, response style, emoji amount, maturity level, dark/light theme, and built-in or user-added fonts.
 - Typo-aware and short-form-aware intent handling, so rough wording can still land in the right workflow.
 - Verified capability answers: questions such as `what all rendering can you do` return a complete implemented-feature inventory instead of an improvised model reply.
 - MIT licensed, so the project can be studied, forked, customized, and improved.
@@ -78,10 +78,11 @@ MORICE now includes a persistent, resizable `Tools` dock and a `Ctrl+K` command 
 - `Files`: bounded local filename search plus safe text, JSON, image, and PDF previews; downloads have their own sub-tab.
 - `Activity`: timeline, queued tasks, live local logs, and an in-memory clipboard history that is never written to the session file.
 - `Tools`: CPU/GPU/RAM/storage/network/battery status, persistent local notes, an embedded browser when Qt WebEngine is available, local audio/video playback, and Windows media controls.
-- Appearance: dark and light themes, a user-selectable accent, built-in font choices, validated local TTF/OTF/TTC fonts, three emoji levels, stable glass panels, compact native-style window controls, and motion that respects `MORICE_REDUCE_MOTION`.
+- Appearance: dark and light themes, a user-selectable accent, built-in font choices, validated local TTF/OTF/TTC fonts, three emoji levels, three maturity levels, stable glass panels, compact native-style window controls, and motion that respects `MORICE_REDUCE_MOTION`.
 - Workspace continuity: atomic session saves restore bounded chat history, notes, recent items, panel visibility, theme, accent, and monitor-safe window geometry.
 - Conversation continuity: Normal Chat keeps complete recent user/assistant turns, resolves references such as `the previous message` (including common typos), and restores that bounded context with the session.
-- Settings precedence: the current saved name, response style, and emoji preference remain authoritative during follow-up answers, even when older chat text contains different preferences.
+- Settings precedence: the current saved name, response style, emoji preference, and maturity level remain authoritative during follow-up answers, even when older chat text contains different preferences.
+- Truth-first disagreement: MORICE rechecks disputed claims and corrects genuine mistakes, but does not concede a supported answer merely because the user insists. Uncertainty is stated honestly instead of hidden.
 - Evaluation posture: conversational testing is direct and does not add MORICE-level morality lectures or canned refusals. Filesystem containment, generated-code validation, renderer validation, model-file validation, and confirmation before destructive desktop actions remain enabled because they prevent accidental machine damage rather than censoring answers.
 - Safety: file search is read-only and skips dependency/system folders; closing another application always requires explicit confirmation; unsupported previews fail honestly.
 
@@ -354,6 +355,7 @@ Open `Panel` to change:
 - The wake line.
 - The reply style.
 - Emoji amount: `None`, `Medium`, or `Expressive`.
+- Maturity: `None` keeps language clean, `Medium` permits occasional mild profanity, and `Full` permits strong profanity when it fits a blunt response. Every level stays evidence-based and excludes slurs, threats, and targeted humiliation.
 - Theme: `Dark` or `Light`.
 - App font: choose an installed option or load your own `.ttf`, `.otf`, or `.ttc` file.
 

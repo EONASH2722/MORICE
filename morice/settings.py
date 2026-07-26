@@ -7,6 +7,7 @@ DEFAULT_SETTINGS = {
     "wake_phrase": "wake up son",
     "user_title": "All Father",
     "emoji_level": "medium",
+    "maturity_level": "none",
     "font_family": "Segoe UI",
     "custom_font_path": "",
     "chat_mode": "normal",
@@ -50,6 +51,27 @@ def normalize_emoji_level(value: str) -> str:
     }
     text = aliases.get(text, text)
     return text if text in {"none", "medium", "expressive"} else DEFAULT_SETTINGS["emoji_level"]
+
+
+def normalize_maturity_level(value: str) -> str:
+    text = str(value or "").strip().lower()
+    aliases = {
+        "off": "none",
+        "no": "none",
+        "clean": "none",
+        "balanced": "medium",
+        "moderate": "medium",
+        "normal": "medium",
+        "high": "full",
+        "mature": "full",
+        "unrestricted": "full",
+    }
+    text = aliases.get(text, text)
+    return (
+        text
+        if text in {"none", "medium", "full"}
+        else DEFAULT_SETTINGS["maturity_level"]
+    )
 
 
 def normalize_font_family(value: str) -> str:
@@ -162,6 +184,9 @@ def load_settings() -> dict:
     settings["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
     settings["user_title"] = normalize_user_title(settings.get("user_title", ""))
     settings["emoji_level"] = normalize_emoji_level(settings.get("emoji_level", ""))
+    settings["maturity_level"] = normalize_maturity_level(
+        settings.get("maturity_level", "")
+    )
     settings["font_family"] = normalize_font_family(settings.get("font_family", ""))
     settings["custom_font_path"] = normalize_custom_font_path(
         settings.get("custom_font_path", "")
@@ -184,6 +209,9 @@ def save_settings(settings: dict) -> None:
     clean["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
     clean["user_title"] = normalize_user_title(settings.get("user_title", ""))
     clean["emoji_level"] = normalize_emoji_level(settings.get("emoji_level", ""))
+    clean["maturity_level"] = normalize_maturity_level(
+        settings.get("maturity_level", "")
+    )
     clean["font_family"] = normalize_font_family(settings.get("font_family", ""))
     clean["custom_font_path"] = normalize_custom_font_path(
         settings.get("custom_font_path", "")
