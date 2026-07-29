@@ -105,12 +105,17 @@ SHA-256 checksum. Installation scheduling requires exact approval.
 
 On restart, the packaged launcher hands the update to a separate updater
 process. Portable ZIP updates are extracted into a contained staging folder,
-copied atomically, and backed up per changed file. A failed copy restores the
-previous files. Installer EXEs launch silently after checksum validation.
-Unsupported package types fail honestly.
+copied atomically, and backed up per changed file in a unique rollback
+generation. A failed copy restores the previous files. Installer EXEs run
+silently after checksum validation, and MORICE waits for a successful installer
+exit before recording the update as complete or relaunching. Unsupported
+package types fail honestly.
 
 Crash reports, session snapshots, safe recovery, plugin process isolation, and
 renderer failure isolation remain owned by their existing runtime services.
+Shutdown is fail-safe: every registered cleanup step is attempted even if one
+component fails, and an unclean recovery marker is preserved when cleanup is
+incomplete.
 
 ## First Run and Packaging
 

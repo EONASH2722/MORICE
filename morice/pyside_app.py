@@ -618,8 +618,18 @@ class ModelWebBrowserDialog(QDialog):
     download_finished = Signal(str, str)
     gpu_detected = Signal(object)
 
+    def _emit_background(self, signal_name: str, *arguments) -> bool:
+        if getattr(self, "_is_closing", False):
+            return False
+        try:
+            getattr(self, signal_name).emit(*arguments)
+        except RuntimeError:
+            return False
+        return True
+
     def __init__(self, parent=None, gpu_profile: GpuProfile | None = None):
         super().__init__(parent)
+        self._is_closing = False
         self.selected_path = ""
         self.gpu_profile = gpu_profile or gpu_profile_from_values()
         self._busy = False
@@ -1091,7 +1101,7 @@ class ModelWebBrowserDialog(QDialog):
 
         def worker():
             profile = detect_gpu_profile()
-            self.gpu_detected.emit(profile)
+            self._emit_background("gpu_detected", profile)
 
         _start_background_task("model-gpu-detection", worker)
 
@@ -1201,7 +1211,7 @@ class ModelWebBrowserDialog(QDialog):
             except Exception as exc:  # noqa: BLE001
                 results = []
                 error = str(exc)
-            self.search_finished.emit(results, error)
+            self._emit_background("search_finished", results, error)
 
         _start_background_task("model-search", worker)
 
@@ -1264,7 +1274,7 @@ class ModelWebBrowserDialog(QDialog):
         self.status.setText("Installing selected model...")
 
         def progress(percent: int, message: str):
-            self.download_progress.emit(percent, message)
+            self._emit_background("download_progress", percent, message)
 
         def worker():
             try:
@@ -1273,7 +1283,7 @@ class ModelWebBrowserDialog(QDialog):
             except Exception as exc:  # noqa: BLE001
                 path = ""
                 error = str(exc)
-            self.download_finished.emit(path, error)
+            self._emit_background("download_finished", path, error)
 
         _start_background_task("model-download", worker)
 
@@ -1303,6 +1313,10 @@ class ModelWebBrowserDialog(QDialog):
             f"Installed and selected. GPU fit: {compatibility.label}. Run plan: {run_plan.label}."
         )
         QTimer.singleShot(650, self.accept)
+
+    def closeEvent(self, event):
+        self._is_closing = True
+        super().closeEvent(event)
 
 
 def _inline_markdown_to_rich_text(text: str) -> str:
@@ -5686,12 +5700,22 @@ class MoriceWindow(QWidget):
     plugin_catalog_changed = Signal()
     plugin_notification_received = Signal(str, str)
 
+    def _emit_background(self, signal_name: str, *arguments) -> bool:
+        if getattr(self, "_is_closing", False):
+            return False
+        try:
+            getattr(self, signal_name).emit(*arguments)
+        except RuntimeError:
+            return False
+        return True
+
     def __init__(
         self,
         runtime_services: RuntimeServices | None = None,
         recovery_info: RecoveryInfo | None = None,
     ):
         super().__init__()
+        self._is_closing = False
         self.runtime = runtime_services or get_runtime_services()
         self.recovery_info = recovery_info or RecoveryInfo(False)
         self._owns_runtime_lifecycle = recovery_info is not None
@@ -7687,8 +7711,12 @@ class MoriceWindow(QWidget):
         self.plugin_catalog_changed.connect(self._refresh_plugin_commands)
         self.plugin_notification_received.connect(self._show_plugin_notification)
         self.runtime.plugins.bind(
-            notification_callback=self.plugin_notification_received.emit,
-            command_callback=self.plugin_catalog_changed.emit,
+            notification_callback=lambda title, message: self._emit_background(
+                "plugin_notification_received", title, message
+            ),
+            command_callback=lambda: self._emit_background(
+                "plugin_catalog_changed"
+            ),
         )
         self._refresh_plugin_commands()
         self.diagnostics_dialog = DiagnosticsDialog(
@@ -7740,7 +7768,9 @@ class MoriceWindow(QWidget):
         self.title_bar.hub_btn.setText(
             "Close Tools" if self.assistant_hub.isVisible() else "Tools"
         )
-        self._monitor_callback = lambda sample: self.premium_metrics_ready.emit(sample)
+        self._monitor_callback = lambda sample: self._emit_background(
+            "premium_metrics_ready", sample
+        )
         self.runtime.desktop.system_monitor.subscribe(
             self._monitor_callback,
             interval_seconds=3.0,
@@ -9468,7 +9498,9 @@ class MoriceWindow(QWidget):
                 ]
             except Exception:  # noqa: BLE001
                 result = []
-            self.file_search_ready.emit({"query": query, "paths": result})
+            self._emit_background(
+                "file_search_ready", {"query": query, "paths": result}
+            )
 
         _start_background_task("file-search", worker)
 
@@ -9551,7 +9583,8 @@ class MoriceWindow(QWidget):
                 )
             except Exception:  # noqa: BLE001
                 results = []
-            self.file_search_ready.emit(
+            self._emit_background(
+                "file_search_ready",
                 {"scope": "everywhere", "query": query, "results": results}
             )
 
@@ -9567,7 +9600,7 @@ class MoriceWindow(QWidget):
                 snapshot = collect_system_snapshot()
             except Exception as exc:  # noqa: BLE001
                 snapshot = exc
-            self.system_snapshot_ready.emit(snapshot)
+            self._emit_background("system_snapshot_ready", snapshot)
 
         _start_background_task("system-snapshot", worker)
 
@@ -9641,9 +9674,9 @@ class MoriceWindow(QWidget):
         def worker():
             try:
                 message = execute_desktop_action(action)
-                self.desktop_action_ready.emit(message, True)
+                self._emit_background("desktop_action_ready", message, True)
             except Exception as exc:  # noqa: BLE001
-                self.desktop_action_ready.emit(str(exc), False)
+                self._emit_background("desktop_action_ready", str(exc), False)
 
         _start_background_task("desktop-action", worker)
 
@@ -9732,9 +9765,9 @@ class MoriceWindow(QWidget):
             def close_worker():
                 try:
                     message = close_application(action.target)
-                    self.desktop_action_ready.emit(message, True)
+                    self._emit_background("desktop_action_ready", message, True)
                 except Exception as exc:  # noqa: BLE001
-                    self.desktop_action_ready.emit(str(exc), False)
+                    self._emit_background("desktop_action_ready", str(exc), False)
 
             _start_background_task("close-application", close_worker)
             return True
@@ -9944,7 +9977,7 @@ class MoriceWindow(QWidget):
 
         def worker():
             profile = detect_gpu_profile()
-            self.gpu_detected.emit(profile)
+            self._emit_background("gpu_detected", profile)
 
         _start_background_task("gpu-detection", worker)
 
@@ -10852,7 +10885,8 @@ class MoriceWindow(QWidget):
                     permission_token=permission_token,
                 )
             )
-            self.project_patch_result.emit(
+            self._emit_background(
+                "project_patch_result",
                 {"operation": "apply", "result": result, "arguments": arguments}
             )
 
@@ -10888,7 +10922,8 @@ class MoriceWindow(QWidget):
                     permission_token=permission_token,
                 )
             )
-            self.project_patch_result.emit(
+            self._emit_background(
+                "project_patch_result",
                 {"operation": "undo", "result": result, "arguments": arguments}
             )
 
@@ -11180,7 +11215,7 @@ class MoriceWindow(QWidget):
         )
         command_call_id = f"project-command-{time.time_ns()}"
         self._active_project_command_id = command_call_id
-        self.project_command_state.emit(True)
+        self._emit_background("project_command_state", True)
 
         def worker():
             result = self.runtime.agent.tools.executor.execute(
@@ -11195,19 +11230,20 @@ class MoriceWindow(QWidget):
             combined = (str(output.get("stdout", "")) + str(output.get("stderr", ""))).rstrip()
             if result.errors:
                 combined += ("\n" if combined else "") + "\n".join(result.errors)
-            self.project_output_ready.emit(
+            self._emit_background(
+                "project_output_ready",
                 (combined or "(no output)")
                 + f"\n[exit code {output.get('exitCode', 'unknown')}]"
             )
             self._active_project_command_id = ""
-            self.project_command_state.emit(False)
+            self._emit_background("project_command_state", False)
 
         _start_background_task("project-command", worker)
 
     def _cancel_project_command(self):
         call_id = self._active_project_command_id
         if not call_id:
-            self.project_command_state.emit(False)
+            self._emit_background("project_command_state", False)
             return
         if self.runtime.agent.cancel(call_id):
             self._append_project_output(
@@ -11239,7 +11275,8 @@ class MoriceWindow(QWidget):
             combined = (str(output.get("stdout", "")) + str(output.get("stderr", ""))).rstrip()
             if result.errors:
                 combined += ("\n" if combined else "") + "\n".join(result.errors)
-            self.project_output_ready.emit(
+            self._emit_background(
+                "project_output_ready",
                 (combined or "Clean working tree.")
                 + f"\n[exit code {output.get('exitCode', 'unknown')}]"
             )
@@ -11303,7 +11340,8 @@ class MoriceWindow(QWidget):
                     call_id=f"project-verify-{time.time_ns()}",
                 )
             )
-            self.project_patch_result.emit(
+            self._emit_background(
+                "project_patch_result",
                 {"operation": "verify", "result": result, "arguments": arguments}
             )
 
@@ -11472,7 +11510,13 @@ class MoriceWindow(QWidget):
         self.history.append({"role": "user", "content": user_input})
 
         def progress(stage: str, detail: str, percent: int):
-            self.visualization_progress.emit(request.job_id, stage, detail, percent)
+            self._emit_background(
+                "visualization_progress",
+                request.job_id,
+                stage,
+                detail,
+                percent,
+            )
 
         future = self.visualization_manager.submit(request, progress)
         self.visualization_futures[request.job_id] = future
@@ -11499,10 +11543,7 @@ class MoriceWindow(QWidget):
                     renderer_id=decision.renderer_id,
                     error=f"Rendering failed: {exc}",
                 )
-            try:
-                self.visualization_finished.emit(result)
-            except RuntimeError:
-                return
+            self._emit_background("visualization_finished", result)
 
         future.add_done_callback(completed)
         return True
@@ -12042,7 +12083,7 @@ class MoriceWindow(QWidget):
 
     def _thinking_delayed_update(self, token: int, detail: str):
         if token == self._thinking_token and self.thinking_bubble:
-            self.thinking_update.emit(detail)
+            self._emit_background("thinking_update", detail)
 
     def _remove_thinking(self):
         if not self.thinking_bubble:
@@ -12749,7 +12790,8 @@ class MoriceWindow(QWidget):
         self._show_thinking(
             "Received your message and started the reply pipeline."
         )
-        self.thinking_update.emit(
+        self._emit_background(
+            "thinking_update",
             "Using @web, collecting search results, then asking the selected Qwen/local engine."
             if web_query_for_status
             else (
@@ -12771,7 +12813,10 @@ class MoriceWindow(QWidget):
                         include_project=True,
                     )
                 agent_request_id = self._active_agent_request_id
-                self.thinking_update.emit("Checking saved response style and local context.")
+                self._emit_background(
+                    "thinking_update",
+                    "Checking saved response style and local context.",
+                )
                 context_input = project_source_input if project_build_request else user_input
                 context = retrieve_context(context_input) if should_use_context(context_input) else ""
                 web_context = ""
@@ -12780,9 +12825,15 @@ class MoriceWindow(QWidget):
                 if os.getenv("MORICE_WEB", "1") == "1" and (web_query or auto_project_web):
                     search_query = web_query or project_source_input
                     if web_query:
-                        self.thinking_update.emit("Searching the web because the message used @web.")
+                        self._emit_background(
+                            "thinking_update",
+                            "Searching the web because the message used @web.",
+                        )
                     else:
-                        self.thinking_update.emit("Online+local mode: searching the web for useful project context.")
+                        self._emit_background(
+                            "thinking_update",
+                            "Online+local mode: searching the web for useful project context.",
+                        )
                     web_context = search_web(search_query)
                     if not web_context:
                         web_context = "Web lookup returned no results."
@@ -12806,20 +12857,34 @@ class MoriceWindow(QWidget):
                 if reference_instruction:
                     extra_system += "\n\n" + reference_instruction
                 if self.chat_mode == "project":
-                    self.thinking_update.emit("Project builder mode: applying workspace, access, and coding rules.")
+                    self._emit_background(
+                        "thinking_update",
+                        "Project builder mode: applying workspace, access, and coding rules.",
+                    )
                     extra_system += "\n\n" + self._project_builder_system()
                     if project_build_request:
-                        self.thinking_update.emit("Reading the work folder so edits can be applied directly.")
+                        self._emit_background(
+                            "thinking_update",
+                            "Reading the work folder so edits can be applied directly.",
+                        )
                         extra_system += "\n\n" + self._agent_project_prompt_context(
                             agent_request_id
                         )
                         extra_system += "\n\n" + self._project_manifest_instruction(project_source_input)
                 if image_path:
-                    self.thinking_update.emit("Reading attached image context.")
+                    self._emit_background(
+                        "thinking_update",
+                        "Reading attached image context.",
+                    )
                     image_context = describe_image(image_path)
                     lowered = image_context.lower()
                     if any(key in lowered for key in {"not available", "not found", "could not open"}):
-                        self.message_ready.emit(MORICE_NAME, self._address(image_context), False)
+                        self._emit_background(
+                            "message_ready",
+                            MORICE_NAME,
+                            self._address(image_context),
+                            False,
+                        )
                         return
                     extra_system = (
                         (extra_system + "\n\n" if extra_system else "")
@@ -12842,7 +12907,8 @@ class MoriceWindow(QWidget):
                         "Web results (may be incomplete):\n" + web_context
                     )
 
-                self.thinking_update.emit(
+                self._emit_background(
+                    "thinking_update",
                     "Asking Qwen for project files."
                     if project_build_request
                     else "Asking Qwen to compose the final answer."
@@ -12898,7 +12964,10 @@ class MoriceWindow(QWidget):
                 if project_build_request:
                     project_result = None
                     apply_error = ""
-                    self.thinking_update.emit("Applying generated files to the selected work folder.")
+                    self._emit_background(
+                        "thinking_update",
+                        "Applying generated files to the selected work folder.",
+                    )
                     try:
                         project_result = self._apply_project_manifest(
                             reply,
@@ -12909,7 +12978,10 @@ class MoriceWindow(QWidget):
                         apply_error = str(exc)
 
                     if not project_result:
-                        self.thinking_update.emit("Converting the model output into a safe file manifest.")
+                        self._emit_background(
+                            "thinking_update",
+                            "Converting the model output into a safe file manifest.",
+                        )
                         repair_prompt = (
                             "Turn this project request into the required JSON file manifest only. "
                             "Include complete file contents and relative paths.\n\n"
@@ -12936,7 +13008,10 @@ class MoriceWindow(QWidget):
                             apply_error = str(exc)
 
                     if not project_result:
-                        self.thinking_update.emit("Using MORICE's local Project fallback builder.")
+                        self._emit_background(
+                            "thinking_update",
+                            "Using MORICE's local Project fallback builder.",
+                        )
                         try:
                             fallback_manifest = build_project_fallback_manifest(
                                 project_source_input,
@@ -12961,7 +13036,11 @@ class MoriceWindow(QWidget):
 
                     if project_result:
                         visible_reply = project_result["message"]
-                        self.project_changes_ready.emit(project_result["summary"], project_result["diff_html"])
+                        self._emit_background(
+                            "project_changes_ready",
+                            project_result["summary"],
+                            project_result["diff_html"],
+                        )
                     else:
                         detail = f" Error: {apply_error}" if apply_error else ""
                         folder_hint = (
@@ -12992,7 +13071,12 @@ class MoriceWindow(QWidget):
                     )
                 except (OSError, RuntimeError, TypeError, ValueError):
                     pass
-                self.message_ready.emit(MORICE_NAME, self._address(visible_reply), False)
+                self._emit_background(
+                    "message_ready",
+                    MORICE_NAME,
+                    self._address(visible_reply),
+                    False,
+                )
             except Exception as exc:  # noqa: BLE001
                 if self._active_agent_request_id:
                     self.runtime.agent.record_model_result(
@@ -13008,7 +13092,12 @@ class MoriceWindow(QWidget):
                     category="model",
                 )
                 self._complete_agent_ui(response_present=False, successful=False)
-                self.message_ready.emit(MORICE_NAME, self._address(f"I hit an app error: {exc}"), False)
+                self._emit_background(
+                    "message_ready",
+                    MORICE_NAME,
+                    self._address(f"I hit an app error: {exc}"),
+                    False,
+                )
 
         _start_background_task("chat-reply", worker)
 
@@ -13036,6 +13125,7 @@ class MoriceWindow(QWidget):
         self.precision_btn.style().polish(self.precision_btn)
 
     def closeEvent(self, event):
+        self._is_closing = True
         self._save_workspace_session()
         self._save_recovery_snapshot()
         if (

@@ -355,6 +355,15 @@ class BackupExportUpdateTests(unittest.TestCase):
             bad["sha256"] = "0" * 64
             with self.assertRaises(ValueError):
                 updates.stage_local(package, bad)
+            unsupported = root / "MORICE.txt"
+            unsupported.write_bytes(b"not an update package")
+            unsupported_manifest = dict(manifest)
+            unsupported_manifest["sha256"] = hashlib.sha256(
+                unsupported.read_bytes()
+            ).hexdigest()
+            unsupported_manifest["size"] = unsupported.stat().st_size
+            with self.assertRaisesRegex(ValueError, "portable .zip"):
+                updates.stage_local(unsupported, unsupported_manifest)
 
     @unittest.skipUnless(os.name == "nt", "DPAPI is Windows-only")
     def test_dpapi_vault_and_encrypted_backup_round_trip(self):
@@ -435,6 +444,55 @@ class BackupExportUpdateTests(unittest.TestCase):
             self.assertEqual((install / "MORICE.exe").read_bytes(), b"old")
             self.assertFalse((install / "new.txt").exists())
             self.assertFalse((install / "z-trigger.txt").exists())
+
+    def test_installer_update_waits_for_success_and_records_no_fake_rollback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            install = root / "install"
+            install.mkdir()
+            (install / "MORICE.exe").write_bytes(b"current")
+            package = root / "MORICE-update.exe"
+            package.write_bytes(b"installer")
+            updates = root / "updates"
+            updates.mkdir()
+            instruction = updates / "pending-update.json"
+            instruction.write_text(
+                json.dumps(
+                    {
+                        "package": str(package),
+                        "sha256": hashlib.sha256(
+                            package.read_bytes()
+                        ).hexdigest(),
+                        "version": "0.7.1",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            completed = mock.Mock(returncode=0)
+            with mock.patch(
+                "morice.updater.subprocess.run",
+                return_value=completed,
+            ) as run, mock.patch(
+                "morice.updater.subprocess.Popen"
+            ) as relaunch:
+                self.assertEqual(
+                    run_updater(str(instruction), str(install), 0),
+                    0,
+                )
+
+            run.assert_called_once()
+            relaunch.assert_called_once_with(
+                [str(install / "MORICE.exe")],
+                cwd=install,
+            )
+            result = json.loads(
+                (updates / "last-update-result.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertTrue(result["success"])
+            self.assertEqual(result["rollback"], "")
 
 
 class SetupAndRepairTests(unittest.TestCase):

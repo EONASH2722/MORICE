@@ -929,11 +929,27 @@ class UpdateService:
         package = Path(source).expanduser().resolve()
         if not package.is_file():
             raise FileNotFoundError(str(package))
+        if package.suffix.casefold() not in {".zip", ".exe"}:
+            raise ValueError("Updates must be a portable .zip or installer .exe.")
         self._verify(package, manifest)
         destination = self.staging / f"MORICE-{manifest.version}{package.suffix}"
-        temporary = destination.with_suffix(destination.suffix + ".tmp")
-        shutil.copy2(package, temporary)
-        os.replace(temporary, destination)
+        temporary = destination.with_name(
+            destination.name + f".{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            if package != destination.resolve():
+                shutil.copy2(package, temporary)
+                os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        self._record_staged(destination, manifest)
+        return destination
+
+    def _record_staged(
+        self,
+        destination: Path,
+        manifest: UpdateManifest,
+    ) -> None:
         with self._lock:
             self._state["pending"] = {
                 "manifest": asdict(manifest),
@@ -942,7 +958,6 @@ class UpdateService:
                 "status": "staged",
             }
             self._save()
-        return destination
 
     def download(
         self,
@@ -962,7 +977,9 @@ class UpdateService:
         if package_suffix not in {".zip", ".exe"}:
             raise ValueError("Update URL must point to a .zip or installer .exe.")
         destination = self.staging / f"MORICE-{manifest.version}{package_suffix}"
-        temporary = destination.with_suffix(".tmp")
+        temporary = destination.with_name(
+            destination.name + f".{uuid.uuid4().hex}.tmp"
+        )
         received = 0
         try:
             with urllib.request.urlopen(request, timeout=30) as response, temporary.open(
@@ -979,10 +996,12 @@ class UpdateService:
             os.replace(temporary, destination)
         finally:
             temporary.unlink(missing_ok=True)
-        return self.stage_local(destination, manifest_value)
+        self._record_staged(destination, manifest)
+        return destination
 
     def request_install(self) -> str:
-        pending = dict(self._state.get("pending", {}))
+        with self._lock:
+            pending = dict(self._state.get("pending", {}))
         if pending.get("status") != "staged":
             raise RuntimeError("No verified update is staged.")
         arguments = {

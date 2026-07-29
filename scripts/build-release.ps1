@@ -81,11 +81,27 @@ if (-not $SkipPortable) {
 
 if (-not $SkipInstaller) {
     $Compiler = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
-    if ($null -eq $Compiler) {
+    $CompilerPath = if ($null -ne $Compiler) { $Compiler.Source } else { $null }
+    if (-not $CompilerPath) {
+        $CompilerCandidates = @()
+        if ($env:LOCALAPPDATA) {
+            $CompilerCandidates += Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"
+        }
+        if (${env:ProgramFiles(x86)}) {
+            $CompilerCandidates += Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+        }
+        if ($env:ProgramFiles) {
+            $CompilerCandidates += Join-Path $env:ProgramFiles "Inno Setup 6\ISCC.exe"
+        }
+        $CompilerPath = $CompilerCandidates |
+            Where-Object { Test-Path -LiteralPath $_ } |
+            Select-Object -First 1
+    }
+    if (-not $CompilerPath) {
         throw "Inno Setup 6 is required to compile installer\MORICE.iss."
     }
     Invoke-Checked "Installer build" {
-        & $Compiler.Source (Join-Path $Root "installer\MORICE.iss")
+        & $CompilerPath (Join-Path $Root "installer\MORICE.iss")
     }
 }
 

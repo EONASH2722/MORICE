@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -139,12 +140,15 @@ def _apply_portable_update(
 
 def _record_result(instruction: Path, value: dict[str, Any]) -> None:
     target = instruction.with_name("last-update-result.json")
-    temporary = target.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(value, ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
-    os.replace(temporary, target)
+    temporary = target.with_name(target.name + f".{uuid.uuid4().hex}.tmp")
+    try:
+        temporary.write_text(
+            json.dumps(value, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def run_updater(
@@ -163,19 +167,34 @@ def run_updater(
             raise ValueError("The staged update failed checksum verification.")
         _wait_for_process(parent_pid)
         suffix = package.suffix.casefold()
+        rollback_path = ""
         if suffix == ".exe":
-            subprocess.Popen(
+            completed = subprocess.run(
                 [
                     str(package),
                     "/VERYSILENT",
                     "/SUPPRESSMSGBOXES",
                     "/NORESTART",
+                    "/CLOSEAPPLICATIONS",
+                    f"/DIR={root}",
                 ],
+                cwd=package.parent,
+                timeout=900,
+                check=False,
                 creationflags=CREATE_NO_WINDOW,
             )
-            changed = ["installer launched"]
+            if completed.returncode != 0:
+                raise RuntimeError(
+                    f"The installer exited with code {completed.returncode}."
+                )
+            changed = ["installer completed"]
         elif suffix == ".zip":
-            rollback = instruction.parent / "rollback" / version
+            rollback = (
+                instruction.parent
+                / "rollback"
+                / f"{version}-{time.time_ns()}"
+            )
+            rollback_path = str(rollback)
             changed = _apply_portable_update(package, root, rollback)
         else:
             raise ValueError("Updates must be a verified .zip or installer .exe.")
@@ -186,12 +205,12 @@ def run_updater(
                 "success": True,
                 "version": version,
                 "changed": changed,
-                "rollback": str(instruction.parent / "rollback" / version),
+                "rollback": rollback_path,
             },
         )
         executable = root / "MORICE.exe"
         relaunch_error = ""
-        if suffix == ".zip" and executable.is_file():
+        if executable.is_file():
             try:
                 subprocess.Popen([str(executable)], cwd=root)
             except OSError as exc:
@@ -202,7 +221,7 @@ def run_updater(
                         "success": True,
                         "version": version,
                         "changed": changed,
-                        "rollback": str(instruction.parent / "rollback" / version),
+                        "rollback": rollback_path,
                         "warning": f"Update applied but relaunch failed: {exc}",
                     },
                 )

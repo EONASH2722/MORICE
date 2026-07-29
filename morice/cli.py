@@ -1,3 +1,8 @@
+import argparse
+import os
+import sys
+
+from . import __version__
 from .core import (
     MORICE_NAME,
     compute_math,
@@ -40,7 +45,6 @@ from .core import (
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload
 from .llm_client import chat
 from .web_search import search_web
-import os
 from .knowledge import search_notes
 from .vision import describe_image
 from .capabilities import (
@@ -59,7 +63,20 @@ from .settings import (
 EXIT_WORDS = {"exit", "quit"}
 
 
-def run_cli():
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="morice-cli",
+        description="Run MORICE in an interactive local terminal.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+    return parser
+
+
+def run_cli() -> None:
     settings = load_settings()
     emoji_level = normalize_emoji_level(settings.get("emoji_level", ""))
     maturity_level = normalize_maturity_level(
@@ -327,5 +344,13 @@ def run_cli():
         history.append({"role": "assistant", "content": reply})
 
 
-if __name__ == "__main__":
+def main(arguments: list[str] | None = None) -> int:
+    build_parser().parse_args(
+        list(arguments) if arguments is not None else sys.argv[1:]
+    )
     run_cli()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

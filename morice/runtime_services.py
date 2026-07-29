@@ -959,6 +959,10 @@ class RuntimeServices:
 
     def start(self) -> RecoveryInfo:
         with self._lock:
+            if self._shutdown:
+                raise RuntimeError(
+                    "MORICE runtime services cannot restart after shutdown."
+                )
             if self._started:
                 return self.recovery_info
             self.recovery_info = self.recovery.begin_session()
@@ -1136,20 +1140,46 @@ class RuntimeServices:
         with self._lock:
             if self._shutdown:
                 return
-            self.logs.log(
-                "INFO",
-                "MORICE runtime services stopped.",
-                category="shutdown",
-                metadata={"clean": clean},
+            failures: list[str] = []
+            shutdown_steps = (
+                ("platform", self.platform_services.shutdown),
+                ("plugins", self.plugins.shutdown),
+                ("desktop", self.desktop.shutdown),
+                ("workers", self.workers.shutdown),
+                ("exception hooks", self.recovery.uninstall_exception_hooks),
             )
-            if clean:
-                self.recovery.mark_clean()
-            self.platform_services.shutdown()
-            self.plugins.shutdown()
-            self.desktop.shutdown()
-            self.workers.shutdown()
-            self.recovery.uninstall_exception_hooks()
+            for name, callback in shutdown_steps:
+                try:
+                    callback()
+                except Exception as exc:  # noqa: BLE001
+                    failures.append(f"{name}: {exc}")
+                    self.logs.log(
+                        "ERROR",
+                        f"Runtime shutdown step failed: {name}: {exc}",
+                        category="shutdown",
+                    )
+            if clean and not failures:
+                try:
+                    self.recovery.mark_clean()
+                except OSError as exc:
+                    failures.append(f"recovery: {exc}")
+                    self.logs.log(
+                        "ERROR",
+                        f"Could not mark the runtime session clean: {exc}",
+                        category="shutdown",
+                    )
             self._shutdown = True
+            self._started = False
+            self.logs.log(
+                "INFO" if not failures else "ERROR",
+                (
+                    "MORICE runtime services stopped."
+                    if not failures
+                    else "MORICE runtime services stopped with cleanup errors."
+                ),
+                category="shutdown",
+                metadata={"clean": clean and not failures, "failures": failures},
+            )
 
 
 _RUNTIME_SERVICES: RuntimeServices | None = None

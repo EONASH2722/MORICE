@@ -231,6 +231,24 @@ class WorkspaceUiTests(unittest.TestCase):
         self.assertFalse(self.window.workspace_panel.isVisible())
         self.assertEqual(self.window.title_bar.workspace_btn.text(), "Lab")
 
+    def test_background_signals_are_suppressed_during_window_shutdown(self):
+        received = []
+        self.window.thinking_update.connect(received.append)
+
+        self.assertTrue(
+            self.window._emit_background("thinking_update", "still open")
+        )
+        self.app.processEvents()
+        self.assertEqual(received, ["still open"])
+
+        self.window._is_closing = True
+        self.assertFalse(
+            self.window._emit_background("thinking_update", "too late")
+        )
+        self.app.processEvents()
+        self.assertEqual(received, ["still open"])
+        self.window._is_closing = False
+
     def test_appearance_controls_change_theme_emoji_and_font(self):
         self.assertEqual(
             [

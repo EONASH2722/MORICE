@@ -198,6 +198,44 @@ class HealthAndRuntimeTests(unittest.TestCase):
             runtime.shutdown(clean=True)
             self.assertFalse(runtime.recovery.marker_path.exists())
 
+    def test_shutdown_finishes_remaining_cleanup_and_refuses_restart_after_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = RuntimeServices(
+                directory,
+                project_root=Path(__file__).resolve().parent.parent,
+            )
+            runtime.start()
+            real_platform = runtime.platform_services
+            real_plugins = runtime.plugins
+            real_desktop = runtime.desktop
+            real_workers = runtime.workers
+            runtime.platform_services = Mock()
+            runtime.platform_services.shutdown.side_effect = RuntimeError(
+                "controlled platform failure"
+            )
+            runtime.plugins = Mock()
+            runtime.desktop = Mock()
+            runtime.workers = Mock()
+
+            try:
+                runtime.shutdown(clean=True)
+
+                runtime.platform_services.shutdown.assert_called_once_with()
+                runtime.plugins.shutdown.assert_called_once_with()
+                runtime.desktop.shutdown.assert_called_once_with()
+                runtime.workers.shutdown.assert_called_once_with()
+                self.assertFalse(runtime.started)
+                self.assertTrue(runtime.recovery.marker_path.exists())
+                with self.assertRaisesRegex(RuntimeError, "cannot restart"):
+                    runtime.start()
+            finally:
+                runtime.recovery.uninstall_exception_hooks()
+                runtime.recovery.mark_clean()
+                real_platform.shutdown()
+                real_plugins.shutdown()
+                real_desktop.shutdown()
+                real_workers.shutdown()
+
     def test_owned_ollama_process_is_stopped_during_runtime_reset(self):
         from morice import llm_client
 

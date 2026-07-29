@@ -85,6 +85,7 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 - Project dashboard for architecture, dependencies, Git state, commits, timeline, issues, open files, memory, renderers, builds, tests, and performance.
 - Exact-approval Git creation, clone, branch, merge, commit, tag, revert, conflict resolution, and local releases plus read-only diff, history, conflicts, and visual timeline data.
 - Windows DPAPI secure settings and encrypted backups, bounded export bundles, stable/beta update channels, SHA-256 verified staging, restart-time portable/installer updates, rollback copies, first-run hardware guidance, repair checks, and release-readiness diagnostics.
+- Hardened release lifecycle: only ZIP/EXE update packages are accepted, installer completion is checked before success is recorded, portable rollback generations cannot collide, shutdown continues every cleanup step after a component failure, and the CLI exposes working `--help` and `--version` commands.
 - MIT licensed, so the project can be studied, forked, customized, and improved.
 
 ## Autonomous Platform
