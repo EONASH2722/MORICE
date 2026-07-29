@@ -5,11 +5,12 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from PySide6.QtCore import QTimer, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPlainTextEdit,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -120,6 +122,16 @@ DEFAULT_COMMANDS = (
     CommandItem("screenshot", "Capture screenshot", "Save the current display", "screen"),
     CommandItem("theme", "Toggle light or dark theme", "Change appearance", "color"),
     CommandItem("accent", "Choose accent color", "Personalize the workspace", "theme"),
+    CommandItem(
+        "settings",
+        "Open premium settings",
+        "Themes, motion, accessibility, layouts, and profiles",
+        "preferences scale contrast",
+    ),
+    CommandItem("layout-focus", "Focus layout", "Conversation without side panels", "workspace"),
+    CommandItem("layout-science", "Science layout", "Chat beside visual workspace", "workspace"),
+    CommandItem("layout-project", "Project layout", "Code, files, output, and changes", "workspace"),
+    CommandItem("layout-research", "Research layout", "Science and desktop tools", "workspace"),
     CommandItem("notes", "Open notes", "Persistent scratch notes", "write"),
     CommandItem("browser", "Open browser", "Browse without leaving MORICE", "web"),
     CommandItem("media", "Open media controls", "Playback and volume", "music"),
@@ -148,6 +160,7 @@ class CommandPalette(QDialog):
         self.setMinimumSize(540, 420)
         self.resize(620, 480)
         self.commands = tuple(commands)
+        self._recent: tuple[str, ...] = ()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -179,10 +192,24 @@ class CommandPalette(QDialog):
         self.activateWindow()
         self.search.setFocus(Qt.ShortcutFocusReason)
 
+    def set_recent(self, keys: Iterable[str]) -> None:
+        valid = {command.key for command in self.commands}
+        self._recent = tuple(
+            key for key in (str(value) for value in keys) if key in valid
+        )[:12]
+
     def _filter(self, value: str) -> None:
         terms = [part for part in value.lower().split() if part]
         self.results.clear()
-        for command in self.commands:
+        recent_rank = {key: index for index, key in enumerate(self._recent)}
+        commands = sorted(
+            self.commands,
+            key=lambda command: (
+                recent_rank.get(command.key, len(recent_rank) + 1),
+                command.title.casefold(),
+            ),
+        )
+        for command in commands:
             if terms and not all(term in command.searchable_text for term in terms):
                 continue
             label = command.title
@@ -1137,25 +1164,75 @@ class NotificationToast(QFrame):
         self.setProperty("severity", "info")
         self.setMinimumWidth(320)
         self.setMaximumWidth(440)
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
-        layout.setSpacing(8)
+        layout.setSpacing(7)
+        message_row = QHBoxLayout()
+        message_row.setSpacing(8)
         self.label = QLabel()
         self.label.setWordWrap(True)
         self.label.setMinimumWidth(220)
-        layout.addWidget(self.label, stretch=1)
+        message_row.addWidget(self.label, stretch=1)
+        self.action_button = QPushButton()
+        self.action_button.setObjectName("WorkspaceAction")
+        self.action_button.hide()
+        self.action_button.clicked.connect(self._run_action)
+        message_row.addWidget(self.action_button)
+        self.copy_button = QPushButton("Copy")
+        self.copy_button.setObjectName("WorkspaceAction")
+        self.copy_button.setToolTip("Copy notification details")
+        self.copy_button.setAccessibleName("Copy notification details")
+        self.copy_button.clicked.connect(self._copy_details)
+        self.copy_button.hide()
+        message_row.addWidget(self.copy_button)
         self.close_button = QPushButton("Close")
         self.close_button.setObjectName("WorkspaceCloseButton")
         self.close_button.clicked.connect(self.hide)
-        layout.addWidget(self.close_button)
+        message_row.addWidget(self.close_button)
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setTextVisible(False)
+        self.progress.hide()
+        layout.addLayout(message_row)
+        layout.addWidget(self.progress)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.hide)
+        self._details = ""
+        self._action_callback: Callable[[], None] | None = None
         self.hide()
 
-    def show_message(self, message: str, severity: str = "info", timeout_ms: int = 4200) -> None:
+    def show_message(
+        self,
+        message: str,
+        severity: str = "info",
+        timeout_ms: int = 4200,
+        *,
+        action_text: str = "",
+        action_callback: Callable[[], None] | None = None,
+        progress: int | None = None,
+        details: str = "",
+    ) -> None:
         self.label.setText(message)
-        self.setProperty("severity", severity if severity in {"info", "success", "error"} else "info")
+        clean_severity = (
+            severity
+            if severity in {"info", "success", "warning", "error"}
+            else "info"
+        )
+        self.setProperty("severity", clean_severity)
+        self._details = str(details or message)
+        self._action_callback = action_callback
+        if action_text and action_callback is not None:
+            self.action_button.setText(action_text)
+            self.action_button.show()
+        else:
+            self.action_button.hide()
+        self.copy_button.setVisible(clean_severity == "error")
+        if progress is None:
+            self.progress.hide()
+        else:
+            self.progress.setValue(max(0, min(100, int(progress))))
+            self.progress.show()
         self.style().unpolish(self)
         self.style().polish(self)
         parent = self.parentWidget()
@@ -1170,9 +1247,21 @@ class NotificationToast(QFrame):
         if timeout_ms > 0:
             self.timer.start(timeout_ms)
 
+    def _copy_details(self) -> None:
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(self._details)
+
+    def _run_action(self) -> None:
+        callback = self._action_callback
+        if callback is not None:
+            callback()
+        self.hide()
+
 
 def install_command_shortcut(parent: QWidget, palette: CommandPalette) -> QShortcut:
     shortcut = QShortcut(QKeySequence("Ctrl+K"), parent)
     shortcut.setContext(Qt.WindowShortcut)
-    shortcut.activated.connect(palette.open_palette)
+    callback = getattr(parent, "open_command_palette", palette.open_palette)
+    shortcut.activated.connect(callback)
     return shortcut

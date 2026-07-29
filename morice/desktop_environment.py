@@ -1770,6 +1770,15 @@ class SystemMonitor:
             )
             self._thread.start()
 
+    def unsubscribe(self, callback: Callable[[MonitorSample], None]) -> None:
+        with self._lock:
+            self._listeners = [
+                listener for listener in self._listeners if listener is not callback
+            ]
+            should_stop = not self._listeners
+        if should_stop:
+            self.stop()
+
     def stop(self) -> None:
         self._stop.set()
         thread = self._thread

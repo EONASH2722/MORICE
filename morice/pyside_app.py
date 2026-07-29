@@ -13,6 +13,7 @@ import time
 import subprocess
 import tempfile
 from ctypes import wintypes
+from datetime import datetime
 
 from PySide6.QtCore import (
     Qt,
@@ -43,6 +44,8 @@ from PySide6.QtGui import (
     QLinearGradient,
     QRadialGradient,
     QPdfWriter,
+    QKeySequence,
+    QShortcut,
     QTextCursor,
 )
 from PySide6.QtSvg import QSvgGenerator
@@ -184,6 +187,8 @@ from .desktop_environment import SearchEverywhereResult, SessionState
 from .ui_system import (
     THEMES,
     AnimationEngine,
+    MicroInteractionFilter,
+    SmoothScrollController,
     normalize_accent,
     normalize_theme,
     premium_theme_stylesheet,
@@ -197,6 +202,13 @@ from .ui_workspace import (
     install_command_shortcut,
 )
 from .diagnostics_ui import DiagnosticsDialog
+from .premium_experience import (
+    ExperienceProfile,
+    ExperienceProfileStore,
+    MAX_VISIBLE_CHAT_WIDGETS,
+    workspace_layout,
+)
+from .premium_ui import PremiumSettingsDialog
 from .runtime_services import RecoveryInfo, RuntimeServices, get_runtime_services
 from .workspace_state import (
     WorkspaceState,
@@ -218,6 +230,12 @@ from .settings import (
     normalize_maturity_level,
     normalize_font_family,
     normalize_custom_font_path,
+    normalize_animation_speed,
+    normalize_boolean_setting,
+    normalize_settings_profile,
+    normalize_transparency,
+    normalize_ui_scale,
+    normalize_workspace_preset,
     normalize_user_title,
     normalize_wake_phrase,
     normalize_response_style,
@@ -1583,26 +1601,66 @@ class ComposerStageFrame(QFrame):
 
 
 class ChatBubble(QFrame):
+    edit_requested = Signal(str)
+    reaction_changed = Signal(str)
+
     def __init__(self, author: str, message: str, is_user: bool = False):
         super().__init__()
+        self.author = str(author or "")
+        self.message = str(message or "")
+        self.is_user = bool(is_user)
+        self._reaction = ""
         self.setObjectName("ChatBubble")
+        self.setMaximumWidth(940)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(6)
 
-        author_label = QLabel(author)
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(5)
+        author_label = QLabel(self.author)
         author_label.setObjectName("AuthorLabel")
         author_label.setTextFormat(Qt.PlainText)
         author_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         author_label.setFocusPolicy(Qt.StrongFocus)
-        layout.addWidget(author_label)
-        if QWebEngineView is not None and _needs_web_rich_text(message):
-            layout.addWidget(RichContentView(message, self))
+        timestamp = QLabel(datetime.now().strftime("%H:%M"))
+        timestamp.setObjectName("MessageMeta")
+        timestamp.setToolTip(datetime.now().strftime("%A, %d %B %Y at %H:%M"))
+        timestamp.setAccessibleName("Message timestamp")
+        copy_button = self._action_button(
+            QApplication.style().standardIcon(QStyle.SP_DialogSaveButton),
+            "Copy message",
+            self._copy_message,
+        )
+        header.addWidget(author_label)
+        header.addStretch(1)
+        header.addWidget(timestamp)
+        header.addWidget(copy_button)
+        if is_user:
+            edit_button = self._action_button(
+                QApplication.style().standardIcon(QStyle.SP_FileDialogDetailedView),
+                "Edit this message in the composer",
+                lambda: self.edit_requested.emit(self.message),
+            )
+            header.addWidget(edit_button)
+        reaction_button = QPushButton("+")
+        reaction_button.setObjectName("MessageAction")
+        reaction_button.setFixedSize(26, 26)
+        reaction_button.setToolTip("React to this message")
+        reaction_button.setAccessibleName("React to message")
+        reaction_button.clicked.connect(self._cycle_reaction)
+        self.reaction_button = reaction_button
+        header.addWidget(reaction_button)
+        layout.addLayout(header)
+        if QWebEngineView is not None and _needs_web_rich_text(self.message):
+            layout.addWidget(RichContentView(self.message, self))
         else:
-            message_label = QLabel(message)
+            message_label = QLabel(self.message)
             message_label.setWordWrap(True)
             message_label.setObjectName("MessageLabel")
-            message_label.setText(_message_to_rich_text(message))
+            message_label.setText(_message_to_rich_text(self.message))
             message_label.setTextFormat(Qt.RichText)
             message_label.setTextInteractionFlags(
                 Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
@@ -1611,6 +1669,75 @@ class ChatBubble(QFrame):
             layout.addWidget(message_label)
 
         self.setProperty("user", "true" if is_user else "false")
+        self.setAccessibleName(f"{self.author} message")
+
+    @staticmethod
+    def _action_button(icon: QIcon, tooltip: str, callback) -> QPushButton:
+        button = QPushButton()
+        button.setObjectName("MessageAction")
+        button.setIcon(icon)
+        button.setFixedSize(26, 26)
+        button.setToolTip(tooltip)
+        button.setAccessibleName(tooltip)
+        button.clicked.connect(callback)
+        return button
+
+    def _copy_message(self) -> None:
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(self.message)
+
+    def _cycle_reaction(self) -> None:
+        choices = ("", "\N{THUMBS UP SIGN}", "\N{THUMBS DOWN SIGN}")
+        self._reaction = choices[(choices.index(self._reaction) + 1) % len(choices)]
+        self.reaction_button.setText(self._reaction or "+")
+        self.reaction_changed.emit(self._reaction)
+
+
+class AdaptivePromptEdit(QTextEdit):
+    returnPressed = Signal()
+    historyRequested = Signal(int)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setAcceptRichText(False)
+        self.setTabChangesFocus(True)
+        self.setMinimumHeight(44)
+        self.setMaximumHeight(132)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.textChanged.connect(self._resize_to_document)
+        self._resize_to_document()
+
+    def text(self) -> str:
+        return self.toPlainText()
+
+    def setText(self, text: str) -> None:
+        self.setPlainText(str(text or ""))
+
+    def keyPressEvent(self, event):
+        if event.key() in {Qt.Key_Return, Qt.Key_Enter} and not (
+            event.modifiers() & Qt.ShiftModifier
+        ):
+            self.returnPressed.emit()
+            event.accept()
+            return
+        if (
+            event.key() in {Qt.Key_Up, Qt.Key_Down}
+            and "\n" not in self.toPlainText()
+            and not (event.modifiers() & Qt.ShiftModifier)
+        ):
+            self.historyRequested.emit(-1 if event.key() == Qt.Key_Up else 1)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _resize_to_document(self) -> None:
+        document_height = int(self.document().size().height()) + 20
+        target = max(44, min(132, document_height))
+        self.setFixedHeight(target)
+        self.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAsNeeded if document_height > 132 else Qt.ScrollBarAlwaysOff
+        )
 
 
 class ThinkingBubble(QFrame):
@@ -4374,7 +4501,9 @@ class InlineGraphWorkspace(QFrame):
         if self.artifact.surface and self.dimension_select:
             canvas.set_view_mode(str(self.dimension_select.currentData()))
         layout.addWidget(canvas)
-        dialog.exec()
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
 
     def _export(self, export_format: str):
         filters = {
@@ -4434,6 +4563,9 @@ class InlinePhysicsWorkspace(QFrame):
         reset_button = QPushButton("Reset")
         reset_button.setObjectName("InlineVisualizationControl")
         reset_button.clicked.connect(self._reset)
+        large_button = QPushButton("Open large")
+        large_button.setObjectName("InlineVisualizationControl")
+        large_button.clicked.connect(self._open_large)
         screenshot_button = QPushButton("PNG")
         screenshot_button.setObjectName("InlineVisualizationControl")
         screenshot_button.clicked.connect(self._export_png)
@@ -4445,6 +4577,7 @@ class InlinePhysicsWorkspace(QFrame):
         controls.addWidget(step_button)
         controls.addWidget(back_button)
         controls.addWidget(reset_button)
+        controls.addWidget(large_button)
         controls.addStretch(1)
         controls.addWidget(json_button)
         controls.addWidget(screenshot_button)
@@ -4545,6 +4678,22 @@ class InlinePhysicsWorkspace(QFrame):
         if self.dimension_select:
             self.dimension_select.setCurrentText("3D")
         self.stats.setText("Simulation reset to its validated initial state.")
+
+    def _open_large(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.artifact.title)
+        dialog.setWindowIcon(QIcon(_icon_path()))
+        dialog.resize(1120, 780)
+        layout = QVBoxLayout(dialog)
+        canvas = PhysicsCanvas()
+        canvas.set_artifact(self.artifact)
+        if self.dimension_select:
+            canvas.set_render_mode(str(self.dimension_select.currentData()))
+        canvas.set_speed(float(self.speed_select.currentData()))
+        layout.addWidget(canvas)
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
 
     def _export_png(self):
         path, _ = QFileDialog.getSaveFileName(self, f"Export {self.artifact.title}", "", "PNG image (*.png)")
@@ -4666,7 +4815,9 @@ class InlineMoleculeWorkspace(QFrame):
         canvas.set_artifact(self.artifact)
         canvas.set_view_mode(str(self.dimension_select.currentData()))
         layout.addWidget(canvas)
-        dialog.exec()
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
 
     def _export(self, export_format: str):
         selected_filter, extension = {
@@ -4756,7 +4907,9 @@ class InlineDiagramWorkspace(QFrame):
         canvas = DiagramCanvas()
         canvas.set_artifact(self.artifact)
         layout.addWidget(canvas)
-        dialog.exec()
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
 
     def _export(self, export_format: str):
         selected_filter, extension = {
@@ -4848,7 +5001,9 @@ class InlineChartWorkspace(QFrame):
         canvas = ChartCanvas()
         canvas.set_artifact(self.artifact)
         layout.addWidget(canvas)
-        dialog.exec()
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
 
     def _export(self, export_format: str):
         selected_filter, extension = {
@@ -4948,7 +5103,9 @@ class InlineSceneWorkspace(QFrame):
         canvas.set_artifact(self.artifact)
         canvas.set_view_mode(self.dimension_select.currentData())
         layout.addWidget(canvas)
-        dialog.exec()
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
 
     def _export_png(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -5277,7 +5434,42 @@ class TitleBar(QFrame):
         layout.addWidget(self.hub_btn)
         layout.addWidget(logo)
         layout.addWidget(title)
+        self.workspace_status = QLabel("Chat")
+        self.workspace_status.setObjectName("TopStatus")
+        self.workspace_status.setToolTip("Active workspace")
+        self.workspace_status.setAccessibleName("Active workspace")
+        self.model_status = QLabel("Local model")
+        self.model_status.setObjectName("TopStatus")
+        self.model_status.setToolTip("Active AI model")
+        self.model_status.setAccessibleName("Active AI model")
+        self.hardware_status = QLabel("GPU -- | RAM -- | VRAM --")
+        self.hardware_status.setObjectName("TopStatus")
+        self.hardware_status.setToolTip("Live hardware usage")
+        self.hardware_status.setAccessibleName("Live GPU RAM and VRAM usage")
+        self.task_status = QLabel("Idle")
+        self.task_status.setObjectName("TopStatus")
+        self.task_status.setToolTip("Background task status")
+        self.task_status.setAccessibleName("Background task status")
+        self._status_labels = (
+            self.workspace_status,
+            self.model_status,
+            self.hardware_status,
+            self.task_status,
+        )
+        for status in self._status_labels:
+            layout.addWidget(status)
         layout.addStretch(1)
+
+        self.settings_btn = QPushButton()
+        self.settings_btn.setObjectName("TitleButton")
+        self.settings_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_FileDialogDetailedView)
+        )
+        self.settings_btn.setToolTip("Quick settings")
+        self.settings_btn.setAccessibleName("Open settings")
+        self.settings_btn.setFixedWidth(34)
+        self.settings_btn.clicked.connect(self._parent.open_premium_settings)
+        layout.addWidget(self.settings_btn)
 
         self.command_btn.setAccessibleName("Open command palette")
         layout.addWidget(self.command_btn)
@@ -5333,6 +5525,31 @@ class TitleBar(QFrame):
         self.theme_btn.setToolTip(
             "Switch to dark theme" if normalized == "light" else "Switch to light theme"
         )
+
+    def set_runtime_status(
+        self,
+        *,
+        workspace: str,
+        model: str,
+        gpu: str,
+        ram: str,
+        vram: str,
+        tasks: int,
+    ) -> None:
+        self.workspace_status.setText(workspace or "Chat")
+        self.model_status.setText(model or "Local model")
+        self.hardware_status.setText(
+            f"GPU {gpu or '--'} | RAM {ram or '--'} | VRAM {vram or '--'}"
+        )
+        self.task_status.setText(f"{tasks} task{'s' if tasks != 1 else ''}" if tasks else "Idle")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        width = self.width()
+        self.hardware_status.setVisible(width >= 1080)
+        self.model_status.setVisible(width >= 820)
+        self.workspace_status.setVisible(width >= 680)
+        self.task_status.setVisible(width >= 920)
 
     def _toggle_maximize(self):
         if self._parent.isMaximized() or getattr(self._parent, "_custom_maximized", False):
@@ -5440,6 +5657,7 @@ class MoriceWindow(QWidget):
     system_snapshot_ready = Signal(object)
     file_search_ready = Signal(object)
     desktop_action_ready = Signal(str, bool)
+    premium_metrics_ready = Signal(object)
 
     def __init__(
         self,
@@ -5456,6 +5674,20 @@ class MoriceWindow(QWidget):
             application.setApplicationName("MORICE")
             application.setApplicationDisplayName("MORICE")
             application.setOrganizationName("EONASH2722")
+        stored_base_size = (
+            application.property("moriceBaseFontPointSize")
+            if application is not None
+            else None
+        )
+        if stored_base_size is None:
+            stored_base_size = (
+                application.font().pointSize()
+                if application is not None and application.font().pointSize() > 0
+                else 10
+            )
+            if application is not None:
+                application.setProperty("moriceBaseFontPointSize", stored_base_size)
+        self._base_font_point_size = max(8, int(stored_base_size))
         self.setWindowTitle(MORICE_NAME)
         self.setMinimumSize(860, 580)
         self.resize(1240, 760)
@@ -5517,6 +5749,40 @@ class MoriceWindow(QWidget):
         self.message_queue: list[str] = []
         self.clipboard_history: list[str] = []
         self.settings = load_settings()
+        self.animation_speed = normalize_animation_speed(
+            self.settings.get("animation_speed", "")
+        )
+        self.reduced_motion = normalize_boolean_setting(
+            self.settings.get("reduced_motion", "")
+        ) or not self._motion_enabled
+        self.high_contrast = normalize_boolean_setting(
+            self.settings.get("high_contrast", "")
+        )
+        self.large_text = normalize_boolean_setting(
+            self.settings.get("large_text", "")
+        )
+        self.ui_scale = normalize_ui_scale(self.settings.get("ui_scale", ""))
+        self.transparency = normalize_transparency(
+            self.settings.get("transparency", "")
+        )
+        self.workspace_preset = normalize_workspace_preset(
+            (
+                self.workspace_state.workspace_preset
+                if self.workspace_state.splitter_sizes
+                else self.settings.get("workspace_preset", "")
+            )
+        )
+        self.settings_profile = normalize_settings_profile(
+            self.settings.get("settings_profile", "")
+        )
+        self._motion_enabled = not self.reduced_motion
+        self.animation_engine.configure(
+            enabled=self._motion_enabled,
+            speed=self.animation_speed,
+        )
+        self.experience_profiles = ExperienceProfileStore(
+            self.runtime.directory / "experience"
+        )
         self.response_style = self.settings.get("response_style", "").strip()
         self.wake_phrase = normalize_wake_phrase(self.settings.get("wake_phrase", ""))
         self.user_title = normalize_user_title(self.settings.get("user_title", ""))
@@ -5545,8 +5811,13 @@ class MoriceWindow(QWidget):
             )
         application = QApplication.instance()
         if application is not None:
-            point_size = application.font().pointSize()
-            application.setFont(QFont(self.font_family, point_size if point_size > 0 else 10))
+            scale = self.ui_scale * (1.12 if self.large_text else 1.0)
+            application.setFont(
+                QFont(
+                    self.font_family,
+                    max(8, round(self._base_font_point_size * scale)),
+                )
+            )
         self.chat_mode = normalize_chat_mode(self.settings.get("chat_mode", ""))
         self.project_folder = normalize_project_folder(self.settings.get("project_folder", ""))
         self.project_access = normalize_project_access(self.settings.get("project_access", ""))
@@ -5596,6 +5867,7 @@ class MoriceWindow(QWidget):
         self.system_snapshot_ready.connect(self._on_system_snapshot_ready)
         self.file_search_ready.connect(self._on_file_search_ready)
         self.desktop_action_ready.connect(self._on_desktop_action_ready)
+        self.premium_metrics_ready.connect(self._on_premium_metrics)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
@@ -5619,7 +5891,9 @@ class MoriceWindow(QWidget):
 
         self.mode_panel = QFrame()
         self.mode_panel.setObjectName("ModePanel")
-        self.mode_panel.setFixedWidth(292)
+        self.mode_panel.setMinimumWidth(250)
+        self.mode_panel.setMaximumWidth(420)
+        self.mode_panel.resize(292, 620)
         mode_layout = QVBoxLayout(self.mode_panel)
         mode_layout.setContentsMargins(14, 16, 14, 16)
         mode_layout.setSpacing(10)
@@ -5759,7 +6033,7 @@ class MoriceWindow(QWidget):
         self.workspace_panel.setObjectName("ScienceWorkspacePanel")
         self.workspace_panel.setMinimumWidth(350)
         self.workspace_panel.setMaximumWidth(700)
-        self.workspace_panel.setFixedWidth(430)
+        self.workspace_panel.resize(430, 620)
         workspace_layout = QVBoxLayout(self.workspace_panel)
         workspace_layout.setContentsMargins(14, 14, 14, 14)
         workspace_layout.setSpacing(10)
@@ -5926,6 +6200,21 @@ class MoriceWindow(QWidget):
         self._last_scroll_max = scroll_bar.maximum()
         scroll_bar.valueChanged.connect(self._on_scroll_change)
         scroll_bar.rangeChanged.connect(self._on_scroll_range_change)
+        self._message_rows: list[QFrame] = []
+        self._archived_messages: list[tuple[str, str, bool]] = []
+        self.chat_archive_notice = QFrame()
+        self.chat_archive_notice.setObjectName("ChatArchiveNotice")
+        archive_layout = QHBoxLayout(self.chat_archive_notice)
+        archive_layout.setContentsMargins(8, 5, 8, 5)
+        self.chat_archive_label = QLabel()
+        self.chat_archive_label.setObjectName("MessageMeta")
+        self.chat_archive_load_btn = QPushButton("Load earlier")
+        self.chat_archive_load_btn.setObjectName("MessageAction")
+        self.chat_archive_load_btn.clicked.connect(self._load_earlier_messages)
+        archive_layout.addWidget(self.chat_archive_label, stretch=1)
+        archive_layout.addWidget(self.chat_archive_load_btn)
+        self.chat_archive_notice.setVisible(False)
+        self.chat_list_layout.addWidget(self.chat_archive_notice)
         self._bottom_spacer = QWidget()
         self._bottom_spacer.setFixedHeight(8)
         self.chat_list_layout.addWidget(self._bottom_spacer)
@@ -5939,7 +6228,9 @@ class MoriceWindow(QWidget):
 
         self.changes_panel = QFrame()
         self.changes_panel.setObjectName("ProjectChangesPanel")
-        self.changes_panel.setFixedWidth(440)
+        self.changes_panel.setMinimumWidth(440)
+        self.changes_panel.setMaximumWidth(760)
+        self.changes_panel.resize(440, 620)
         self.changes_minimized = False
         self.changes_expanded = False
         self.changes_panel_dismissed = False
@@ -6141,7 +6432,9 @@ class MoriceWindow(QWidget):
 
         self.sidebar = QFrame()
         self.sidebar.setObjectName("SidebarPanel")
-        self.sidebar.setFixedWidth(340)
+        self.sidebar.setMinimumWidth(290)
+        self.sidebar.setMaximumWidth(480)
+        self.sidebar.resize(340, 620)
         sidebar_shell_layout = QVBoxLayout(self.sidebar)
         sidebar_shell_layout.setContentsMargins(0, 0, 0, 0)
         self.sidebar_scroll = QScrollArea()
@@ -6220,9 +6513,17 @@ class MoriceWindow(QWidget):
         theme_label.setObjectName("StyleLabel")
         self.theme_select = QComboBox()
         self.theme_select.setObjectName("AppearanceSelect")
-        self.theme_select.addItem("Dark", "dark")
-        self.theme_select.addItem("Light", "light")
-        self.theme_select.setCurrentIndex(1 if self.current_theme == "light" else 0)
+        for label, key in (
+            ("Dark", "dark"),
+            ("Light", "light"),
+            ("Midnight", "midnight"),
+            ("Glass", "glass"),
+            ("Custom", "custom"),
+        ):
+            self.theme_select.addItem(label, key)
+        self.theme_select.setCurrentIndex(
+            max(0, self.theme_select.findData(self.current_theme))
+        )
         self.theme_select.currentIndexChanged.connect(self._on_theme_selection_changed)
 
         emoji_label = QLabel("Emoji amount")
@@ -6267,6 +6568,79 @@ class MoriceWindow(QWidget):
         add_font_btn.setToolTip("Load a local TTF, OTF, or TTC font")
         add_font_btn.clicked.connect(self._choose_custom_font)
         self.add_font_btn = add_font_btn
+
+        motion_label = QLabel("Motion")
+        motion_label.setObjectName("StyleLabel")
+        self.animation_speed_select = QComboBox()
+        self.animation_speed_select.setObjectName("AppearanceSelect")
+        for label, key in (("Slow", "slow"), ("Normal", "normal"), ("Fast", "fast")):
+            self.animation_speed_select.addItem(label, key)
+        self.animation_speed_select.setCurrentIndex(
+            max(0, self.animation_speed_select.findData(self.animation_speed))
+        )
+        self.animation_speed_select.currentIndexChanged.connect(
+            self._on_experience_control_changed
+        )
+
+        self.reduced_motion_check = QCheckBox("Reduced motion")
+        self.reduced_motion_check.setChecked(self.reduced_motion)
+        self.reduced_motion_check.setAccessibleName("Reduce interface motion")
+        self.reduced_motion_check.toggled.connect(self._on_experience_control_changed)
+
+        self.high_contrast_check = QCheckBox("High contrast")
+        self.high_contrast_check.setChecked(self.high_contrast)
+        self.high_contrast_check.setAccessibleName("Use high contrast interface")
+        self.high_contrast_check.toggled.connect(self._on_experience_control_changed)
+
+        self.large_text_check = QCheckBox("Large text")
+        self.large_text_check.setChecked(self.large_text)
+        self.large_text_check.setAccessibleName("Use large interface text")
+        self.large_text_check.toggled.connect(self._on_experience_control_changed)
+
+        scale_label = QLabel("Interface scale")
+        scale_label.setObjectName("StyleLabel")
+        self.ui_scale_slider = QSlider(Qt.Horizontal)
+        self.ui_scale_slider.setRange(80, 160)
+        self.ui_scale_slider.setSingleStep(5)
+        self.ui_scale_slider.setValue(round(self.ui_scale * 100))
+        self.ui_scale_slider.setAccessibleName("Interface scale")
+        self.ui_scale_slider.sliderReleased.connect(self._on_experience_control_changed)
+
+        opacity_label = QLabel("Glass opacity")
+        opacity_label.setObjectName("StyleLabel")
+        self.transparency_slider = QSlider(Qt.Horizontal)
+        self.transparency_slider.setRange(70, 100)
+        self.transparency_slider.setValue(self.transparency)
+        self.transparency_slider.setAccessibleName("Glass opacity")
+        self.transparency_slider.sliderReleased.connect(
+            self._on_experience_control_changed
+        )
+
+        layout_label = QLabel("Workspace layout")
+        layout_label.setObjectName("StyleLabel")
+        self.workspace_preset_select = QComboBox()
+        self.workspace_preset_select.setObjectName("AppearanceSelect")
+        for label, key in (
+            ("Balanced", "balanced"),
+            ("Focus", "focus"),
+            ("Science", "science"),
+            ("Project", "project"),
+            ("Research", "research"),
+        ):
+            self.workspace_preset_select.addItem(label, key)
+        self.workspace_preset_select.setCurrentIndex(
+            max(0, self.workspace_preset_select.findData(self.workspace_preset))
+        )
+        self.workspace_preset_select.currentIndexChanged.connect(
+            self._on_workspace_preset_selected
+        )
+
+        self.advanced_settings_btn = QPushButton("Advanced settings")
+        self.advanced_settings_btn.setObjectName("QueueButton")
+        self.advanced_settings_btn.setToolTip(
+            "Search settings, preview themes, and manage profiles"
+        )
+        self.advanced_settings_btn.clicked.connect(self.open_premium_settings)
 
         queue_label = QLabel("Message queue")
         queue_label.setObjectName("StyleLabel")
@@ -6326,6 +6700,18 @@ class MoriceWindow(QWidget):
         sidebar_layout.addWidget(font_label)
         sidebar_layout.addWidget(self.font_select)
         sidebar_layout.addWidget(self.add_font_btn)
+        sidebar_layout.addWidget(motion_label)
+        sidebar_layout.addWidget(self.animation_speed_select)
+        sidebar_layout.addWidget(self.reduced_motion_check)
+        sidebar_layout.addWidget(self.high_contrast_check)
+        sidebar_layout.addWidget(self.large_text_check)
+        sidebar_layout.addWidget(scale_label)
+        sidebar_layout.addWidget(self.ui_scale_slider)
+        sidebar_layout.addWidget(opacity_label)
+        sidebar_layout.addWidget(self.transparency_slider)
+        sidebar_layout.addWidget(layout_label)
+        sidebar_layout.addWidget(self.workspace_preset_select)
+        sidebar_layout.addWidget(self.advanced_settings_btn)
         sidebar_layout.addSpacing(8)
         sidebar_layout.addWidget(queue_label)
         sidebar_layout.addWidget(self.queue_list)
@@ -6363,11 +6749,58 @@ class MoriceWindow(QWidget):
         input_layout.setContentsMargins(12, 12, 12, 12)
         input_layout.setSpacing(10)
 
-        self.input = QLineEdit()
+        self._prompt_history_index = -1
+        self.input = AdaptivePromptEdit()
         self.input.setPlaceholderText(f"{self.user_title}: type here...")
         self.input.setObjectName("InputBox")
         self.input.returnPressed.connect(self.on_send)
-        self.input.textChanged.connect(lambda _text: self._refresh_send_button_state())
+        self.input.historyRequested.connect(self._navigate_prompt_history)
+        self.input.textChanged.connect(self._refresh_send_button_state)
+
+        self.attach_btn = QPushButton()
+        self.attach_btn.setObjectName("ComposerToolButton")
+        self.attach_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_DialogOpenButton)
+        )
+        self.attach_btn.setToolTip("Attach an image (Ctrl+O)")
+        self.attach_btn.setAccessibleName("Attach image")
+        self.attach_btn.clicked.connect(self.on_attach)
+
+        self.voice_btn = QPushButton()
+        self.voice_btn.setObjectName("ComposerToolButton")
+        self.voice_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_MediaVolume)
+        )
+        self.voice_btn.setToolTip("Voice and wake-listener status")
+        self.voice_btn.setAccessibleName("Voice input and wake-listener status")
+        self.voice_btn.clicked.connect(self._show_voice_status)
+
+        self.model_selector_btn = QPushButton()
+        self.model_selector_btn.setObjectName("ComposerToolButton")
+        self.model_selector_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_ComputerIcon)
+        )
+        self.model_selector_btn.setToolTip("Choose AI model")
+        self.model_selector_btn.setAccessibleName("Choose AI model")
+        self.model_selector_btn.clicked.connect(self._choose_model_source)
+
+        self.project_selector_btn = QPushButton()
+        self.project_selector_btn.setObjectName("ComposerToolButton")
+        self.project_selector_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_DirIcon)
+        )
+        self.project_selector_btn.setToolTip("Switch between chat and Project mode")
+        self.project_selector_btn.setAccessibleName("Choose workspace mode")
+        self.project_selector_btn.clicked.connect(self._toggle_composer_project_mode)
+
+        self.quick_actions_btn = QPushButton()
+        self.quick_actions_btn.setObjectName("ComposerToolButton")
+        self.quick_actions_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_FileDialogContentsView)
+        )
+        self.quick_actions_btn.setToolTip("Quick actions (Ctrl+K)")
+        self.quick_actions_btn.setAccessibleName("Open quick actions")
+        self.quick_actions_btn.clicked.connect(self.open_command_palette)
 
         precision_btn = QPushButton("Precision: ON")
         precision_btn.setObjectName("PrecisionButton")
@@ -6396,6 +6829,11 @@ class MoriceWindow(QWidget):
         send_btn.clicked.connect(self.on_send)
         self.send_btn = send_btn
 
+        input_layout.addWidget(self.attach_btn)
+        input_layout.addWidget(self.voice_btn)
+        input_layout.addWidget(self.model_selector_btn)
+        input_layout.addWidget(self.project_selector_btn)
+        input_layout.addWidget(self.quick_actions_btn)
         input_layout.addWidget(self.input, stretch=1)
         input_layout.addWidget(precision_btn)
         input_layout.addWidget(personalization_btn)
@@ -7206,6 +7644,12 @@ class MoriceWindow(QWidget):
         self.command_palette = CommandPalette(self)
         self.command_palette.action_requested.connect(self._execute_palette_command)
         self.command_shortcut = install_command_shortcut(self, self.command_palette)
+        self.attach_shortcut = QShortcut(QKeySequence("Ctrl+O"), self)
+        self.attach_shortcut.setContext(Qt.WindowShortcut)
+        self.attach_shortcut.activated.connect(self.on_attach)
+        self.settings_shortcut = QShortcut(QKeySequence("Ctrl+,"), self)
+        self.settings_shortcut.setContext(Qt.WindowShortcut)
+        self.settings_shortcut.activated.connect(self.open_premium_settings)
         self.notification_toast = NotificationToast(self)
         self.diagnostics_dialog = DiagnosticsDialog(
             self.runtime,
@@ -7217,6 +7661,24 @@ class MoriceWindow(QWidget):
         self.recovery_timer.timeout.connect(self._save_recovery_snapshot)
         if self._owns_runtime_lifecycle:
             self.recovery_timer.start()
+        self.micro_interactions = MicroInteractionFilter(
+            self, enabled=not self.reduced_motion
+        )
+        for button in self.findChildren(QPushButton):
+            button.installEventFilter(self.micro_interactions)
+            button.setCursor(Qt.PointingHandCursor)
+            if not button.accessibleName():
+                button.setAccessibleName(
+                    button.toolTip() or button.text().replace("&", "")
+                )
+        self.smooth_scroll_controllers = [
+            SmoothScrollController(
+                area,
+                enabled=not self.reduced_motion,
+                duration=150,
+            )
+            for area in self.findChildren(QScrollArea)
+        ]
         self._apply_theme()
         self._update_style_badge()
         self._refresh_queue_list()
@@ -7238,6 +7700,12 @@ class MoriceWindow(QWidget):
         self.title_bar.hub_btn.setText(
             "Close Tools" if self.assistant_hub.isVisible() else "Tools"
         )
+        self._monitor_callback = lambda sample: self.premium_metrics_ready.emit(sample)
+        self.runtime.desktop.system_monitor.subscribe(
+            self._monitor_callback,
+            interval_seconds=3.0,
+        )
+        self._refresh_top_bar_status()
         if len(self.workspace_state.geometry) == 4:
             x, y, width, height = self.workspace_state.geometry
             target = QRect(x, y, max(860, width), max(580, height))
@@ -7263,6 +7731,22 @@ class MoriceWindow(QWidget):
                     )
                 )
             self.setGeometry(target)
+
+        if len(self.workspace_state.splitter_sizes) == self.workspace_splitter.count():
+            QTimer.singleShot(
+                0,
+                lambda sizes=list(self.workspace_state.splitter_sizes): self.workspace_splitter.setSizes(
+                    sizes
+                ),
+            )
+        elif self.workspace_preset != "balanced":
+            QTimer.singleShot(
+                0,
+                lambda preset=self.workspace_preset: self._apply_workspace_preset(
+                    preset,
+                    notify=False,
+                ),
+            )
 
         restored_history = bool(self.history)
         if restored_history:
@@ -7295,7 +7779,9 @@ class MoriceWindow(QWidget):
                 )
 
         QTimer.singleShot(200, self._post_init)
-        if self.workspace_state.maximized:
+        if self.workspace_state.fullscreen:
+            QTimer.singleShot(240, self.showFullScreen)
+        elif self.workspace_state.maximized:
             QTimer.singleShot(240, self.title_bar._toggle_maximize)
         if not self.gpu_profile.detected or self.gpu_profile.vram_mb <= 0:
             QTimer.singleShot(650, lambda: self._detect_gpu_profile(auto=True))
@@ -7595,34 +8081,279 @@ class MoriceWindow(QWidget):
     def _input_placeholder(self) -> str:
         return f"{self.user_title}: type here..."
 
+    def _experience_profile(self) -> ExperienceProfile:
+        return ExperienceProfile.from_value(
+            {
+                "name": self.settings_profile,
+                "theme": self.current_theme,
+                "accent": self.accent_color,
+                "animation_speed": self.animation_speed,
+                "reduced_motion": self.reduced_motion,
+                "high_contrast": self.high_contrast,
+                "large_text": self.large_text,
+                "ui_scale": self.ui_scale,
+                "transparency": self.transparency,
+                "workspace_preset": self.workspace_preset,
+            }
+        )
+
+    def open_premium_settings(self) -> None:
+        dialog = PremiumSettingsDialog(
+            self.experience_profiles,
+            self._experience_profile(),
+            self,
+        )
+        dialog.setStyleSheet(
+            premium_theme_stylesheet(
+                self.current_theme,
+                self.accent_color,
+                self.font_family,
+                high_contrast=self.high_contrast,
+                transparency=self.transparency,
+            )
+        )
+        dialog.preferences_applied.connect(self._apply_experience_preferences)
+        self.premium_settings_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _apply_experience_preferences(self, values: object) -> None:
+        data = dict(values) if isinstance(values, dict) else {}
+        profile = ExperienceProfile.from_value(data)
+        self.settings_profile = profile.name
+        self.current_theme = profile.theme
+        self.accent_color = profile.accent
+        self.animation_speed = profile.animation_speed
+        self.reduced_motion = profile.reduced_motion
+        self.high_contrast = profile.high_contrast
+        self.large_text = profile.large_text
+        self.ui_scale = profile.ui_scale
+        self.transparency = profile.transparency
+        self.workspace_preset = profile.workspace_preset
+        self._motion_enabled = not self.reduced_motion
+        self.animation_engine.configure(
+            enabled=self._motion_enabled,
+            speed=self.animation_speed,
+        )
+        if hasattr(self, "micro_interactions"):
+            self.micro_interactions.set_enabled(self._motion_enabled)
+        for controller in getattr(self, "smooth_scroll_controllers", ()):
+            controller.set_enabled(self._motion_enabled)
+        self._sync_experience_controls()
+        self._apply_theme()
+        self._apply_workspace_preset(self.workspace_preset, notify=False)
+        self._save_appearance_settings()
+        self._save_workspace_session()
+        self._show_notification(
+            f"{profile.name} experience profile applied.",
+            "success",
+        )
+
+    def _sync_experience_controls(self) -> None:
+        controls = (
+            getattr(self, "animation_speed_select", None),
+            getattr(self, "workspace_preset_select", None),
+            getattr(self, "reduced_motion_check", None),
+            getattr(self, "high_contrast_check", None),
+            getattr(self, "large_text_check", None),
+            getattr(self, "ui_scale_slider", None),
+            getattr(self, "transparency_slider", None),
+        )
+        for control in controls:
+            if control is not None:
+                control.blockSignals(True)
+        if hasattr(self, "animation_speed_select"):
+            self.animation_speed_select.setCurrentIndex(
+                max(0, self.animation_speed_select.findData(self.animation_speed))
+            )
+            self.workspace_preset_select.setCurrentIndex(
+                max(0, self.workspace_preset_select.findData(self.workspace_preset))
+            )
+            self.reduced_motion_check.setChecked(self.reduced_motion)
+            self.high_contrast_check.setChecked(self.high_contrast)
+            self.large_text_check.setChecked(self.large_text)
+            self.ui_scale_slider.setValue(round(self.ui_scale * 100))
+            self.transparency_slider.setValue(self.transparency)
+        for control in controls:
+            if control is not None:
+                control.blockSignals(False)
+
+    def _on_experience_control_changed(self, *_args) -> None:
+        values = {
+            "name": self.settings_profile,
+            "theme": self.current_theme,
+            "accent": self.accent_color,
+            "animation_speed": self.animation_speed_select.currentData(),
+            "reduced_motion": self.reduced_motion_check.isChecked(),
+            "high_contrast": self.high_contrast_check.isChecked(),
+            "large_text": self.large_text_check.isChecked(),
+            "ui_scale": self.ui_scale_slider.value() / 100,
+            "transparency": self.transparency_slider.value(),
+            "workspace_preset": self.workspace_preset,
+        }
+        self._apply_experience_preferences(values)
+
+    def _on_workspace_preset_selected(self, _index: int) -> None:
+        requested = normalize_workspace_preset(
+            self.workspace_preset_select.currentData()
+        )
+        self._apply_workspace_preset(requested)
+
+    def _apply_workspace_preset(self, name: str, *, notify: bool = True) -> None:
+        preset = workspace_layout(name)
+        self.workspace_preset = preset.name
+        if preset.project_panel and self.chat_mode != "project":
+            self._set_chat_mode("project")
+        self._animate_panel_visibility(self.mode_panel, preset.mode_panel)
+        self._animate_panel_visibility(self.workspace_panel, preset.science_panel)
+        if preset.project_panel:
+            self.changes_panel_dismissed = False
+        self._animate_panel_visibility(self.changes_panel, preset.project_panel)
+        self._animate_panel_visibility(
+            self.sidebar,
+            preset.personalization_panel,
+        )
+        self._set_assistant_hub_visible(preset.tools_panel)
+        self.workspace_splitter.setSizes(list(preset.splitter_sizes))
+        self._sync_experience_controls()
+        self._save_appearance_settings()
+        self._save_workspace_session()
+        self._refresh_top_bar_status()
+        if notify:
+            self._show_notification(
+                f"{preset.name.title()} workspace layout applied.",
+                "success",
+            )
+
+    def _refresh_top_bar_status(self, sample: object | None = None) -> None:
+        if not hasattr(self, "title_bar"):
+            return
+        gpu = "--"
+        ram = "--"
+        vram = "--"
+        if sample is not None:
+            gpu_value = getattr(sample, "gpu_percent", None)
+            ram_value = getattr(sample, "memory_percent", None)
+            vram_used = getattr(sample, "vram_used_mb", None)
+            vram_total = getattr(sample, "vram_total_mb", None)
+            gpu = f"{gpu_value:.0f}%" if gpu_value is not None else "--"
+            ram = f"{ram_value:.0f}%" if ram_value is not None else "--"
+            if vram_used is not None and vram_total:
+                vram = f"{vram_used / 1024:.1f}/{vram_total / 1024:.1f}G"
+        model = (
+            self.model_name
+            or (os.path.basename(self.model_path) if self.model_path else "")
+            or "Qwen local"
+        )
+        if len(model) > 24:
+            model = model[:21] + "..."
+        tasks = (
+            self.runtime.workers.pending_count
+            + len(self.message_queue)
+            + (1 if self.is_busy else 0)
+        )
+        workspace = "Project" if self.chat_mode == "project" else "Chat"
+        if self.workspace_panel.isVisible():
+            workspace = "Science"
+        elif self.assistant_hub.isVisible():
+            workspace = "Tools"
+        self.title_bar.set_runtime_status(
+            workspace=workspace,
+            model=model,
+            gpu=gpu,
+            ram=ram,
+            vram=vram,
+            tasks=tasks,
+        )
+
+    def _on_premium_metrics(self, sample: object) -> None:
+        self._refresh_top_bar_status(sample)
+
+    def _show_voice_status(self) -> None:
+        state = "awake" if self.awake else "listening for the wake line"
+        self._show_notification(
+            f"Voice service is {state}. Wake line: \"{self.wake_phrase}\".",
+            "info",
+            6500,
+        )
+
+    def _toggle_composer_project_mode(self) -> None:
+        self._set_chat_mode("normal" if self.chat_mode == "project" else "project")
+
+    def _navigate_prompt_history(self, direction: int) -> None:
+        if not self.user_messages:
+            return
+        if self._prompt_history_index < 0:
+            self._prompt_history_index = len(self.user_messages)
+        self._prompt_history_index = max(
+            0,
+            min(
+                len(self.user_messages),
+                self._prompt_history_index + int(direction),
+            ),
+        )
+        if self._prompt_history_index >= len(self.user_messages):
+            self.input.clear()
+        else:
+            self.input.setText(self.user_messages[self._prompt_history_index])
+            cursor = self.input.textCursor()
+            cursor.movePosition(QTextCursor.End)
+            self.input.setTextCursor(cursor)
+
     def _apply_theme(self):
         global _ACTIVE_UI_FONT_FAMILY, _ACTIVE_UI_THEME
         _ACTIVE_UI_FONT_FAMILY = self.font_family
         _ACTIVE_UI_THEME = self.current_theme
         application = QApplication.instance()
         if application is not None:
-            point_size = application.font().pointSize()
+            scale = self.ui_scale * (1.12 if self.large_text else 1.0)
             application.setFont(
-                QFont(self.font_family, point_size if point_size > 0 else 10)
+                QFont(
+                    self.font_family,
+                    max(8, round(self._base_font_point_size * scale)),
+                )
             )
         base = getattr(self, "_base_stylesheet", self.styleSheet())
         self.setStyleSheet(
             base
             + "\n"
             + premium_theme_stylesheet(
-                self.current_theme, self.accent_color, self.font_family
+                self.current_theme,
+                self.accent_color,
+                self.font_family,
+                high_contrast=self.high_contrast,
+                transparency=self.transparency,
             )
         )
         if hasattr(self, "command_palette"):
             self.command_palette.setStyleSheet(
                 premium_theme_stylesheet(
-                    self.current_theme, self.accent_color, self.font_family
+                    self.current_theme,
+                    self.accent_color,
+                    self.font_family,
+                    high_contrast=self.high_contrast,
+                    transparency=self.transparency,
                 )
             )
         if hasattr(self, "diagnostics_dialog"):
             self.diagnostics_dialog.setStyleSheet(
                 premium_theme_stylesheet(
-                    self.current_theme, self.accent_color, self.font_family
+                    self.current_theme,
+                    self.accent_color,
+                    self.font_family,
+                    high_contrast=self.high_contrast,
+                    transparency=self.transparency,
+                )
+            )
+        if hasattr(self, "premium_settings_dialog"):
+            self.premium_settings_dialog.setStyleSheet(
+                premium_theme_stylesheet(
+                    self.current_theme,
+                    self.accent_color,
+                    self.font_family,
+                    high_contrast=self.high_contrast,
+                    transparency=self.transparency,
                 )
             )
         if hasattr(self, "composer_stage"):
@@ -7639,7 +8370,7 @@ class MoriceWindow(QWidget):
             rich_view.apply_appearance(self.current_theme, self.font_family)
 
     def toggle_theme(self):
-        requested = "light" if self.current_theme == "dark" else "dark"
+        requested = "light" if self.current_theme != "light" else "dark"
         self._set_theme(requested)
 
     def _set_theme(self, theme: str, notify: bool = True):
@@ -7668,6 +8399,14 @@ class MoriceWindow(QWidget):
         self.settings["maturity_level"] = self.maturity_level
         self.settings["font_family"] = self.font_family
         self.settings["custom_font_path"] = self.custom_font_path
+        self.settings["animation_speed"] = self.animation_speed
+        self.settings["reduced_motion"] = str(self.reduced_motion).lower()
+        self.settings["high_contrast"] = str(self.high_contrast).lower()
+        self.settings["large_text"] = str(self.large_text).lower()
+        self.settings["ui_scale"] = str(self.ui_scale)
+        self.settings["transparency"] = str(self.transparency)
+        self.settings["workspace_preset"] = self.workspace_preset
+        self.settings["settings_profile"] = self.settings_profile
         save_settings(self.settings)
 
     def _on_emoji_selection_changed(self, _index: int):
@@ -7761,6 +8500,8 @@ class MoriceWindow(QWidget):
         self._save_workspace_session()
 
     def open_command_palette(self):
+        if hasattr(self.command_palette, "set_recent"):
+            self.command_palette.set_recent(self.workspace_state.recent_commands)
         self.command_palette.open_palette()
 
     def animate_minimize(self):
@@ -7787,6 +8528,7 @@ class MoriceWindow(QWidget):
         self.title_bar.hub_btn.setText("Close Tools" if visible else "Tools")
         if visible:
             self._refresh_workspace_hub()
+        self._refresh_top_bar_status()
 
     def _refresh_workspace_hub(self):
         if not hasattr(self, "assistant_hub"):
@@ -7857,7 +8599,15 @@ class MoriceWindow(QWidget):
         self._refresh_workspace_hub()
 
     def _show_notification(
-        self, message: str, severity: str = "info", timeout_ms: int = 4200
+        self,
+        message: str,
+        severity: str = "info",
+        timeout_ms: int = 4200,
+        *,
+        action_text: str = "",
+        action_callback=None,
+        progress: int | None = None,
+        details: str = "",
     ):
         try:
             self.runtime.desktop.notifications.publish(
@@ -7871,7 +8621,15 @@ class MoriceWindow(QWidget):
         if hasattr(self, "assistant_hub"):
             self._refresh_desktop_hub_state()
         if hasattr(self, "notification_toast"):
-            self.notification_toast.show_message(message, severity, timeout_ms)
+            self.notification_toast.show_message(
+                message,
+                severity,
+                timeout_ms,
+                action_text=action_text,
+                action_callback=action_callback,
+                progress=progress,
+                details=details,
+            )
 
     def _on_workspace_notes_changed(self, notes: str):
         self.workspace_state.notes = notes[:200_000]
@@ -7892,6 +8650,9 @@ class MoriceWindow(QWidget):
         self.workspace_state.maximized = bool(
             self.isMaximized() or self._custom_maximized
         )
+        self.workspace_state.fullscreen = bool(self.isFullScreen())
+        self.workspace_state.splitter_sizes = self.workspace_splitter.sizes()
+        self.workspace_state.workspace_preset = self.workspace_preset
         self.workspace_state.active_workspace_tab = (
             self.assistant_hub.tabs.currentIndex()
             if hasattr(self, "assistant_hub")
@@ -7957,9 +8718,17 @@ class MoriceWindow(QWidget):
             self._show_notification(f"Session could not be saved: {exc}", "error")
 
     def _execute_palette_command(self, command: str):
+        self.workspace_state.add_recent_command(command)
         self._on_workspace_command(command, None)
+        self._save_workspace_session()
 
     def _on_workspace_command(self, command: str, argument: object = None):
+        if command == "settings":
+            self.open_premium_settings()
+            return
+        if command.startswith("layout-"):
+            self._apply_workspace_preset(command.removeprefix("layout-"))
+            return
         if command == "workspace":
             self.toggle_assistant_hub()
             return
@@ -8249,9 +9018,15 @@ class MoriceWindow(QWidget):
         for index in reversed(range(self.chat_list_layout.count())):
             item = self.chat_list_layout.itemAt(index)
             widget = item.widget() if item is not None else None
-            if widget is not None and widget is not self._bottom_spacer:
+            if widget is not None and widget not in {
+                self._bottom_spacer,
+                self.chat_archive_notice,
+            }:
                 self.chat_list_layout.removeWidget(widget)
                 widget.deleteLater()
+        self._message_rows.clear()
+        self._archived_messages.clear()
+        self._refresh_archive_notice()
         self.history.clear()
         self.user_messages.clear()
         self.first_user_message = ""
@@ -8696,6 +9471,7 @@ class MoriceWindow(QWidget):
             self.append_message(MORICE_NAME, self._address(f"{mode_name} mode enabled."))
         elif self.chat_mode == "normal":
             self.mode_status.setText(f"{mode_name} mode is ready for the next message.")
+        self._refresh_top_bar_status()
 
     def _choose_project_folder(self):
         start_dir = (
@@ -10103,13 +10879,19 @@ class MoriceWindow(QWidget):
         self.changes_title.setVisible(True)
         self.changes_minimize_btn.setVisible(False)
         self.changes_expand_btn.setVisible(True)
-        self.changes_panel.setFixedWidth(640 if self.changes_expanded else 440)
+        self.changes_panel.resize(640 if self.changes_expanded else 440, self.changes_panel.height())
 
     def _toggle_changes_width(self):
         if self.changes_minimized:
             self._set_changes_minimized(False)
         self.changes_expanded = not self.changes_expanded
-        self.changes_panel.setFixedWidth(640 if self.changes_expanded else 440)
+        target_width = 640 if self.changes_expanded else 440
+        sizes = self.workspace_splitter.sizes()
+        panel_index = self.workspace_splitter.indexOf(self.changes_panel)
+        if 0 <= panel_index < len(sizes):
+            sizes[panel_index] = target_width
+            self.workspace_splitter.setSizes(sizes)
+        self.changes_panel.resize(target_width, self.changes_panel.height())
         self.changes_expand_btn.setText("<>" if self.changes_expanded else "[]")
         self.changes_expand_btn.setToolTip("Use normal width" if self.changes_expanded else "Widen project changes")
 
@@ -10187,11 +10969,13 @@ class MoriceWindow(QWidget):
         self._set_workspace_view(kind)
         if hasattr(self.title_bar, "workspace_btn"):
             self.title_bar.workspace_btn.setText("Close Lab")
+        self._refresh_top_bar_status()
 
     def _close_workspace(self):
         self._animate_panel_visibility(self.workspace_panel, False)
         if hasattr(self.title_bar, "workspace_btn"):
             self.title_bar.workspace_btn.setText("Lab")
+        self._refresh_top_bar_status()
 
     def _refresh_workspace_artifact_list(self):
         self.workspace_artifact_list.blockSignals(True)
@@ -10511,6 +11295,126 @@ class MoriceWindow(QWidget):
             )
         return "The renderer completed, but no supported interactive artifact was available."
 
+    def _create_message_row(
+        self,
+        author: str,
+        message: str,
+        is_user: bool,
+        *,
+        insert_index: int | None = None,
+        animate: bool = True,
+        row_list_index: int | None = None,
+    ) -> QFrame:
+        row = QFrame()
+        row.setObjectName("MessageRow")
+        row.setProperty("chatMessage", "true")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(0)
+        bubble = ChatBubble(author, message, is_user=is_user)
+        bubble.edit_requested.connect(self._edit_chat_message)
+        bubble.reaction_changed.connect(
+            lambda reaction, author=author: self._record_activity(
+                "Message reaction changed",
+                f"{author}: {reaction or 'cleared'}",
+                category="chat",
+            )
+        )
+        bubble.installEventFilter(self)
+        maximum = max(360, min(940, self.scroll.viewport().width() - 120))
+        bubble.setMaximumWidth(maximum)
+        if is_user:
+            row_layout.addStretch(1)
+            row_layout.addWidget(bubble)
+        else:
+            row_layout.addWidget(bubble)
+            row_layout.addStretch(1)
+        for button in bubble.findChildren(QPushButton):
+            if hasattr(self, "micro_interactions"):
+                button.installEventFilter(self.micro_interactions)
+            button.setCursor(Qt.PointingHandCursor)
+
+        opacity = QGraphicsOpacityEffect(row)
+        row.setGraphicsEffect(opacity)
+        opacity.setOpacity(0.0 if animate else 1.0)
+        target_index = (
+            max(1, int(insert_index))
+            if insert_index is not None
+            else max(1, self.chat_list_layout.count() - 1)
+        )
+        self.chat_list_layout.insertWidget(target_index, row)
+        if row_list_index is None:
+            self._message_rows.append(row)
+        else:
+            self._message_rows.insert(max(0, row_list_index), row)
+
+        if animate and self._motion_enabled and self.isVisible():
+            animation = QPropertyAnimation(opacity, b"opacity", row)
+            animation.setDuration(self.animation_engine.duration(180))
+            animation.setStartValue(0.0)
+            animation.setEndValue(1.0)
+            animation.setEasingCurve(QEasingCurve.OutCubic)
+            if not is_user:
+                glow_color = QColor(self.accent_color)
+                glow_color.setAlpha(72)
+                animation.finished.connect(
+                    lambda bubble=bubble, color=glow_color: self.animation_engine.shadow(
+                        bubble,
+                        color=color,
+                        blur=16,
+                        duration=220,
+                    )
+                )
+            self._track_animation(animation).start()
+        else:
+            opacity.setOpacity(1.0)
+        return row
+
+    def _edit_chat_message(self, message: str) -> None:
+        self.input.setText(message)
+        self.input.setFocus(Qt.OtherFocusReason)
+        cursor = self.input.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.input.setTextCursor(cursor)
+        self._show_notification("Message loaded into the composer for editing.")
+
+    def _virtualize_chat_widgets(self) -> None:
+        while len(self._message_rows) > MAX_VISIBLE_CHAT_WIDGETS:
+            row = self._message_rows.pop(0)
+            bubble = row.findChild(ChatBubble)
+            if bubble is not None:
+                self._archived_messages.append(
+                    (bubble.author, bubble.message, bubble.is_user)
+                )
+            self.chat_list_layout.removeWidget(row)
+            row.deleteLater()
+        self._refresh_archive_notice()
+
+    def _refresh_archive_notice(self) -> None:
+        count = len(self._archived_messages)
+        self.chat_archive_notice.setVisible(count > 0)
+        self.chat_archive_label.setText(
+            f"{count} earlier message{'s' if count != 1 else ''} are virtualized."
+            if count
+            else ""
+        )
+
+    def _load_earlier_messages(self) -> None:
+        if not self._archived_messages:
+            return
+        batch = self._archived_messages[-20:]
+        del self._archived_messages[-len(batch) :]
+        for offset, (author, message, is_user) in enumerate(batch):
+            self._create_message_row(
+                author,
+                message,
+                is_user,
+                insert_index=1 + offset,
+                animate=self._motion_enabled,
+                row_list_index=offset,
+            )
+        self._refresh_archive_notice()
+
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
         should_follow = self.follow_latest or self._is_at_bottom()
         if force_scroll is None:
@@ -10518,25 +11422,8 @@ class MoriceWindow(QWidget):
         if force_scroll:
             self.follow_latest = True
 
-        bubble = ChatBubble(author, message, is_user=is_user)
-        bubble.installEventFilter(self)
-        opacity = QGraphicsOpacityEffect(bubble)
-        bubble.setGraphicsEffect(opacity)
-        opacity.setOpacity(0.0)
-
-        insert_index = max(0, self.chat_list_layout.count() - 1)
-        self.chat_list_layout.insertWidget(insert_index, bubble)
-
-        if self._motion_enabled and self.isVisible():
-            anim = QPropertyAnimation(opacity, b"opacity", bubble)
-            anim.setDuration(180)
-            anim.setStartValue(0.0)
-            anim.setEndValue(1.0)
-            anim.setEasingCurve(QEasingCurve.OutCubic)
-            self._track_animation(anim).start()
-        else:
-            opacity.setOpacity(1.0)
-
+        self._create_message_row(author, message, is_user)
+        self._virtualize_chat_widgets()
         self._schedule_latest_scroll(force=force_scroll)
 
     def _remember_conversation_turn(self, user_input: str, assistant_reply: str):
@@ -10575,6 +11462,14 @@ class MoriceWindow(QWidget):
         self.maturity_select.setEnabled(not is_busy)
         self.font_select.setEnabled(not is_busy)
         self.add_font_btn.setEnabled(not is_busy)
+        self.animation_speed_select.setEnabled(not is_busy)
+        self.reduced_motion_check.setEnabled(not is_busy)
+        self.high_contrast_check.setEnabled(not is_busy)
+        self.large_text_check.setEnabled(not is_busy)
+        self.ui_scale_slider.setEnabled(not is_busy)
+        self.transparency_slider.setEnabled(not is_busy)
+        self.workspace_preset_select.setEnabled(not is_busy)
+        self.advanced_settings_btn.setEnabled(not is_busy)
         self.save_style_btn.setEnabled(not is_busy)
         self.clear_style_btn.setEnabled(not is_busy)
         self.normal_mode_btn.setEnabled(not is_busy)
@@ -10593,6 +11488,9 @@ class MoriceWindow(QWidget):
         self._refresh_send_button_state()
         if hasattr(self, "assistant_hub"):
             self.assistant_hub.set_tasks(self.message_queue, self.is_busy)
+        if hasattr(self, "title_bar"):
+            self._refresh_top_bar_status()
+        self._refresh_top_bar_status()
 
     def _refresh_send_button_state(self):
         queued_count = len(self.message_queue)
@@ -10824,6 +11722,11 @@ class MoriceWindow(QWidget):
     def _composer_widgets(self):
         return (
             self.input_frame,
+            self.attach_btn,
+            self.voice_btn,
+            self.model_selector_btn,
+            self.project_selector_btn,
+            self.quick_actions_btn,
             self.input,
             self.precision_btn,
             self.personalization_btn,
@@ -11126,6 +12029,10 @@ class MoriceWindow(QWidget):
                 margin,
             )
             self.notification_toast.raise_()
+        if hasattr(self, "scroll"):
+            maximum = max(360, min(940, self.scroll.viewport().width() - 120))
+            for bubble in self.chat_list.findChildren(ChatBubble):
+                bubble.setMaximumWidth(maximum)
         self._schedule_latest_scroll()
 
     def showEvent(self, event):
@@ -11163,6 +12070,7 @@ class MoriceWindow(QWidget):
             return
         self.follow_latest = True
         self.input.clear()
+        self._prompt_history_index = -1
         self._dock_composer()
         self.append_message(self.user_title, user_input, is_user=True, force_scroll=True)
         self.user_messages.append(user_input)
@@ -11682,6 +12590,10 @@ class MoriceWindow(QWidget):
             )
             return
         self.recovery_timer.stop()
+        if hasattr(self, "_monitor_callback"):
+            self.runtime.desktop.system_monitor.unsubscribe(self._monitor_callback)
+        if hasattr(self, "premium_settings_dialog"):
+            self.premium_settings_dialog.close()
         self.diagnostics_dialog.close()
         self.visualization_manager.shutdown()
         self.animation_engine.stop_all()

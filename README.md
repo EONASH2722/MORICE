@@ -15,7 +15,7 @@ MORICE is a local desktop AI workspace for people who want an assistant that can
   <img src="https://img.shields.io/badge/mode-Project%20Builder-111827" alt="Project Builder">
   <img src="https://img.shields.io/badge/VNext-Science%20Workspace-0891b2" alt="Science Workspace">
   <img src="https://img.shields.io/badge/agent-typed%20tools-2563eb" alt="Typed agent tools">
-  <img src="https://img.shields.io/badge/desktop-Phase%203-0ea5e9" alt="Phase 3 desktop environment">
+  <img src="https://img.shields.io/badge/desktop-Phase%204-0ea5e9" alt="Phase 4 premium experience">
   <img src="https://img.shields.io/badge/wake-adaptive%20audio-22c55e" alt="Adaptive wake audio">
 </p>
 
@@ -62,7 +62,9 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 
 ## Highlights
 
-- Glass desktop interface with a centered launch composer, animated galaxy/wave surfaces, and a Send button that stays calm instead of using a liquid-fill animation.
+- Premium desktop experience with Light, Dark, Midnight, Glass, and Custom themes; configurable accent/opacity; high contrast; large text; 80-160% scaling; reduced motion; searchable settings; and importable experience profiles.
+- Native-style window controls, monitor-safe geometry restoration, edge snapping, fullscreen/maximized restoration, live model/GPU/RAM/VRAM/task status, and Balanced, Focus, Science, Project, and Research splitter layouts.
+- Independent left/right glass message bubbles with rich Markdown/math/code rendering, timestamps, copy, edit, reactions, progressive history virtualization, and an adaptive multiline composer with attachments, voice status, model/project selection, prompt history, and quick actions.
 - Local-first model routing through a bundled GGUF, a selected GGUF file, or an installed Ollama model.
 - Trusted model browser with automatic GPU/VRAM detection, one-click trusted model lanes, compatibility scoring, worth scoring, official-source links, licenses, task metadata, and model-speciality summaries.
 - Project Mode with a readable right-side Files/Changes/Output workspace, project tree, source preview, green/red patch review, source validation, run actions, and a cancellable allowlisted terminal.
@@ -72,7 +74,7 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 - `@notes` lookup for local knowledge files, so MORICE can answer from personal documents without uploading them.
 - Adaptive wake listener that can launch MORICE by saved phrase or double clap, amplify quiet speech, learn persistent room noise, recover split phrases, and rotate away from silent or incompatible microphones.
 - Message queue for follow-up steering while a long local reply is still generating.
-- Personalization and appearance panel for the user title, wake phrase, response style, emoji amount, maturity level, dark/light theme, and built-in or user-added fonts. Expressive emoji mode actively shapes replies, while MORICE's voice combines human cadence with precise machine reasoning.
+- Personalization and appearance panel for the user title, wake phrase, response style, emoji amount, maturity level, five themes, accessibility/motion controls, workspace presets, and built-in or user-added fonts. Expressive emoji mode actively shapes replies, while MORICE's voice combines human cadence with precise machine reasoning.
 - Typo-aware and short-form-aware intent handling, so rough wording can still land in the right workflow.
 - Verified capability answers: questions such as `what all rendering can you do` return a complete implemented-feature inventory instead of an improvised model reply.
 - MIT licensed, so the project can be studied, forked, customized, and improved.
@@ -197,6 +199,9 @@ Useful commands:
 See [`docs/desktop-workspace.md`](docs/desktop-workspace.md) for the UI and
 [`docs/phase-3-desktop-environment.md`](docs/phase-3-desktop-environment.md)
 for manager contracts, permission behavior, verification, and honest limits.
+See [`docs/phase-4-premium-experience.md`](docs/phase-4-premium-experience.md)
+for the shared theme, motion, profile, accessibility, layout, chat, composer,
+notification, and performance contracts.
 
 ## Quick Install
 

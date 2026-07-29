@@ -37,13 +37,17 @@ class WorkspaceStateTests(unittest.TestCase):
                 accent="#123456",
                 geometry=[20, 30, 1200, 760],
                 maximized=True,
+                fullscreen=True,
                 assistant_hub_visible=True,
+                splitter_sizes=[292, 700, 430, 0, 0, 0],
+                workspace_preset="science",
                 notes="remember this",
             )
             for index in range(190):
                 state.history.append({"role": "user", "content": f"message-{index}"})
                 state.add_activity(f"activity-{index}")
             state.add_recent_file(os.path.join(directory, "example.txt"))
+            state.add_recent_command("settings")
             save_workspace_state(state, path)
 
             loaded = load_workspace_state(path)
@@ -52,7 +56,11 @@ class WorkspaceStateTests(unittest.TestCase):
             self.assertEqual(loaded.accent, "#123456")
             self.assertEqual(loaded.geometry, [20, 30, 1200, 760])
             self.assertTrue(loaded.maximized)
+            self.assertTrue(loaded.fullscreen)
             self.assertTrue(loaded.assistant_hub_visible)
+            self.assertEqual(loaded.splitter_sizes, [292, 700, 430, 0, 0, 0])
+            self.assertEqual(loaded.workspace_preset, "science")
+            self.assertEqual(loaded.recent_commands, ["settings"])
             self.assertEqual(loaded.notes, "remember this")
             self.assertEqual(len(loaded.history), 160)
             self.assertEqual(len(loaded.activity), 120)
@@ -228,7 +236,7 @@ class WorkspaceUiTests(unittest.TestCase):
                 self.window.theme_select.itemText(index)
                 for index in range(self.window.theme_select.count())
             ],
-            ["Dark", "Light"],
+            ["Dark", "Light", "Midnight", "Glass", "Custom"],
         )
         self.assertEqual(
             [

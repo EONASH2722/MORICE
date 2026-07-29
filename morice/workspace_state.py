@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-SESSION_VERSION = 1
+SESSION_VERSION = 2
 MAX_HISTORY_ITEMS = 160
 MAX_ACTIVITY_ITEMS = 120
 MAX_RECENT_ITEMS = 24
@@ -93,10 +93,14 @@ class WorkspaceState:
     mode_panel_visible: bool = False
     sidebar_visible: bool = False
     assistant_hub_visible: bool = False
+    fullscreen: bool = False
+    splitter_sizes: list[int] = field(default_factory=list)
+    workspace_preset: str = "balanced"
     history: list[dict[str, str]] = field(default_factory=list)
     user_messages: list[str] = field(default_factory=list)
     recent_files: list[str] = field(default_factory=list)
     recent_chats: list[str] = field(default_factory=list)
+    recent_commands: list[str] = field(default_factory=list)
     notes: str = ""
     activity: list[ActivityEntry] = field(default_factory=list)
 
@@ -126,6 +130,15 @@ class WorkspaceState:
             :MAX_RECENT_ITEMS
         ]
 
+    def add_recent_command(self, command: str) -> None:
+        clean = " ".join(_clean_text(command, 120).split())
+        if not clean:
+            return
+        self.recent_commands = [
+            clean,
+            *[item for item in self.recent_commands if item != clean],
+        ][:MAX_RECENT_ITEMS]
+
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["version"] = SESSION_VERSION
@@ -142,13 +155,34 @@ class WorkspaceState:
                 clean_geometry = [int(value) for value in geometry]
             except (TypeError, ValueError):
                 clean_geometry = []
+        splitter_sizes = data.get("splitter_sizes")
+        clean_splitter_sizes: list[int] = []
+        if isinstance(splitter_sizes, list):
+            for value in splitter_sizes[:8]:
+                try:
+                    clean_splitter_sizes.append(max(0, min(10_000, int(value))))
+                except (TypeError, ValueError):
+                    clean_splitter_sizes = []
+                    break
+        theme = str(data.get("theme", "")).strip().lower()
+        if theme not in {"dark", "light", "midnight", "glass", "custom"}:
+            theme = "dark"
+        workspace_preset = str(data.get("workspace_preset", "")).strip().lower()
+        if workspace_preset not in {
+            "balanced",
+            "focus",
+            "science",
+            "project",
+            "research",
+        }:
+            workspace_preset = "balanced"
         activity = [
             entry
             for entry in (ActivityEntry.from_value(value) for value in data.get("activity", []))
             if entry is not None
         ][-MAX_ACTIVITY_ITEMS:]
         return cls(
-            theme="light" if str(data.get("theme", "")).lower() == "light" else "dark",
+            theme=theme,
             accent=_clean_text(data.get("accent"), 16) or "#62d6b0",
             geometry=clean_geometry,
             maximized=bool(data.get("maximized", False)),
@@ -156,6 +190,9 @@ class WorkspaceState:
             mode_panel_visible=bool(data.get("mode_panel_visible", False)),
             sidebar_visible=bool(data.get("sidebar_visible", False)),
             assistant_hub_visible=bool(data.get("assistant_hub_visible", False)),
+            fullscreen=bool(data.get("fullscreen", False)),
+            splitter_sizes=clean_splitter_sizes,
+            workspace_preset=workspace_preset,
             history=_clean_messages(data.get("history")),
             user_messages=_clean_string_list(
                 data.get("user_messages"), MAX_HISTORY_ITEMS, item_limit=120_000
@@ -165,6 +202,9 @@ class WorkspaceState:
             ),
             recent_chats=_clean_string_list(
                 data.get("recent_chats"), MAX_RECENT_ITEMS, item_limit=240
+            ),
+            recent_commands=_clean_string_list(
+                data.get("recent_commands"), MAX_RECENT_ITEMS, item_limit=120
             ),
             notes=_clean_text(data.get("notes"), 200_000),
             activity=activity,

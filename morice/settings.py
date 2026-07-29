@@ -18,6 +18,14 @@ DEFAULT_SETTINGS = {
     "model_name": "",
     "gpu_name": "",
     "gpu_vram_mb": "",
+    "animation_speed": "normal",
+    "reduced_motion": "false",
+    "high_contrast": "false",
+    "large_text": "false",
+    "ui_scale": "1.0",
+    "transparency": "92",
+    "workspace_preset": "balanced",
+    "settings_profile": "Default",
 }
 
 
@@ -150,6 +158,51 @@ def normalize_gpu_vram_mb(value: str) -> str:
     return str(min(amount, 1024 * 1024))
 
 
+def normalize_animation_speed(value: str) -> str:
+    text = str(value or "").strip().lower()
+    return text if text in {"slow", "normal", "fast"} else DEFAULT_SETTINGS["animation_speed"]
+
+
+def normalize_boolean_setting(value: str, *, default: bool = False) -> bool:
+    text = str(value or "").strip().lower()
+    if text in {"1", "true", "yes", "on", "enabled"}:
+        return True
+    if text in {"0", "false", "no", "off", "disabled"}:
+        return False
+    return bool(default)
+
+
+def normalize_ui_scale(value: str) -> float:
+    try:
+        amount = float(str(value or "").strip())
+    except ValueError:
+        amount = float(DEFAULT_SETTINGS["ui_scale"])
+    return max(0.8, min(1.6, amount))
+
+
+def normalize_transparency(value: str) -> int:
+    try:
+        amount = int(float(str(value or "").strip()))
+    except ValueError:
+        amount = int(DEFAULT_SETTINGS["transparency"])
+    return max(70, min(100, amount))
+
+
+def normalize_workspace_preset(value: str) -> str:
+    text = str(value or "").strip().lower()
+    return (
+        text
+        if text in {"balanced", "focus", "science", "project", "research"}
+        else DEFAULT_SETTINGS["workspace_preset"]
+    )
+
+
+def normalize_settings_profile(value: str) -> str:
+    text = " ".join(str(value or "").replace("\x00", "").split())
+    text = "".join(ch for ch in text if ch not in '\r\n\t{}[]"\'')
+    return text[:60] or DEFAULT_SETTINGS["settings_profile"]
+
+
 def _settings_dir() -> str:
     base = os.getenv("APPDATA", "").strip()
     if base:
@@ -199,6 +252,28 @@ def load_settings() -> dict:
     settings["model_name"] = normalize_model_name(settings.get("model_name", ""))
     settings["gpu_name"] = normalize_gpu_name(settings.get("gpu_name", ""))
     settings["gpu_vram_mb"] = normalize_gpu_vram_mb(settings.get("gpu_vram_mb", ""))
+    settings["animation_speed"] = normalize_animation_speed(
+        settings.get("animation_speed", "")
+    )
+    settings["reduced_motion"] = str(
+        normalize_boolean_setting(settings.get("reduced_motion", ""))
+    ).lower()
+    settings["high_contrast"] = str(
+        normalize_boolean_setting(settings.get("high_contrast", ""))
+    ).lower()
+    settings["large_text"] = str(
+        normalize_boolean_setting(settings.get("large_text", ""))
+    ).lower()
+    settings["ui_scale"] = str(normalize_ui_scale(settings.get("ui_scale", "")))
+    settings["transparency"] = str(
+        normalize_transparency(settings.get("transparency", ""))
+    )
+    settings["workspace_preset"] = normalize_workspace_preset(
+        settings.get("workspace_preset", "")
+    )
+    settings["settings_profile"] = normalize_settings_profile(
+        settings.get("settings_profile", "")
+    )
     return settings
 
 
@@ -224,5 +299,27 @@ def save_settings(settings: dict) -> None:
     clean["model_name"] = normalize_model_name(settings.get("model_name", ""))
     clean["gpu_name"] = normalize_gpu_name(settings.get("gpu_name", ""))
     clean["gpu_vram_mb"] = normalize_gpu_vram_mb(settings.get("gpu_vram_mb", ""))
+    clean["animation_speed"] = normalize_animation_speed(
+        settings.get("animation_speed", "")
+    )
+    clean["reduced_motion"] = str(
+        normalize_boolean_setting(settings.get("reduced_motion", ""))
+    ).lower()
+    clean["high_contrast"] = str(
+        normalize_boolean_setting(settings.get("high_contrast", ""))
+    ).lower()
+    clean["large_text"] = str(
+        normalize_boolean_setting(settings.get("large_text", ""))
+    ).lower()
+    clean["ui_scale"] = str(normalize_ui_scale(settings.get("ui_scale", "")))
+    clean["transparency"] = str(
+        normalize_transparency(settings.get("transparency", ""))
+    )
+    clean["workspace_preset"] = normalize_workspace_preset(
+        settings.get("workspace_preset", "")
+    )
+    clean["settings_profile"] = normalize_settings_profile(
+        settings.get("settings_profile", "")
+    )
     with open(settings_path(), "w", encoding="utf-8") as handle:
         json.dump(clean, handle, indent=2)
