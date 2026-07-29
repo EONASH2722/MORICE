@@ -4,7 +4,7 @@
 
 # MORICE
 
-MORICE is a local desktop AI workspace for people who want an assistant that can talk, research, understand local documents, build files, operate approved desktop tools, render mathematics, and run deterministic science visualizations without losing the feel of a personal tool. It combines a PySide6 glass interface, offline GGUF/Ollama model support, trusted model browsing, semantic local search, structured memory, notes lookup, optional web lookup, wake control, queued follow-up messages, a Project Mode file workspace, the validated VNext rendering engine, a permission-controlled desktop environment, and a process-isolated Plugin SDK.
+MORICE is a local desktop AI platform for people who want an assistant that can talk, research, understand local documents, build files, operate approved desktop tools, render mathematics, and run deterministic science visualizations without losing the feel of a personal tool. It combines a PySide6 glass interface, offline GGUF/Ollama model support, trusted model browsing, semantic local search, a searchable knowledge graph, structured memory, notes lookup, optional web lookup, wake control, queued follow-up messages, an autonomous Project Mode workspace, the validated VNext rendering engine, a permission-controlled desktop environment, a process-isolated Plugin SDK, verified updates, encrypted backup, and production release tooling.
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license">
@@ -17,6 +17,7 @@ MORICE is a local desktop AI workspace for people who want an assistant that can
   <img src="https://img.shields.io/badge/agent-typed%20tools-2563eb" alt="Typed agent tools">
   <img src="https://img.shields.io/badge/desktop-Phase%204-0ea5e9" alt="Phase 4 premium experience">
   <img src="https://img.shields.io/badge/plugins-SDK%201.0-14b8a6" alt="Plugin SDK 1.0">
+  <img src="https://img.shields.io/badge/platform-Phase%207-22c55e" alt="Phase 7 autonomous platform">
   <img src="https://img.shields.io/badge/wake-adaptive%20audio-22c55e" alt="Adaptive wake audio">
 </p>
 
@@ -79,7 +80,43 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 - Typo-aware and short-form-aware intent handling, so rough wording can still land in the right workflow.
 - Verified capability answers: questions such as `what all rendering can you do` return a complete implemented-feature inventory instead of an improvised model reply.
 - Process-isolated Plugin SDK with typed manifests, mandatory permission review, dependency/version checks, lifecycle state tracking, hot reload, crash recovery, native tool/renderer/command contributions, a searchable local/HTTPS marketplace, checksum-verified packages, version pinning, rollback, diagnostics, and developer templates.
+- Unified Phase 7 orchestrator with specialist coding, research, planning, documentation, debugging, testing, visualization, simulation, desktop, file, and voice responsibilities; structured messages; project progress; recovery; and one shared platform snapshot.
+- Searchable local SQLite knowledge graph for projects, notes, research, conversations, documents, code relationships, plugins, preferences, visualizations, and simulations with project-aware relevance and secret redaction.
+- Project dashboard for architecture, dependencies, Git state, commits, timeline, issues, open files, memory, renderers, builds, tests, and performance.
+- Exact-approval Git creation, clone, branch, merge, commit, tag, revert, conflict resolution, and local releases plus read-only diff, history, conflicts, and visual timeline data.
+- Windows DPAPI secure settings and encrypted backups, bounded export bundles, stable/beta update channels, SHA-256 verified staging, restart-time portable/installer updates, rollback copies, first-run hardware guidance, repair checks, and release-readiness diagnostics.
 - MIT licensed, so the project can be studied, forked, customized, and improved.
+
+## Autonomous Platform
+
+Phase 7 connects the existing agent, Project Mode, desktop environment, VNext,
+plugins, memory, recovery, and diagnostics layers. Models still do not execute
+actions directly. The application owns permissions, tools, writes, renderers,
+verification, progress, and recovery.
+
+Open `Tools` and select `Platform` to inspect the current project, autonomous
+runs, local knowledge graph, update channel, and release readiness. Project
+work is represented as a resumable workflow from plan and diff preview through
+approved apply, build, tests, debugging, documentation, and memory update.
+
+Destructive stages, Git mutations, and update installation require exact,
+expiring, one-use approval. Git commits are path-scoped, rollback uses `revert`
+rather than destructive reset, backups and exports reject traversal and secret
+files, and Windows secret storage has no plaintext fallback.
+
+The packaged first launch detects GPU, VRAM, RAM, and storage, recommends a
+local model class, explains permissions, and creates the first workspace.
+`installer/MORICE.iss` produces a per-user Windows installer;
+`scripts/build-release.ps1` runs tests, builds PyInstaller, creates optional
+portable/installer artifacts, and emits SHA-256 checksums.
+Because the offline installer includes the local model, its Setup executable
+and numbered data slices must remain together. The portable Zip64 release is
+the single-file distribution option.
+
+See [`docs/phase-7-autonomous-platform.md`](docs/phase-7-autonomous-platform.md),
+[`docs/user-manual.md`](docs/user-manual.md), and
+[`docs/troubleshooting.md`](docs/troubleshooting.md) for architecture,
+workflows, security boundaries, operation, and recovery.
 
 ## Plugin SDK
 

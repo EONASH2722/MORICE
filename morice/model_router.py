@@ -235,10 +235,39 @@ class ContextManager:
                         "content": "Earlier conversation summary: " + summary,
                     },
                 )
+        system_context: list[dict[str, str]] = []
+        if persistent_context.strip():
+            system_context.append(
+                {
+                    "role": "system",
+                    "content": persistent_context.strip()[-24_000:],
+                }
+            )
+        if project_context.strip():
+            system_context.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "Verified project context:\n"
+                        + project_context.strip()[-32_000:]
+                    ),
+                }
+            )
+        context_index = (
+            1
+            if selected
+            and selected[0]["content"].startswith("Earlier conversation summary:")
+            else 0
+        )
+        selected[context_index:context_index] = system_context
         return tuple(selected), {
             "budgetTokens": token_budget,
             "estimatedTokens": int(
-                (sum(len(item["content"]) for item in selected) + reserved)
+                (
+                    sum(len(item["content"]) for item in selected)
+                    + len(request)
+                    + 1_000
+                )
                 / self.chars_per_token
             ),
             "omittedMessages": omitted,

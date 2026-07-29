@@ -294,6 +294,7 @@ class DiagnosticsDialog(QDialog):
             tools=context.get("tools", ()),
             task_queue=context.get("task_queue", 0),
             renderer_cache_bytes=context.get("renderer_cache_bytes", 0),
+            project_root=context.get("project_root", ""),
         )
 
     def refresh(self) -> None:
@@ -327,7 +328,8 @@ class DiagnosticsDialog(QDialog):
         self.overview_tree.clear()
         sections = {
             "Application": snapshot.application,
-            "Platform": snapshot.platform,
+            "System platform": snapshot.platform,
+            "Autonomous platform": snapshot.autonomous_platform,
             "Model": snapshot.model or {"status": "Not selected"},
             "GPU": snapshot.gpu or {"status": "Not detected"},
             "Agent": {

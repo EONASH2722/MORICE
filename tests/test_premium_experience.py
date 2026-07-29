@@ -203,6 +203,19 @@ class PremiumUiTests(unittest.TestCase):
         toast.action_button.click()
         self.assertEqual(called, [True])
 
+    def test_platform_dashboard_is_available_in_the_tools_workspace(self):
+        self.window._set_assistant_hub_visible(True)
+        self.window.assistant_hub.show_tab("Platform")
+        self.app.processEvents()
+        self.assertEqual(
+            self.window.assistant_hub.tabs.tabText(
+                self.window.assistant_hub.tabs.currentIndex()
+            ),
+            "Platform",
+        )
+        self.assertTrue(self.window.assistant_hub.platform_summary.text())
+        self.assertGreaterEqual(self.window.assistant_hub.platform_runs.count(), 1)
+
     def test_chat_virtualization_bounds_live_widgets(self):
         initial_archived = len(self.window._archived_messages)
         initial_rows = len(self.window._message_rows)

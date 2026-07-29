@@ -147,6 +147,12 @@ DEFAULT_COMMANDS = (
         "Install, review, update, debug, and build MORICE extensions",
         "extensions marketplace sdk developer",
     ),
+    CommandItem(
+        "platform",
+        "Open autonomous platform",
+        "Project dashboard, agents, knowledge, updates, and release readiness",
+        "phase 7 project tasks git knowledge release",
+    ),
     CommandItem("new-window", "New MORICE window", "Open another workspace", "multi"),
 )
 
@@ -466,7 +472,7 @@ class AssistantHub(QFrame):
     notes_changed = Signal(str)
     visibility_requested = Signal(bool)
 
-    TAB_NAMES = ("Dashboard", "Files", "Activity", "Tools")
+    TAB_NAMES = ("Dashboard", "Files", "Activity", "Platform", "Tools")
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -521,6 +527,7 @@ class AssistantHub(QFrame):
         self.browser_page = self._build_browser()
         self.media_page = self._build_media()
         self.desktop_page = self._build_desktop()
+        self.platform_page = self._build_platform()
         self.tools_page = self._group_tabs(
             ("System", self.system_page),
             ("Notes", self.notes_page),
@@ -535,6 +542,7 @@ class AssistantHub(QFrame):
                 self.dashboard_page,
                 self.files_page,
                 self.activity_group_page,
+                self.platform_page,
                 self.tools_page,
             ),
         ):
@@ -722,6 +730,46 @@ class AssistantHub(QFrame):
         actions.addWidget(self._button("Downloads", "open-downloads"))
         layout.addWidget(self.system_summary)
         layout.addStretch(1)
+        layout.addLayout(actions)
+        return page
+
+    def _build_platform(self) -> QWidget:
+        page, layout = self._page()
+        title = QLabel("Autonomous platform")
+        title.setObjectName("DashboardTitle")
+        self.platform_summary = QLabel(
+            "Unified orchestration, project intelligence, knowledge, Git, "
+            "updates, backup, and release state."
+        )
+        self.platform_summary.setObjectName("DashboardDetail")
+        self.platform_summary.setWordWrap(True)
+        self.platform_project = QPlainTextEdit()
+        self.platform_project.setObjectName("WorkspaceLogViewer")
+        self.platform_project.setReadOnly(True)
+        self.platform_project.setPlaceholderText(
+            "Select a Project Mode work folder to populate its dashboard."
+        )
+        self.platform_runs = QListWidget()
+        self.platform_runs.setObjectName("WorkspaceTasks")
+        self.platform_knowledge = QLabel("Knowledge graph is loading.")
+        self.platform_knowledge.setObjectName("DashboardDetail")
+        self.platform_knowledge.setWordWrap(True)
+        self.platform_release = QLabel("Release readiness has not been checked.")
+        self.platform_release.setObjectName("DashboardDetail")
+        self.platform_release.setWordWrap(True)
+        actions = QHBoxLayout()
+        actions.addWidget(self._button("Refresh", "platform-refresh"))
+        actions.addWidget(self._button("Export", "platform-export"))
+        actions.addWidget(self._button("Hardware", "platform-first-run"))
+        actions.addWidget(self._button("Release check", "platform-release-check"))
+        layout.addWidget(title)
+        layout.addWidget(self.platform_summary)
+        layout.addWidget(QLabel("Project overview"))
+        layout.addWidget(self.platform_project, stretch=2)
+        layout.addWidget(QLabel("Recent autonomous runs"))
+        layout.addWidget(self.platform_runs, stretch=1)
+        layout.addWidget(self.platform_knowledge)
+        layout.addWidget(self.platform_release)
         layout.addLayout(actions)
         return page
 
@@ -1103,6 +1151,77 @@ class AssistantHub(QFrame):
             f"Local IP: {snapshot.local_ip}"
         )
         self.system_summary.setText(summary)
+
+    def set_platform_state(self, snapshot: dict[str, Any]) -> None:
+        orchestrator = dict(snapshot.get("orchestrator", {}))
+        knowledge = dict(snapshot.get("knowledge", {}))
+        project = dict(snapshot.get("project", {}))
+        release = dict(snapshot.get("release", {}))
+        updates = dict(snapshot.get("updates", {}))
+        self.platform_summary.setText(
+            f"{orchestrator.get('activeRuns', 0)} active run(s) | "
+            f"{orchestrator.get('runCount', 0)} retained | "
+            f"Update channel: {updates.get('channel', 'stable')}"
+        )
+        self.platform_runs.clear()
+        for run in orchestrator.get("recentRuns", ())[:50]:
+            if not isinstance(run, dict):
+                continue
+            item = QListWidgetItem(
+                f"{str(run.get('state', 'unknown')).replace('_', ' ').title()} "
+                f"{run.get('progress', 0)}% | {str(run.get('request', ''))[:100]}"
+            )
+            item.setToolTip(str(run.get("request", "")))
+            self.platform_runs.addItem(item)
+        if self.platform_runs.count() == 0:
+            self.platform_runs.addItem("No autonomous runs in this session.")
+        if project:
+            overview = dict(project.get("overview", {}))
+            architecture = dict(project.get("architecture", {}))
+            git = dict(project.get("git", {}))
+            self.platform_project.setPlainText(
+                "\n".join(
+                    (
+                        f"Project: {project.get('name', '')}",
+                        f"Root: {project.get('root', '')}",
+                        f"Files: {overview.get('files', 0)}",
+                        f"Languages: {overview.get('languages', {})}",
+                        f"Frameworks: {architecture.get('frameworks', ())}",
+                        f"Build systems: {architecture.get('buildSystems', ())}",
+                        f"Entry points: {architecture.get('entryPoints', ())}",
+                        f"Dependencies: {len(project.get('dependencies', ()))}",
+                        f"Issues: {len(project.get('issues', ()))}",
+                        f"Git branch: {git.get('branch', 'not a repository')}",
+                        f"Git dirty: {git.get('dirty', False)}",
+                        f"Build: {project.get('build_status', 'unknown')}",
+                        f"Renderer: {project.get('renderer_status', 'idle')}",
+                    )
+                )
+            )
+        else:
+            self.platform_project.clear()
+            self.platform_project.setPlaceholderText(
+                str(snapshot.get("projectError", ""))
+                or "Select a Project Mode work folder to populate its dashboard."
+            )
+        self.platform_knowledge.setText(
+            f"Knowledge: {knowledge.get('nodes', 0)} nodes, "
+            f"{knowledge.get('edges', 0)} relationships, "
+            f"{knowledge.get('bytes', 0) / 1024:.1f} KB on disk."
+        )
+        critical = tuple(release.get("criticalFailures", ()))
+        self.platform_release.setText(
+            (
+                "Release ready."
+                if release.get("ready")
+                else "Release pending: "
+                + (
+                    ", ".join(str(item) for item in critical)
+                    if critical
+                    else "automated tests must be recorded"
+                )
+            )
+        )
 
     def selected_memory_id(self) -> str:
         item = self.memory_list.currentItem()

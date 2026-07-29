@@ -85,6 +85,7 @@ from PySide6.QtWidgets import (
     QStyle,
 )
 
+from . import __version__
 from .core import (
     MORICE_NAME,
     compute_math,
@@ -211,6 +212,7 @@ from .premium_experience import (
     workspace_layout,
 )
 from .premium_ui import PremiumSettingsDialog
+from .platform_ui import FirstRunWizard
 from .runtime_services import RecoveryInfo, RuntimeServices, get_runtime_services
 from .workspace_state import (
     WorkspaceState,
@@ -5876,6 +5878,7 @@ class MoriceWindow(QWidget):
         self.active_workspace_kind = "graph"
         self.last_project_request = ""
         self._active_agent_request_id = ""
+        self._active_platform_run_id = ""
         self.pending_project_patch: dict | None = None
         self.last_project_undo_id = ""
         self._active_project_command_id = ""
@@ -7834,6 +7837,26 @@ class MoriceWindow(QWidget):
             pass
         if self.recovery_info.available:
             QTimer.singleShot(350, self._offer_crash_recovery)
+        if (
+            os.getenv("MORICE_DISABLE_FIRST_RUN", "0") != "1"
+            and os.getenv("MORICE_DISABLE_SESSION", "0") != "1"
+            and os.getenv("QT_QPA_PLATFORM", "").strip().lower()
+            not in {"offscreen", "minimal"}
+            and not self.runtime.platform_services.first_run.path.exists()
+        ):
+            QTimer.singleShot(700, self._offer_first_run)
+
+    def _offer_first_run(self):
+        if self.runtime.platform_services.first_run.path.exists():
+            return
+        report = self.runtime.platform_services.first_run.inspect(self.gpu_profile)
+        wizard = FirstRunWizard(
+            self.runtime.platform_services.first_run,
+            report,
+            self,
+        )
+        wizard.exec()
+        self._refresh_workspace_hub()
 
     def _diagnostics_context(self) -> dict:
         gpu = {
@@ -7859,6 +7882,12 @@ class MoriceWindow(QWidget):
                 + (1 if self.is_busy else 0)
             ),
             "renderer_cache_bytes": self.visualization_manager.resources.used_bytes,
+            "project_root": (
+                self.project_folder
+                if self.chat_mode == "project"
+                and os.path.isdir(self.project_folder)
+                else ""
+            ),
         }
 
     def _run_startup_health_check(self):
@@ -7902,7 +7931,7 @@ class MoriceWindow(QWidget):
             maturity_preference_instruction(self.maturity_level),
         )
         try:
-            context = self.runtime.agent.prepare_request(
+            context, platform_run = self.runtime.platform_services.orchestrator.prepare(
                 request,
                 history=self.history,
                 project_root=(
@@ -7928,15 +7957,41 @@ class MoriceWindow(QWidget):
             )
             return ""
         self._active_agent_request_id = context.request_id
+        self._active_platform_run_id = platform_run.run_id
         return context.request_id
 
-    def _complete_agent_ui(self, *, response_present: bool = True):
+    def _complete_agent_ui(
+        self,
+        *,
+        response_present: bool = True,
+        successful: bool | None = None,
+    ):
         request_id = self._active_agent_request_id
         if request_id:
             self.runtime.agent.mark_ui_complete(
                 request_id,
                 response_present=response_present,
             )
+        run_id = self._active_platform_run_id
+        if run_id:
+            try:
+                self.runtime.platform_services.orchestrator.finish(
+                    run_id,
+                    success=response_present if successful is None else successful,
+                    summary=(
+                        f"Request finished in {self.chat_mode} mode."
+                        if response_present
+                        else f"Request failed in {self.chat_mode} mode."
+                    ),
+                )
+            except (KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                self.runtime.logs.log(
+                    "ERROR",
+                    f"Platform run completion failed: {exc}",
+                    category="platform",
+                )
+        self._active_agent_request_id = ""
+        self._active_platform_run_id = ""
 
     def _agent_project_prompt_context(self, request_id: str) -> str:
         context = self.runtime.agent.request_context(request_id)
@@ -8583,6 +8638,41 @@ class MoriceWindow(QWidget):
         self.assistant_hub.set_clipboard_history(self.clipboard_history)
         self._refresh_desktop_hub_state()
         self._refresh_downloads()
+        workspace = None
+        if self.project_folder and os.path.isdir(self.project_folder):
+            workspace = next(
+                (
+                    item
+                    for item in self.runtime.desktop.workspaces.list()
+                    if os.path.normcase(item.root)
+                    == os.path.normcase(os.path.abspath(self.project_folder))
+                ),
+                None,
+            )
+        renderer_values = tuple(
+            {
+                "id": capability.renderer_id,
+                "label": capability.label,
+                "available": capability.available,
+                "interactive": capability.interactive,
+                "backend": capability.backend,
+                "reason": capability.reason,
+            }
+            for capability in self.visualization_manager.capabilities()
+        )
+        platform_state = self.runtime.platform_services.snapshot(
+            project_root=(
+                self.project_folder
+                if self.chat_mode == "project"
+                and os.path.isdir(self.project_folder)
+                else ""
+            ),
+            workspace=workspace,
+            health=self.runtime.health_report,
+            plugins=self.runtime.plugins.diagnostics(),
+            renderers=renderer_values,
+        )
+        self.assistant_hub.set_platform_state(platform_state)
 
     def _refresh_desktop_hub_state(self):
         if not hasattr(self, "assistant_hub"):
@@ -9078,6 +9168,109 @@ class MoriceWindow(QWidget):
             return
         if command == "diagnostics":
             self._open_diagnostics()
+            return
+        if command in {"platform", "platform-refresh"}:
+            self._set_assistant_hub_visible(True)
+            self._refresh_workspace_hub()
+            self.assistant_hub.show_tab("Platform")
+            return
+        if command == "platform-export":
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export MORICE platform bundle",
+                os.path.join(
+                    os.path.expanduser("~"),
+                    f"morice-platform-{time.strftime('%Y%m%d')}.zip",
+                ),
+                "MORICE bundle (*.zip)",
+            )
+            if path:
+                try:
+                    target = self.runtime.platform_services.exports.export_bundle(
+                        path,
+                        {
+                            "platform": self.runtime.directory / "platform",
+                            "desktop": self.runtime.directory / "desktop",
+                            "logs": self.runtime.directory / "logs",
+                            **(
+                                {"project": self.project_folder}
+                                if self.project_folder
+                                and os.path.isdir(self.project_folder)
+                                else {}
+                            ),
+                        },
+                        metadata={
+                            "projectRoot": self.project_folder,
+                            "applicationVersion": __version__,
+                        },
+                    )
+                    self._show_notification(
+                        f"Platform bundle exported to {target}.",
+                        "success",
+                        7000,
+                    )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    self._show_notification(
+                        f"Platform export failed: {exc}",
+                        "error",
+                    )
+            return
+        if command == "platform-first-run":
+            report = self.runtime.platform_services.first_run.inspect(
+                self.gpu_profile
+            )
+            gpu = dict(report.get("gpu", {}))
+            fit = next(
+                (
+                    item.get("modelClass", "")
+                    for item in report.get("recommendedModels", ())
+                    if item.get("fit")
+                ),
+                "CPU-friendly model",
+            )
+            QMessageBox.information(
+                self,
+                "MORICE hardware profile",
+                (
+                    f"GPU: {gpu.get('name') or 'Not detected'}\n"
+                    f"VRAM: {gpu.get('vramMb', 0) / 1024:.1f} GB\n"
+                    f"System memory: {report.get('memoryMb', 0) / 1024:.1f} GB\n"
+                    f"Recommended local class: {fit}\n\n"
+                    "You can change the model at any time from the MORICE panel."
+                ),
+            )
+            return
+        if command == "platform-release-check":
+            renderers = tuple(
+                {
+                    "id": item.renderer_id,
+                    "available": item.available,
+                    "reason": item.reason,
+                }
+                for item in self.visualization_manager.capabilities()
+            )
+            report = self.runtime.platform_services.release.check(
+                health=self.runtime.health_report,
+                plugins=self.runtime.plugins.diagnostics(),
+                renderers=renderers,
+            )
+            failures = tuple(report.get("criticalFailures", ()))
+            self._refresh_workspace_hub()
+            self.assistant_hub.show_tab("Platform")
+            self._show_notification(
+                (
+                    "Release readiness checks passed."
+                    if report.get("ready")
+                    else "Release is not ready yet: "
+                    + (
+                        ", ".join(str(item) for item in failures)
+                        if failures
+                        else "record a passing automated test run"
+                    )
+                ),
+                "success" if report.get("ready") else "warning",
+                7000,
+            )
             return
         if command == "system":
             self._refresh_system_snapshot()
@@ -11356,7 +11549,7 @@ class MoriceWindow(QWidget):
             self._record_activity(
                 "Visualization failed", message, category="visualization"
             )
-            self._complete_agent_ui(response_present=True)
+            self._complete_agent_ui(response_present=True, successful=False)
             self._save_workspace_session()
             return
 
@@ -11401,7 +11594,7 @@ class MoriceWindow(QWidget):
             self._record_activity(
                 "Visualization rejected", message, category="visualization"
             )
-            self._complete_agent_ui(response_present=True)
+            self._complete_agent_ui(response_present=True, successful=False)
             self._save_workspace_session()
             return
 
@@ -12781,6 +12974,24 @@ class MoriceWindow(QWidget):
                     visible_reply = self.visualization_manager.sanitize_model_reply(visible_reply)
                 self.history.append({"role": "user", "content": user_input})
                 self.history.append({"role": "assistant", "content": visible_reply})
+                try:
+                    self.runtime.platform_services.orchestrator.remember_interaction(
+                        user_input,
+                        visible_reply,
+                        project_root=(
+                            self.project_folder
+                            if self.chat_mode == "project"
+                            and os.path.isdir(self.project_folder)
+                            else ""
+                        ),
+                        metadata={
+                            "mode": self.chat_mode,
+                            "requestId": agent_request_id,
+                            "runId": self._active_platform_run_id,
+                        },
+                    )
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    pass
                 self.message_ready.emit(MORICE_NAME, self._address(visible_reply), False)
             except Exception as exc:  # noqa: BLE001
                 if self._active_agent_request_id:
@@ -12796,6 +13007,7 @@ class MoriceWindow(QWidget):
                     f"Chat reply failed: {exc}",
                     category="model",
                 )
+                self._complete_agent_ui(response_present=False, successful=False)
                 self.message_ready.emit(MORICE_NAME, self._address(f"I hit an app error: {exc}"), False)
 
         _start_background_task("chat-reply", worker)

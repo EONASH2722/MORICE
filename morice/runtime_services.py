@@ -23,6 +23,7 @@ from typing import Any, Iterable, Iterator
 
 from . import __version__
 from .agent_orchestrator import AgentOrchestrator
+from .platform_services import PlatformServices
 from .plugin_manager import PluginManager
 from .desktop_environment import DesktopIntegrationLayer
 
@@ -906,6 +907,7 @@ class RuntimeSnapshot:
     agent: dict[str, Any]
     desktop: dict[str, Any]
     plugins: dict[str, Any]
+    autonomous_platform: dict[str, Any]
 
 
 class RuntimeServices:
@@ -936,6 +938,12 @@ class RuntimeServices:
         self.plugins = PluginManager(
             base / "plugins",
             core_root=core_root,
+            logger=self.logs.log,
+        )
+        self.platform_services = PlatformServices(
+            base / "platform",
+            self.agent,
+            application_root=core_root,
             logger=self.logs.log,
         )
         self.health_report = HealthReport(_utc_now(), ())
@@ -1021,6 +1029,7 @@ class RuntimeServices:
         tools: Iterable[str] = (),
         task_queue: int = 0,
         renderer_cache_bytes: int = 0,
+        project_root: str = "",
     ) -> RuntimeSnapshot:
         task_queue = max(0, int(task_queue)) + self.workers.pending_count
         self.profiler.set_task_queue(task_queue)
@@ -1048,6 +1057,33 @@ class RuntimeServices:
             qt_version = qVersion()
         except ImportError:
             qt_version = "unavailable"
+        plugin_diagnostics = self.plugins.diagnostics()
+        workspace = None
+        if project_root:
+            clean_project_root = os.path.normcase(
+                str(Path(project_root).expanduser().resolve())
+            )
+            workspace = next(
+                (
+                    item
+                    for item in self.desktop.workspaces.list()
+                    if os.path.normcase(item.root) == clean_project_root
+                ),
+                None,
+            )
+        platform_snapshot = self.platform_services.snapshot(
+            project_root=project_root,
+            workspace=workspace,
+            performance={
+                "cpuPercent": performance.cpu_percent,
+                "memoryMb": performance.memory_mb,
+                "fps": performance.fps,
+                "taskQueue": task_queue,
+            },
+            health=self.health_report,
+            plugins=plugin_diagnostics,
+            renderers=renderers,
+        )
         return RuntimeSnapshot(
             application={
                 "name": "MORICE",
@@ -1080,7 +1116,8 @@ class RuntimeServices:
             dependencies=dependencies,
             agent=self.agent.snapshot(),
             desktop=self.desktop.snapshot(),
-            plugins=self.plugins.diagnostics(),
+            plugins=plugin_diagnostics,
+            autonomous_platform=platform_snapshot,
         )
 
     def save_recovery_snapshot(self, payload: dict[str, Any]) -> None:
@@ -1107,6 +1144,7 @@ class RuntimeServices:
             )
             if clean:
                 self.recovery.mark_clean()
+            self.platform_services.shutdown()
             self.plugins.shutdown()
             self.desktop.shutdown()
             self.workers.shutdown()

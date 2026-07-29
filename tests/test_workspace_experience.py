@@ -153,6 +153,7 @@ class WorkspaceUiTests(unittest.TestCase):
                 "Dashboard",
                 "Files",
                 "Activity",
+                "Platform",
                 "Tools",
             ],
         )

@@ -192,6 +192,8 @@ class HealthAndRuntimeTests(unittest.TestCase):
             self.assertIn("Diagnostics", snapshot.tools)
             self.assertIn("python", snapshot.platform)
             self.assertIn("PySide6", snapshot.dependencies)
+            self.assertIn("orchestrator", snapshot.autonomous_platform)
+            self.assertIn("knowledge", snapshot.autonomous_platform)
             manager.shutdown()
             runtime.shutdown(clean=True)
             self.assertFalse(runtime.recovery.marker_path.exists())

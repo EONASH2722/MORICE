@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 
@@ -65,11 +66,54 @@ def _fix_pyside_paths():
 _configure_local_model_defaults()
 _fix_pyside_paths()
 
+if "--morice-updater" in sys.argv:
+    from morice.updater import main as run_updater
+
+    index = sys.argv.index("--morice-updater")
+    raise SystemExit(run_updater(sys.argv[index + 1 :]))
+
 if "--morice-plugin-host" in sys.argv:
     from morice.plugin_host import main as run_plugin_host
 
     sys.argv.remove("--morice-plugin-host")
     raise SystemExit(run_plugin_host())
+
+
+def _handoff_pending_update() -> bool:
+    if not getattr(sys, "frozen", False):
+        return False
+    runtime_root = os.getenv("MORICE_RUNTIME_DIR", "").strip()
+    if not runtime_root:
+        app_data = os.getenv("APPDATA", "").strip()
+        runtime_root = (
+            os.path.join(app_data, "MORICE", "runtime")
+            if app_data
+            else os.path.join(os.path.dirname(sys.executable), ".morice", "runtime")
+        )
+    instruction = os.path.join(
+        runtime_root,
+        "platform",
+        "updates",
+        "pending-update.json",
+    )
+    if not os.path.isfile(instruction):
+        return False
+    subprocess.Popen(
+        [
+            sys.executable,
+            "--morice-updater",
+            instruction,
+            os.path.dirname(sys.executable),
+            str(os.getpid()),
+        ],
+        cwd=os.path.dirname(sys.executable),
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+    return True
+
+
+if _handoff_pending_update():
+    raise SystemExit(0)
 
 from morice.pyside_app import run_app
 

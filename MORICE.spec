@@ -2,6 +2,7 @@
 
 
 import os
+from PyInstaller.utils.hooks import collect_dynamic_libs
 
 project_dir = os.path.abspath(SPECPATH)
 model_candidates = [
@@ -11,11 +12,12 @@ model_candidates = [
 bundled_model = next((path for path in model_candidates if os.path.isfile(path)), None)
 if not bundled_model:
     raise SystemExit('Install a Qwen2.5 Coder 7B GGUF before packaging MORICE.')
+vosk_binaries = collect_dynamic_libs('vosk')
 
 a = Analysis(
     [os.path.join(project_dir, 'morice_app_launcher.py')],
     pathex=[project_dir],
-    binaries=[],
+    binaries=vosk_binaries,
     datas=[
         (os.path.join(project_dir, 'morice', 'assets', 'morice_logo.ico'), 'morice\\assets'),
         (os.path.join(project_dir, 'morice', 'assets', 'morice-logo-rgb.png'), 'morice\\assets'),
@@ -51,6 +53,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=[os.path.join(project_dir, 'morice', 'assets', 'morice_logo.ico')],
+    version=os.path.join(project_dir, 'installer', 'version_info.txt'),
 )
 coll = COLLECT(
     exe,
