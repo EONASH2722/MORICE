@@ -4,7 +4,7 @@
 
 # MORICE
 
-MORICE is a local desktop AI workspace for people who want an assistant that can talk, research, read notes, build files, render mathematics, and run deterministic science visualizations without losing the feel of a personal tool. It combines a PySide6 glass interface, offline GGUF/Ollama model support, trusted model browsing, notes lookup, optional web lookup, wake control, queued follow-up messages, a Project Mode file workspace, and the validated VNext rendering engine.
+MORICE is a local desktop AI workspace for people who want an assistant that can talk, research, understand local documents, build files, operate approved desktop tools, render mathematics, and run deterministic science visualizations without losing the feel of a personal tool. It combines a PySide6 glass interface, offline GGUF/Ollama model support, trusted model browsing, semantic local search, structured memory, notes lookup, optional web lookup, wake control, queued follow-up messages, a Project Mode file workspace, the validated VNext rendering engine, and a permission-controlled Phase 3 desktop environment.
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license">
@@ -15,6 +15,7 @@ MORICE is a local desktop AI workspace for people who want an assistant that can
   <img src="https://img.shields.io/badge/mode-Project%20Builder-111827" alt="Project Builder">
   <img src="https://img.shields.io/badge/VNext-Science%20Workspace-0891b2" alt="Science Workspace">
   <img src="https://img.shields.io/badge/agent-typed%20tools-2563eb" alt="Typed agent tools">
+  <img src="https://img.shields.io/badge/desktop-Phase%203-0ea5e9" alt="Phase 3 desktop environment">
   <img src="https://img.shields.io/badge/wake-adaptive%20audio-22c55e" alt="Adaptive wake audio">
 </p>
 
@@ -115,6 +116,11 @@ command, Git action, or renderer succeeded.
   usage, failures, fallback candidates, temperature, and GPU-layer metadata.
 - Context budgeting keeps current instructions and relevant recent/project
   context while compressing older turns before overflow.
+- Renderer requests cannot pass verification unless a real renderer validator
+  confirms the artifact. Missing output is a failure, not a prose success.
+- Patch history redacts file bodies, stale previews are refused, failed
+  multi-file writes roll back, and undo protects edits made after MORICE's
+  patch.
 
 See [`docs/phase-2-agent-architecture.md`](docs/phase-2-agent-architecture.md)
 for contracts, extension rules, verification behavior, and current limits.
@@ -145,19 +151,26 @@ architecture audit, verification contract, and remaining modularity work.
 
 ## Desktop Workspace
 
-MORICE now includes a persistent, resizable `Tools` dock and a `Ctrl+K` command palette. This desktop layer is separate from VNext: it organizes conversations and local computer tools while the existing inline renderer continues to own graphs and simulations.
+MORICE now includes a persistent, resizable `Tools` dock, `Ctrl+K` command palette, and a modular Phase 3 desktop integration layer. This layer is separate from VNext: it organizes conversations and verified local-computer actions while the existing inline renderer continues to own graphs and simulations.
 
 - `Dashboard`: recent chats, recent files, and focused quick actions.
-- `Files`: bounded local filename search plus safe text, JSON, image, and PDF previews; downloads have their own sub-tab.
-- `Activity`: timeline, queued tasks, live local logs, and an in-memory clipboard history that is never written to the session file.
+- `Files`: semantic bounded search plus safe text, code, JSON, XML, CSV, image, PDF, audio/video, Office-text, and archive previews; downloads have their own sub-tab.
+- `Search Everywhere`: one query spans local files, registered projects, structured memory, commands, typed tools, and runtime logs.
+- `Activity`: timeline, queued tasks, live local logs, and an opt-in in-memory clipboard history that is never written to the session file.
 - `Tools`: CPU/GPU/RAM/storage/network/battery status, persistent local notes, an embedded browser when Qt WebEngine is available, local audio/video playback, and Windows media controls.
+- `Desktop managers`: independent permission, application, window, file, document, multimodal, clipboard, notification, media, monitor, screenshot, automation, voice, workspace, memory, and session services.
+- `Applications and windows`: real Windows discovery/process enumeration, launch/close/restart, focus/minimize/maximize/restore, move/resize, layouts, and recent/pinned application state.
+- `Files and documents`: recent/large-file collections, SHA-256 duplicate detection, project discovery, metadata, tags, bookmarks, bounded multi-file context, extracted Office text, tables, formulas, entities, and source-line citations.
+- `Screenshots`: validated full-screen, window, region, delayed, clipboard, and optional annotated PNG capture through an approval-gated backend.
+- `Automations`: disabled-by-default registered workflows with conditions, variables, delays, bounded repeats, daily/interval schedules, and no arbitrary code evaluation.
+- `Memory`: bounded conversation/session/project/user/temporary/archive records with relevant retrieval, inspect, search, pin, archive, delete, import, export, and a master disable.
 - Appearance: dark and light themes with outlined sun/moon title-bar controls, a user-selectable accent, built-in font choices, validated local TTF/OTF/TTC fonts, three emoji levels, three maturity levels, stable glass panels, compact native-style window controls, and motion that respects `MORICE_REDUCE_MOTION`.
-- Workspace continuity: atomic session saves restore notes, recent items, panel visibility, theme, accent, and monitor-safe window geometry.
+- Workspace continuity: atomic session saves restore notes, recent items, panel visibility, theme, accent, monitor-safe window geometry, project IDs, open editor paths, tabs, renderer IDs, and pending task labels.
 - Conversation privacy: each application launch starts a fresh Normal Chat instead of restoring old messages. Within the current run, MORICE keeps complete recent turns and resolves references such as `the previous message` (including common typos).
 - Settings precedence: the current saved name, response style, emoji preference, and maturity level remain authoritative during follow-up answers, even when older chat text contains different preferences.
 - Truth-first disagreement: MORICE rechecks disputed claims and corrects genuine mistakes, but does not concede a supported answer merely because the user insists. Uncertainty is stated honestly instead of hidden.
 - Evaluation posture: conversational testing is direct and does not add MORICE-level morality lectures or canned refusals. Filesystem containment, generated-code validation, renderer validation, model-file validation, and confirmation before destructive desktop actions remain enabled because they prevent accidental machine damage rather than censoring answers.
-- Safety: file search is read-only and skips dependency/system folders; closing another application always requires explicit confirmation; unsupported previews fail honestly.
+- Safety: sensitive desktop actions use exact, expiring, one-use grants. File search skips dependency/system folders and symlinks; clipboard monitoring is opt-in; automations run registered callbacks only; unsupported previews and sensors fail honestly.
 
 Useful commands:
 
@@ -181,7 +194,9 @@ Useful commands:
 /new-window
 ```
 
-See [`docs/desktop-workspace.md`](docs/desktop-workspace.md) for architecture, persistence, safety boundaries, and testing details.
+See [`docs/desktop-workspace.md`](docs/desktop-workspace.md) for the UI and
+[`docs/phase-3-desktop-environment.md`](docs/phase-3-desktop-environment.md)
+for manager contracts, permission behavior, verification, and honest limits.
 
 ## Quick Install
 
@@ -578,6 +593,7 @@ Useful environment variables:
 ```text
 morice/
   pyside_app.py        Desktop UI
+  desktop_environment.py Phase 3 desktop managers, permissions, search, memory, and sessions
   project_builder.py   Local Project mode fallback file generator
   science_engine.py    Deterministic graph, surface, and physics artifacts
   domain_engine.py     Curated molecule and structured-diagram artifacts

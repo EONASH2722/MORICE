@@ -4,11 +4,12 @@ The desktop workspace is MORICE's local UI and operating-system assistance layer
 
 ## Architecture
 
-The implementation is split into four focused modules:
+The UI implementation is split into focused modules:
 
 - `morice/ui_system.py`: theme tokens and the shared non-blocking animation engine.
 - `morice/ui_workspace.py`: command palette, resizable tools dock, previews, dashboard, activity, system, notes, browser, downloads, clipboard, and media surfaces.
 - `morice/desktop_assistant.py`: typed command parsing, bounded file search, Windows system inspection, and explicit desktop actions.
+- `morice/desktop_environment.py`: Phase 3 application/window/file/document/clipboard/notification/media/monitor/screenshot/automation/voice/workspace/memory/session managers and Search Everywhere.
 - `morice/workspace_state.py`: validated, bounded, atomic session persistence.
 
 `MoriceWindow` connects these modules through Qt signals. File search, system inspection, and desktop execution run away from the UI thread. Results return through Qt's queued signal delivery.
@@ -19,7 +20,7 @@ The primary window uses a horizontal `QSplitter`, so the conversation and option
 
 - Dashboard with recent conversations and files.
 - File explorer, downloads, text preview, JSON tree, image preview, PDF preview, and external-open fallback.
-- Activity timeline, queued tasks, live logs, and session-only clipboard history.
+- Activity timeline, queued tasks, live logs, and opt-in session-only clipboard history.
 - Resource information for CPU, detected GPU/VRAM, memory, storage, battery, device, and local network address.
 - Persistent notes.
 - Embedded browsing when Qt WebEngine is installed.
@@ -45,13 +46,16 @@ The workspace state is stored in `%APPDATA%\MORICE\workspace-state.json`.
 
 Writes use a temporary file, flush it, and atomically replace the previous state. Loading validates types, text sizes, history length, panel state, and geometry. Restored geometry is clamped to the current primary monitor, so a layout saved on a disconnected display cannot strand the window off-screen.
 
-Clipboard history is intentionally excluded from disk persistence.
+Clipboard monitoring is disabled by default and requires a visible session
+approval. Clipboard history is intentionally excluded from disk persistence.
 
 Set `MORICE_DISABLE_SESSION=1` to run without loading or saving workspace state. Set `MORICE_REDUCE_MOTION=1` to disable optional motion.
 
 ## Desktop Safety
 
 Desktop commands are explicit slash commands rather than model-generated shell execution.
+Phase 3 manager operations additionally use expiring one-use permission grants
+bound to the exact action and payload.
 
 - File and folder opening is non-modifying.
 - File search is read-only, bounded, and ignores `.git`, `node_modules`, build output, virtual environments, and Windows system locations.
@@ -75,3 +79,7 @@ The desktop workspace is covered by `tests/test_workspace_experience.py`, includ
 - Text and JSON inline previews.
 
 The full Python suite also rechecks VNext's graph, physics, chemistry, diagram, Project Mode, and window identity behavior. The TypeScript VNext suite remains independent and is run from `vnext/`.
+
+See `phase-3-desktop-environment.md` for the manager contracts, semantic file
+and document services, automation rules, Search Everywhere, and current
+platform limits.

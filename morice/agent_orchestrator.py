@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable
@@ -187,7 +188,12 @@ class AgentOrchestrator:
                 and definition is not None
                 and definition.idempotent
             ):
-                retry = self.tools.executor.execute(call)
+                retry_call = ToolCall(
+                    call.tool_id,
+                    dict(call.arguments),
+                    call_id=f"{call.call_id or uuid.uuid4().hex}:retry",
+                )
+                retry = self.tools.executor.execute(retry_call)
                 retry.metadata["retryOf"] = call.call_id
                 results.append(retry)
         status[ExecutionStage.EXECUTION.value] = (
@@ -203,11 +209,14 @@ class AgentOrchestrator:
         errors = [error for result in results for error in result.errors]
         warnings = [warning for result in results for warning in result.warnings]
         artifacts = [artifact for result in results for artifact in result.artifacts]
-        success = bool(results) and all(result.success for result in results) and verified
+        success = all(result.success for result in results) and verified
         if not results:
-            success = True
-            verified = True
-            status[ExecutionStage.VERIFICATION.value] = "not_applicable"
+            if context.renderer:
+                success = verified
+            else:
+                success = True
+                verified = True
+                status[ExecutionStage.VERIFICATION.value] = "not_applicable"
         message = (
             "The requested actions completed and their outputs were verified."
             if success
@@ -270,7 +279,8 @@ class AgentOrchestrator:
         error: str = "",
         gpu_layers: int = 0,
     ) -> None:
-        context = self._requests.get(request_id)
+        with self._lock:
+            context = self._requests.get(request_id)
         if not context:
             return
         route = context.model_route
@@ -318,8 +328,13 @@ class AgentOrchestrator:
     ) -> bool:
         if any(not result.success or not result.verified for result in results):
             return False
-        if renderer and renderer_validator is not None:
-            return bool(renderer_validator(renderer))
+        if renderer:
+            if renderer_validator is None:
+                return False
+            try:
+                return bool(renderer_validator(renderer))
+            except Exception:  # noqa: BLE001
+                return False
         return True
 
     @staticmethod

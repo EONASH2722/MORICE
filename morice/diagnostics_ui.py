@@ -338,6 +338,7 @@ class DiagnosticsDialog(QDialog):
                 "modelHealth": snapshot.agent.get("modelHealth", {}),
             },
             "Workers": snapshot.workers,
+            "Desktop environment": snapshot.desktop,
             "Dependencies": snapshot.dependencies,
         }
         for name, values in sections.items():
@@ -487,10 +488,36 @@ class DiagnosticsDialog(QDialog):
         self.components_tree.addTopLevelItem(workers)
         for thread in snapshot.workers.get("activeNames", ()):
             workers.addChild(QTreeWidgetItem([str(thread), "Active", "Python thread"]))
+        desktop_capabilities = snapshot.desktop.get("capabilities", {})
+        desktop = QTreeWidgetItem(
+            [
+                "Desktop managers",
+                str(len(desktop_capabilities)),
+                "Permission-controlled",
+            ]
+        )
+        self.components_tree.addTopLevelItem(desktop)
+        for name, available in desktop_capabilities.items():
+            if isinstance(available, dict):
+                enabled = any(bool(value) for value in available.values())
+                detail = json.dumps(available, ensure_ascii=False)
+            else:
+                enabled = bool(available)
+                detail = "Phase 3 desktop integration"
+            desktop.addChild(
+                QTreeWidgetItem(
+                    [
+                        str(name),
+                        "Available" if enabled else "Unavailable",
+                        detail,
+                    ]
+                )
+            )
         renderers.setExpanded(True)
         tools.setExpanded(True)
         agent.setExpanded(True)
         workers.setExpanded(True)
+        desktop.setExpanded(True)
 
     def _refresh_agent(self, snapshot: RuntimeSnapshot) -> None:
         agent = snapshot.agent

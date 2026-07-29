@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import hashlib
 import json
+import math
 import os
 import platform
 import re
@@ -51,6 +52,12 @@ def _safe_json(value: Any) -> Any:
 
 def _atomic_write(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    existing_mode = None
+    if path.is_file():
+        try:
+            existing_mode = path.stat().st_mode & 0o7777
+        except OSError:
+            existing_mode = None
     handle, temporary = tempfile.mkstemp(
         prefix=f".{path.name}.",
         suffix=".morice-tmp",
@@ -61,6 +68,8 @@ def _atomic_write(path: Path, data: bytes) -> None:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
+        if existing_mode is not None:
+            os.chmod(temporary, existing_mode)
         os.replace(temporary, path)
     finally:
         if os.path.exists(temporary):
@@ -95,10 +104,16 @@ class PermissionPolicy:
     ) -> str:
         token = uuid.uuid4().hex
         with self._lock:
+            now = time.monotonic()
+            self._tokens = {
+                key: value
+                for key, value in self._tokens.items()
+                if value[2] > now
+            }
             self._tokens[token] = (
                 tool_id,
                 self.fingerprint(tool_id, arguments),
-                time.monotonic() + max(5.0, ttl_seconds),
+                now + max(5.0, ttl_seconds),
             )
         return token
 
@@ -165,14 +180,14 @@ class ActionHistory:
             with self.path.open("a", encoding="utf-8") as stream:
                 stream.write(serialized + "\n")
             if self.path.stat().st_size > 8 * 1024 * 1024:
-                self.path.write_text(
+                compact = (
                     "\n".join(
                         json.dumps(item.to_dict(), ensure_ascii=False, default=str)
                         for item in self._records
                     )
-                    + "\n",
-                    encoding="utf-8",
+                    + "\n"
                 )
+                _atomic_write(self.path, compact.encode("utf-8"))
 
     def recent(self, limit: int = 100) -> tuple[ActionRecord, ...]:
         with self._lock:
@@ -187,89 +202,173 @@ class ActionHistory:
 
 
 class UndoStore:
-    def __init__(self, directory: str | os.PathLike[str]):
+    def __init__(
+        self,
+        directory: str | os.PathLike[str],
+        *,
+        limit: int = 50,
+        max_bytes: int = 512 * 1024 * 1024,
+    ):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
+        self.limit = max(1, int(limit))
+        self.max_bytes = max(16 * 1024 * 1024, int(max_bytes))
+        self._lock = threading.RLock()
 
     def create(self, root: Path, changes: list[dict[str, Any]]) -> str:
-        undo_id = uuid.uuid4().hex
-        target = self.directory / undo_id
-        target.mkdir(parents=True)
-        entries: list[dict[str, Any]] = []
-        for index, change in enumerate(changes):
-            relative = str(change["path"]).replace("\\", "/")
-            destination = _resolve_within(root, relative)
-            existed = destination.is_file()
-            backup = ""
-            if existed:
-                backup = f"{index}.bak"
-                (target / backup).write_bytes(destination.read_bytes())
-            entries.append(
-                {
-                    "path": relative,
-                    "existed": existed,
-                    "backup": backup,
-                }
-            )
-        (target / "manifest.json").write_text(
-            json.dumps({"root": str(root), "entries": entries}, indent=2),
-            encoding="utf-8",
-        )
-        return undo_id
-
-    def restore(self, undo_id: str) -> ToolResult:
-        started = time.perf_counter()
-        target = self.directory / undo_id
-        manifest_path = target / "manifest.json"
-        if not re.fullmatch(r"[a-f0-9]{32}", undo_id or "") or not manifest_path.is_file():
-            return ToolResult(
-                "action.undo",
-                False,
-                (time.perf_counter() - started) * 1000,
-                errors=["Undo record was not found."],
-            )
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            root = Path(manifest["root"]).resolve()
-            modified: list[str] = []
-            expected: list[tuple[Path, bool, bytes | None]] = []
-            for entry in manifest["entries"]:
-                destination = _resolve_within(root, entry["path"])
-                if entry["existed"]:
-                    backup_data = (target / entry["backup"]).read_bytes()
-                    _atomic_write(destination, backup_data)
-                    expected.append((destination, True, backup_data))
-                elif destination.exists():
-                    destination.unlink()
-                    expected.append((destination, False, None))
-                else:
-                    expected.append((destination, False, None))
-                modified.append(str(destination))
-            verified = all(
-                (
-                    path.is_file() and path.read_bytes() == data
-                    if should_exist
-                    else not path.exists()
+        with self._lock:
+            undo_id = uuid.uuid4().hex
+            target = self.directory / undo_id
+            target.mkdir(parents=True)
+            entries: list[dict[str, Any]] = []
+            try:
+                for index, change in enumerate(changes):
+                    relative = str(change["path"]).replace("\\", "/")
+                    destination = _resolve_within(root, relative)
+                    existed = destination.is_file()
+                    backup = ""
+                    if existed:
+                        backup = f"{index}.bak"
+                        (target / backup).write_bytes(destination.read_bytes())
+                    after = str(change["content"]).encode("utf-8")
+                    entries.append(
+                        {
+                            "path": relative,
+                            "existed": existed,
+                            "backup": backup,
+                            "applied_sha256": hashlib.sha256(after).hexdigest(),
+                        }
+                    )
+                (target / "manifest.json").write_text(
+                    json.dumps({"root": str(root), "entries": entries}, indent=2),
+                    encoding="utf-8",
                 )
-                for path, should_exist, data in expected
-            )
-            shutil.rmtree(target, ignore_errors=True)
-            return ToolResult(
-                "action.undo",
-                verified,
-                (time.perf_counter() - started) * 1000,
-                output={"restored": modified},
-                modified_files=modified,
-                verified=verified,
-                errors=[] if verified else ["Undo verification failed."],
-            )
-        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
-            return ToolResult(
-                "action.undo",
-                False,
-                (time.perf_counter() - started) * 1000,
-                errors=[f"Undo failed: {exc}"],
-            )
+            except Exception:
+                shutil.rmtree(target, ignore_errors=True)
+                raise
+            self._prune(exclude=undo_id)
+            return undo_id
+
+    def restore(self, undo_id: str, *, force: bool = False) -> ToolResult:
+        started = time.perf_counter()
+        with self._lock:
+            target = self.directory / undo_id
+            manifest_path = target / "manifest.json"
+            if not re.fullmatch(r"[a-f0-9]{32}", undo_id or "") or not manifest_path.is_file():
+                return ToolResult(
+                    "action.undo",
+                    False,
+                    (time.perf_counter() - started) * 1000,
+                    errors=["Undo record was not found."],
+                )
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                root = Path(manifest["root"]).resolve()
+                operations: list[tuple[Path, bool, bytes | None]] = []
+                current: list[tuple[Path, bool, bytes | None]] = []
+                conflicts: list[str] = []
+                for entry in manifest["entries"]:
+                    destination = _resolve_within(root, entry["path"])
+                    current_exists = destination.is_file()
+                    current_data = destination.read_bytes() if current_exists else None
+                    current.append((destination, current_exists, current_data))
+                    expected_digest = str(entry.get("applied_sha256", ""))
+                    if not force and (
+                        not current_exists
+                        or hashlib.sha256(current_data or b"").hexdigest() != expected_digest
+                    ):
+                        conflicts.append(str(entry["path"]))
+                    if entry["existed"]:
+                        backup_name = str(entry["backup"])
+                        if not re.fullmatch(r"\d+\.bak", backup_name):
+                            raise ValueError("Undo backup name is invalid.")
+                        backup_data = (target / backup_name).read_bytes()
+                        operations.append((destination, True, backup_data))
+                    else:
+                        operations.append((destination, False, None))
+                if conflicts:
+                    return ToolResult(
+                        "action.undo",
+                        False,
+                        (time.perf_counter() - started) * 1000,
+                        errors=[
+                            "Undo stopped because files changed after the MORICE patch: "
+                            + ", ".join(conflicts[:10])
+                        ],
+                    )
+                modified = [str(path) for path, _, _ in operations]
+                try:
+                    for destination, should_exist, data in operations:
+                        if should_exist:
+                            _atomic_write(destination, data or b"")
+                        elif destination.exists():
+                            if not destination.is_file():
+                                raise OSError(f"Undo target is not a file: {destination}")
+                            destination.unlink()
+                    verified = all(
+                        (
+                            path.is_file() and path.read_bytes() == data
+                            if should_exist
+                            else not path.exists()
+                        )
+                        for path, should_exist, data in operations
+                    )
+                    if not verified:
+                        raise OSError("Undo verification failed.")
+                except OSError as exc:
+                    rollback_errors: list[str] = []
+                    for path, should_exist, data in current:
+                        try:
+                            if should_exist:
+                                _atomic_write(path, data or b"")
+                            elif path.exists() and path.is_file():
+                                path.unlink()
+                        except OSError as rollback_exc:
+                            rollback_errors.append(str(rollback_exc))
+                    detail = f"Undo failed: {exc}"
+                    if rollback_errors:
+                        detail += "; rollback also failed: " + "; ".join(rollback_errors[:3])
+                    return ToolResult(
+                        "action.undo",
+                        False,
+                        (time.perf_counter() - started) * 1000,
+                        errors=[detail],
+                    )
+                shutil.rmtree(target, ignore_errors=True)
+                return ToolResult(
+                    "action.undo",
+                    True,
+                    (time.perf_counter() - started) * 1000,
+                    output={"restored": modified},
+                    modified_files=modified,
+                    verified=True,
+                )
+            except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                return ToolResult(
+                    "action.undo",
+                    False,
+                    (time.perf_counter() - started) * 1000,
+                    errors=[f"Undo failed: {exc}"],
+                )
+
+    def _prune(self, *, exclude: str = "") -> None:
+        entries: list[tuple[Path, int, float]] = []
+        for path in self.directory.iterdir():
+            if not path.is_dir() or path.name == exclude:
+                continue
+            try:
+                files = [item for item in path.rglob("*") if item.is_file()]
+                size = sum(item.stat().st_size for item in files)
+                modified = max((item.stat().st_mtime for item in files), default=path.stat().st_mtime)
+                entries.append((path, size, modified))
+            except OSError:
+                continue
+        entries.sort(key=lambda item: item[2], reverse=True)
+        used = 0
+        for index, (path, size, _modified) in enumerate(entries):
+            used += size
+            if index >= self.limit - 1 or used > self.max_bytes:
+                shutil.rmtree(path, ignore_errors=True)
 
 
 def _resolve_within(root: Path, relative: str) -> Path:
@@ -343,8 +442,13 @@ class ToolRegistry:
             "integer": int,
             "boolean": bool,
         }
-        if expected in types and not isinstance(value, types[expected]):
+        type_matches = expected not in types or isinstance(value, types[expected])
+        if expected in {"integer", "number"} and isinstance(value, bool):
+            type_matches = False
+        if not type_matches:
             raise ToolValidationError(f"{path} must be {expected}.")
+        if expected == "number" and not math.isfinite(float(value)):
+            raise ToolValidationError(f"{path} must be finite.")
         if expected == "object":
             required = schema.get("required", ())
             for key in required:
@@ -426,18 +530,34 @@ class AgentToolExecutor:
             self._record(call, result, definition)
             return result
         try:
-            pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="morice-tool")
             handler_arguments = dict(call.arguments)
             handler_arguments["_call_id"] = call.call_id or uuid.uuid4().hex
-            future = pool.submit(handler, handler_arguments)
-            try:
-                value = future.result(timeout=definition.timeout_seconds)
-            finally:
-                pool.shutdown(wait=False, cancel_futures=True)
+            if (
+                definition.risk != RiskLevel.READ_ONLY
+                and not definition.cancellation_supported
+            ):
+                # A timed-out write must never continue mutating files after MORICE
+                # reports failure. Mutation handlers therefore run synchronously
+                # and enforce their own bounded subprocess/file operations.
+                value = handler(handler_arguments)
+            else:
+                pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="morice-tool")
+                future = pool.submit(handler, handler_arguments)
+                try:
+                    value = future.result(timeout=definition.timeout_seconds)
+                finally:
+                    pool.shutdown(wait=False, cancel_futures=True)
             duration = (time.perf_counter() - started) * 1000
             if isinstance(value, ToolResult):
                 result = value
                 result.duration_ms = duration
+                if result.tool_id != call.tool_id:
+                    result.success = False
+                    result.verified = False
+                    result.errors.append(
+                        f"Tool returned a mismatched id: {result.tool_id}."
+                    )
+                    result.tool_id = call.tool_id
             else:
                 result = ToolResult(
                     call.tool_id,
@@ -486,40 +606,69 @@ class AgentToolExecutor:
         definition: ToolDefinition | None,
     ) -> None:
         action_id = call.call_id or uuid.uuid4().hex
-        self.history.append(
-            ActionRecord(
-                action_id=action_id,
-                timestamp=_utc_now(),
-                tool_id=call.tool_id,
-                parameters=_safe_json(call.arguments),
-                duration_ms=result.duration_ms,
-                success=result.success,
-                verified=result.verified,
-                modified_files=tuple(result.modified_files),
-                generated_files=tuple(result.generated_files),
-                artifacts=tuple(result.artifacts),
-                errors=tuple(result.errors),
-                replayable=bool(
-                    definition
-                    and definition.idempotent
-                    and definition.risk == RiskLevel.READ_ONLY
-                    and result.success
-                ),
-                undo_id=str(result.metadata.get("undoId", "")),
-            )
+        parameters, replay_safe = self._history_parameters(call)
+        record = ActionRecord(
+            action_id=action_id,
+            timestamp=_utc_now(),
+            tool_id=call.tool_id,
+            parameters=parameters,
+            duration_ms=result.duration_ms,
+            success=result.success,
+            verified=result.verified,
+            modified_files=tuple(result.modified_files),
+            generated_files=tuple(result.generated_files),
+            artifacts=tuple(result.artifacts),
+            errors=tuple(result.errors),
+            replayable=bool(
+                definition
+                and definition.idempotent
+                and definition.risk == RiskLevel.READ_ONLY
+                and result.success
+                and replay_safe
+            ),
+            undo_id=str(result.metadata.get("undoId", "")),
         )
+        try:
+            self.history.append(record)
+        except OSError as exc:
+            result.warnings.append(f"Action history could not be saved: {exc}")
         if self.logger:
-            self.logger(
-                "INFO" if result.success else "ERROR",
-                f"Tool {call.tool_id} {'completed' if result.success else 'failed'}.",
-                category="agent-tool",
-                metadata={
-                    "actionId": action_id,
-                    "durationMs": round(result.duration_ms, 2),
-                    "verified": result.verified,
-                    "errors": result.errors,
-                },
-            )
+            try:
+                self.logger(
+                    "INFO" if result.success else "ERROR",
+                    f"Tool {call.tool_id} {'completed' if result.success else 'failed'}.",
+                    category="agent-tool",
+                    metadata={
+                        "actionId": action_id,
+                        "durationMs": round(result.duration_ms, 2),
+                        "verified": result.verified,
+                        "errors": result.errors,
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                result.warnings.append("The tool result could not be written to the runtime log.")
+
+    @staticmethod
+    def _history_parameters(call: ToolCall) -> tuple[dict[str, Any], bool]:
+        arguments = dict(call.arguments)
+        if call.tool_id in {"filesystem.preview_patch", "filesystem.apply_patch"}:
+            changes = []
+            for change in arguments.get("changes", ()):
+                content = str(change.get("content", ""))
+                changes.append(
+                    {
+                        "path": str(change.get("path", "")),
+                        "contentBytes": len(content.encode("utf-8")),
+                        "contentSha256": hashlib.sha256(
+                            content.encode("utf-8")
+                        ).hexdigest(),
+                    }
+                )
+            return {
+                "root": str(arguments.get("root", "")),
+                "changes": changes,
+            }, False
+        return json.loads(json.dumps(arguments, default=str)), True
 
 
 class BuiltinTools:
@@ -537,6 +686,7 @@ class BuiltinTools:
         self.indexer = ProjectIndexer()
         self._active_processes: dict[str, subprocess.Popen[str]] = {}
         self._process_lock = threading.RLock()
+        self._workspace_lock = threading.RLock()
         self.executor = AgentToolExecutor(
             self.registry,
             self.history,
@@ -597,7 +747,6 @@ class BuiltinTools:
                     },
                 },
                 object_schema,
-                cancellation_supported=True,
                 timeout_seconds=30,
             ),
             self._filesystem_search,
@@ -617,7 +766,6 @@ class BuiltinTools:
                 },
                 object_schema,
                 timeout_seconds=60,
-                cancellation_supported=True,
             ),
             self._project_index,
         )
@@ -635,7 +783,6 @@ class BuiltinTools:
                 },
                 object_schema,
                 timeout_seconds=90,
-                cancellation_supported=True,
             ),
             self._project_verify,
         )
@@ -645,7 +792,13 @@ class BuiltinTools:
             "properties": {
                 "path": {"type": "string", "maxLength": 2_048},
                 "content": {"type": "string", "maxLength": 8_000_000},
+                "expected_exists": {"type": "boolean"},
+                "expected_sha256": {
+                    "type": "string",
+                    "pattern": r"[a-f0-9]{64}",
+                },
             },
+            "additionalProperties": False,
         }
         patch_input = {
             "type": "object",
@@ -702,7 +855,7 @@ class BuiltinTools:
                 risk=RiskLevel.WORKSPACE_WRITE,
                 idempotent=False,
             ),
-            lambda arguments: self.undo_store.restore(arguments["undo_id"]),
+            self._undo_action,
         )
         self.registry.register(
             ToolDefinition(
@@ -724,7 +877,7 @@ class BuiltinTools:
                 },
                 object_schema,
                 permissions=("process.execute",),
-                timeout_seconds=600,
+                timeout_seconds=615,
                 cancellation_supported=True,
                 risk=RiskLevel.DANGEROUS,
                 idempotent=False,
@@ -824,16 +977,30 @@ class BuiltinTools:
         root = Path(arguments["root"]).expanduser().resolve()
         if not root.is_dir():
             raise ToolValidationError("Search root is not a directory.")
-        query = str(arguments["query"]).lower()
+        query = str(arguments["query"]).strip().lower()
+        if not query:
+            raise ToolValidationError("Search query cannot be empty.")
         limit = max(1, min(500, int(arguments.get("limit", 100))))
         matches: list[dict[str, Any]] = []
+        scanned = 0
+        deadline = time.monotonic() + 25
         for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
             dirnames[:] = [
                 name for name in dirnames
                 if name not in {".git", "node_modules", ".venv", "dist", "build"}
+                and not (Path(dirpath) / name).is_symlink()
             ]
             for filename in filenames:
                 path = Path(dirpath) / filename
+                if path.is_symlink():
+                    continue
+                scanned += 1
+                if scanned > 50_000 or time.monotonic() >= deadline:
+                    return {
+                        "matches": matches,
+                        "truncated": True,
+                        "reason": "search budget reached",
+                    }
                 relative = path.relative_to(root).as_posix()
                 if query in relative.lower():
                     matches.append({"path": relative, "line": 0, "preview": ""})
@@ -904,9 +1071,12 @@ class BuiltinTools:
                 name
                 for name in dirnames
                 if name not in {".git", "node_modules", ".venv", "dist", "build"}
+                and not (Path(dirpath) / name).is_symlink()
             ]
             for filename in filenames:
                 path = Path(dirpath) / filename
+                if path.is_symlink():
+                    continue
                 relative = path.relative_to(root).as_posix()
                 if path.suffix.lower() not in TEXT_EXTENSIONS | {".bat"}:
                     continue
@@ -950,9 +1120,17 @@ class BuiltinTools:
         if not root.is_dir():
             raise ToolValidationError("Patch root is not a directory.")
         files: list[dict[str, Any]] = []
+        seen: set[str] = set()
         for change in arguments["changes"]:
             path = _resolve_within(root, change["path"])
-            before = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+            relative = path.relative_to(root).as_posix()
+            if relative in seen:
+                raise ToolValidationError(f"Patch contains duplicate path: {relative}")
+            seen.add(relative)
+            if path.exists() and not path.is_file():
+                raise ToolValidationError(f"Patch target is not a file: {relative}")
+            before_bytes = path.read_bytes() if path.is_file() else b""
+            before = before_bytes.decode("utf-8", errors="replace")
             after = change["content"]
             diff = "".join(
                 difflib.unified_diff(
@@ -966,6 +1144,7 @@ class BuiltinTools:
                 {
                     "path": change["path"],
                     "exists": path.exists(),
+                    "beforeSha256": hashlib.sha256(before_bytes).hexdigest(),
                     "changed": before != after,
                     "diff": diff,
                 }
@@ -977,52 +1156,102 @@ class BuiltinTools:
 
     def _apply_patch(self, arguments: dict[str, Any]) -> ToolResult:
         started = time.perf_counter()
-        root = Path(arguments["root"]).expanduser().resolve()
-        if not root.is_dir():
-            raise ToolValidationError("Patch root is not a directory.")
-        changes: list[dict[str, Any]] = []
-        for change in arguments["changes"]:
-            destination = _resolve_within(root, change["path"])
-            before = (
-                destination.read_bytes()
-                if destination.is_file()
-                else b""
-            )
-            if before != change["content"].encode("utf-8"):
-                changes.append(change)
-        if not changes:
+        with self._workspace_lock:
+            root = Path(arguments["root"]).expanduser().resolve()
+            if not root.is_dir():
+                raise ToolValidationError("Patch root is not a directory.")
+            changes: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for change in arguments["changes"]:
+                destination = _resolve_within(root, change["path"])
+                relative = destination.relative_to(root).as_posix()
+                if relative in seen:
+                    raise ToolValidationError(
+                        f"Patch contains duplicate path: {relative}"
+                    )
+                seen.add(relative)
+                if destination.exists() and not destination.is_file():
+                    raise ToolValidationError(
+                        f"Patch target is not a file: {relative}"
+                    )
+                before_exists = destination.is_file()
+                before = destination.read_bytes() if before_exists else b""
+                if "expected_exists" in change and (
+                    bool(change["expected_exists"]) != before_exists
+                ):
+                    return ToolResult(
+                        "filesystem.apply_patch",
+                        False,
+                        (time.perf_counter() - started) * 1000,
+                        errors=[
+                            f"{relative} changed after preview; refresh the patch before applying."
+                        ],
+                    )
+                if expected := str(change.get("expected_sha256", "")):
+                    if hashlib.sha256(before).hexdigest() != expected:
+                        return ToolResult(
+                            "filesystem.apply_patch",
+                            False,
+                            (time.perf_counter() - started) * 1000,
+                            errors=[
+                                f"{relative} changed after preview; refresh the patch before applying."
+                            ],
+                        )
+                if before != change["content"].encode("utf-8"):
+                    changes.append(change)
+            if not changes:
+                return ToolResult(
+                    "filesystem.apply_patch",
+                    True,
+                    (time.perf_counter() - started) * 1000,
+                    output={"changed": []},
+                    warnings=["Patch did not change any files."],
+                    verified=True,
+                )
+            undo_id = self.undo_store.create(root, changes)
+            generated: list[str] = []
+            modified: list[str] = []
+            try:
+                for change in changes:
+                    destination = _resolve_within(root, change["path"])
+                    existed = destination.exists()
+                    _atomic_write(destination, change["content"].encode("utf-8"))
+                    (modified if existed else generated).append(str(destination))
+                verified = all(
+                    _resolve_within(root, change["path"]).is_file()
+                    and _resolve_within(root, change["path"]).read_bytes()
+                    == change["content"].encode("utf-8")
+                    for change in changes
+                )
+                if not verified:
+                    raise OSError("One or more files failed post-write verification.")
+            except OSError as exc:
+                rollback = self.undo_store.restore(undo_id, force=True)
+                errors = [f"Patch failed: {exc}"]
+                if not rollback.success:
+                    errors.extend(rollback.errors)
+                return ToolResult(
+                    "filesystem.apply_patch",
+                    False,
+                    (time.perf_counter() - started) * 1000,
+                    output={"changed": []},
+                    errors=errors,
+                    verified=False,
+                )
             return ToolResult(
                 "filesystem.apply_patch",
                 True,
                 (time.perf_counter() - started) * 1000,
-                output={"changed": []},
-                warnings=["Patch did not change any files."],
+                output={"changed": [change["path"] for change in changes]},
+                generated_files=generated,
+                modified_files=modified,
+                metadata={"undoId": undo_id},
                 verified=True,
             )
-        undo_id = self.undo_store.create(root, changes)
-        generated: list[str] = []
-        modified: list[str] = []
-        for change in changes:
-            destination = _resolve_within(root, change["path"])
-            existed = destination.exists()
-            _atomic_write(destination, change["content"].encode("utf-8"))
-            (modified if existed else generated).append(str(destination))
-        verified = all(
-            _resolve_within(root, change["path"]).read_bytes()
-            == change["content"].encode("utf-8")
-            for change in changes
-        )
-        return ToolResult(
-            "filesystem.apply_patch",
-            verified,
-            (time.perf_counter() - started) * 1000,
-            output={"changed": [change["path"] for change in changes]},
-            generated_files=generated,
-            modified_files=modified,
-            metadata={"undoId": undo_id},
-            verified=verified,
-            errors=[] if verified else ["One or more files failed post-write verification."],
-        )
+
+    def _undo_action(self, arguments: dict[str, Any]) -> ToolResult:
+        with self._workspace_lock:
+            return self.undo_store.restore(arguments["undo_id"])
 
     def _terminal_run(self, arguments: dict[str, Any]) -> ToolResult:
         started = time.perf_counter()
@@ -1078,7 +1307,7 @@ class BuiltinTools:
             },
             logs=[stdout, stderr],
             errors=errors,
-            verified=True,
+            verified=return_code == 0 and not timed_out,
         )
 
     @staticmethod
@@ -1108,7 +1337,7 @@ class BuiltinTools:
                 "exitCode": completed.returncode,
             },
             errors=[] if completed.returncode == 0 else [completed.stderr.strip() or "Git command failed."],
-            verified=True,
+            verified=completed.returncode == 0,
         )
 
     @staticmethod

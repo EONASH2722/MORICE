@@ -139,13 +139,18 @@ class IntentRouter:
     def _suggest_tools(intent: IntentType) -> tuple[str, ...]:
         return {
             IntentType.FILE_SEARCH: ("filesystem.search",),
-            IntentType.FILE_EDITING: ("filesystem.patch",),
-            IntentType.PROJECT_MODIFICATION: ("project.index", "filesystem.patch"),
+            IntentType.FILE_EDITING: (
+                "filesystem.preview_patch",
+                "filesystem.apply_patch",
+            ),
+            IntentType.PROJECT_MODIFICATION: (
+                "project.index",
+                "filesystem.preview_patch",
+                "filesystem.apply_patch",
+                "project.verify",
+            ),
             IntentType.TERMINAL_TASK: ("terminal.run",),
             IntentType.CODING: ("project.index",),
-            IntentType.VISUALIZATION: ("renderer.inspect",),
-            IntentType.SIMULATION: ("renderer.inspect",),
-            IntentType.INTERNET_SEARCH: ("network.search",),
         }.get(intent, ())
 
     @staticmethod

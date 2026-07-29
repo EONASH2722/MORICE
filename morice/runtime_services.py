@@ -23,6 +23,7 @@ from typing import Any, Iterable, Iterator
 
 from . import __version__
 from .agent_orchestrator import AgentOrchestrator
+from .desktop_environment import DesktopIntegrationLayer
 
 APP_VERSION = __version__
 MAX_LOG_RECORDS = 2_000
@@ -902,6 +903,7 @@ class RuntimeSnapshot:
     health: HealthReport
     dependencies: dict[str, str]
     agent: dict[str, Any]
+    desktop: dict[str, Any]
 
 
 class RuntimeServices:
@@ -919,6 +921,7 @@ class RuntimeServices:
         self.recovery = CrashRecoveryManager(base / "recovery")
         self.health_checker = StartupHealthChecker(project_root, base)
         self.agent = AgentOrchestrator(base / "agent", logger=self.logs.log)
+        self.desktop = DesktopIntegrationLayer(base / "desktop")
         self.health_report = HealthReport(_utc_now(), ())
         self.recovery_info = RecoveryInfo(False)
         self._started = False
@@ -936,6 +939,7 @@ class RuntimeServices:
                 return self.recovery_info
             self.recovery_info = self.recovery.begin_session()
             self.recovery.install_exception_hooks(self.logs)
+            self.desktop.automations.start_scheduler()
             self.logs.log(
                 "INFO",
                 "MORICE runtime services started.",
@@ -1049,6 +1053,7 @@ class RuntimeServices:
             health=self.health_report,
             dependencies=dependencies,
             agent=self.agent.snapshot(),
+            desktop=self.desktop.snapshot(),
         )
 
     def save_recovery_snapshot(self, payload: dict[str, Any]) -> None:
@@ -1075,6 +1080,7 @@ class RuntimeServices:
             )
             if clean:
                 self.recovery.mark_clean()
+            self.desktop.shutdown()
             self.workers.shutdown()
             self.recovery.uninstall_exception_hooks()
             self._shutdown = True

@@ -67,6 +67,12 @@ Project Mode uses this contract as a review flow:
 
 Path resolution rejects absolute paths and `..` escapes.
 
+Patch previews also capture the original existence and content digest of every
+target. Apply refuses a stale preview when another program or the user changed
+a file after review. Multi-file writes roll back as a transaction on failure.
+Undo likewise refuses to overwrite edits made after MORICE's patch unless an
+internal rollback explicitly forces restoration.
+
 ## Tools
 
 The initial built-in registry contains:
@@ -85,9 +91,10 @@ not replayed automatically.
 ## Action History
 
 Every attempt is stored in bounded JSONL history, including refused permission
-checks and validation failures. Records contain timestamp, tool, exact
+checks and validation failures. Records contain timestamp, tool, bounded
 parameters, duration, success, verification, changed files, generated files,
-artifacts, errors, replay eligibility, and undo ID.
+artifacts, errors, replay eligibility, and undo ID. Patch bodies are never
+written into history: MORICE stores byte counts and SHA-256 digests instead.
 
 Diagnostics exposes the recent timeline. Logs also receive structured agent and
 agent-tool events.

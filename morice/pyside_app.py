@@ -180,6 +180,7 @@ from .desktop_assistant import (
     parse_desktop_command,
     search_files,
 )
+from .desktop_environment import SearchEverywhereResult, SessionState
 from .ui_system import (
     THEMES,
     AnimationEngine,
@@ -225,6 +226,10 @@ from .settings import (
 )
 from .web_search import search_web
 from .vision import describe_image
+
+
+def _tokenize_for_ui_search(value: str) -> tuple[str, ...]:
+    return tuple(re.findall(r"[a-z0-9+#.-]{2,}", value.casefold()))
 
 
 def _start_background_task(name: str, target):
@@ -6338,9 +6343,12 @@ class MoriceWindow(QWidget):
         self.assistant_hub.visibility_requested.connect(self._set_assistant_hub_visible)
         self.workspace_splitter.addWidget(self.assistant_hub)
         self.assistant_hub.setVisible(False)
+        self.assistant_hub.set_clipboard_status(
+            self.runtime.desktop.clipboard.enabled
+        )
         clipboard = QApplication.clipboard()
         clipboard.dataChanged.connect(self._capture_clipboard_entry)
-        QTimer.singleShot(0, self._capture_clipboard_entry)
+        self._register_desktop_search_providers()
         self.workspace_splitter.setStretchFactor(0, 0)
         self.workspace_splitter.setStretchFactor(1, 1)
         self.workspace_splitter.setStretchFactor(2, 0)
@@ -7790,17 +7798,31 @@ class MoriceWindow(QWidget):
         self.assistant_hub.set_activity(self.workspace_state.activity)
         self.assistant_hub.set_tasks(self.message_queue, self.is_busy)
         self.assistant_hub.set_clipboard_history(self.clipboard_history)
+        self._refresh_desktop_hub_state()
         self._refresh_downloads()
 
+    def _refresh_desktop_hub_state(self):
+        if not hasattr(self, "assistant_hub"):
+            return
+        desktop = self.runtime.desktop
+        self.assistant_hub.set_desktop_state(
+            desktop.snapshot(),
+            desktop.notifications.history(limit=100),
+            desktop.memory.search("")[:200],
+            desktop.automations.list(),
+        )
+
     def _capture_clipboard_entry(self):
+        if not self.runtime.desktop.clipboard.enabled:
+            return
         clipboard = QApplication.clipboard()
         text = clipboard.text().replace("\x00", "").strip()[:20_000]
         if not text:
             return
+        self.runtime.desktop.clipboard.observe(text)
         self.clipboard_history = [
-            text,
-            *[item for item in self.clipboard_history if item != text],
-        ][:30]
+            item.text for item in self.runtime.desktop.clipboard.history()
+        ]
         if hasattr(self, "assistant_hub"):
             self.assistant_hub.set_clipboard_history(self.clipboard_history)
 
@@ -7837,6 +7859,17 @@ class MoriceWindow(QWidget):
     def _show_notification(
         self, message: str, severity: str = "info", timeout_ms: int = 4200
     ):
+        try:
+            self.runtime.desktop.notifications.publish(
+                "MORICE",
+                message,
+                severity=severity,
+                category="desktop-ui",
+            )
+        except (OSError, ValueError, TypeError):
+            pass
+        if hasattr(self, "assistant_hub"):
+            self._refresh_desktop_hub_state()
         if hasattr(self, "notification_toast"):
             self.notification_toast.show_message(message, severity, timeout_ms)
 
@@ -7882,6 +7915,39 @@ class MoriceWindow(QWidget):
         )
         try:
             save_workspace_state(self.workspace_state)
+            self.runtime.desktop.sessions.save(
+                SessionState(
+                    session_id=str(os.getpid()),
+                    saved_at="",
+                    project_ids=(
+                        [
+                            self.runtime.desktop.workspaces.register(
+                                self.project_folder
+                            ).project_id
+                        ]
+                        if self.project_folder
+                        and os.path.isdir(self.project_folder)
+                        and not self._is_inside_app_folder(self.project_folder)
+                        else []
+                    ),
+                    editors=(
+                        [self.current_project_preview_path]
+                        if getattr(self, "current_project_preview_path", "")
+                        else []
+                    ),
+                    tabs=[
+                        self.assistant_hub.TAB_NAMES[
+                            self.assistant_hub.tabs.currentIndex()
+                        ]
+                    ]
+                    if hasattr(self, "assistant_hub")
+                    else [],
+                    renderers=[
+                        str(getattr(self.runtime.profiler, "current_renderer", "") or "")
+                    ],
+                    pending_tasks=list(self.message_queue),
+                )
+            )
         except OSError as exc:
             self.runtime.logs.log(
                 "ERROR",
@@ -7939,6 +8005,138 @@ class MoriceWindow(QWidget):
                 self.assistant_hub.show_tab("Files")
                 self.assistant_hub.file_query.setFocus()
             return
+        if command == "search-everywhere":
+            query = str(argument or "").strip()
+            if query:
+                self._start_search_everywhere(query)
+            else:
+                self._set_assistant_hub_visible(True)
+                self.assistant_hub.search.setFocus()
+            return
+        if command == "clipboard-monitor":
+            if self.runtime.desktop.clipboard.enabled:
+                self.runtime.desktop.clipboard.disable(clear=False)
+                self.assistant_hub.set_clipboard_status(False)
+                self._show_notification(
+                    "Clipboard monitoring is off. Session history remains until MORICE closes."
+                )
+                return
+            choice = QMessageBox.question(
+                self,
+                "Enable clipboard monitoring",
+                "Allow MORICE to observe text copied during this session? "
+                "Clipboard history stays in memory and is not persisted.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if choice == QMessageBox.Yes:
+                grant = self.runtime.desktop.clipboard.request_monitoring()
+                self.runtime.desktop.clipboard.enable(grant.token)
+                self.assistant_hub.set_clipboard_status(True)
+                self._capture_clipboard_entry()
+                self._show_notification(
+                    "Clipboard monitoring is enabled for this session.", "success"
+                )
+            return
+        if command == "desktop-refresh":
+            self._refresh_desktop_hub_state()
+            self.assistant_hub.show_tab("Desktop")
+            return
+        if command == "notification-dismiss":
+            notification_id = str(argument or "")
+            if notification_id and self.runtime.desktop.notifications.dismiss(
+                notification_id
+            ):
+                self._refresh_desktop_hub_state()
+            return
+        if command == "memory-toggle":
+            memory = self.runtime.desktop.memory
+            memory.set_enabled(not memory.enabled)
+            self._refresh_desktop_hub_state()
+            self._show_notification(
+                f"Structured memory is now {'enabled' if memory.enabled else 'disabled'}."
+            )
+            return
+        if command == "memory-export":
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export MORICE memory",
+                os.path.join(os.path.expanduser("~"), "morice-memory.json"),
+                "JSON (*.json)",
+            )
+            if path:
+                try:
+                    target = self.runtime.desktop.memory.export(path)
+                    self._show_notification(
+                        f"Memory exported to {target}.", "success", 7000
+                    )
+                except OSError as exc:
+                    self._show_notification(f"Memory export failed: {exc}", "error")
+            return
+        if command == "memory-import":
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Import MORICE memory",
+                os.path.expanduser("~"),
+                "JSON (*.json)",
+            )
+            if path:
+                try:
+                    count = self.runtime.desktop.memory.import_file(path)
+                    self._refresh_desktop_hub_state()
+                    self._show_notification(
+                        f"Imported {count} memory record(s).", "success"
+                    )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    self._show_notification(f"Memory import failed: {exc}", "error")
+            return
+        if command in {
+            "memory-pin-selected",
+            "memory-archive-selected",
+            "memory-delete-selected",
+        }:
+            memory_id = self.assistant_hub.selected_memory_id()
+            if not memory_id:
+                self._show_notification("Select a memory record first.", "warning")
+                return
+            if command == "memory-pin-selected":
+                self.runtime.desktop.memory.update(memory_id, pinned=True)
+            elif command == "memory-archive-selected":
+                self.runtime.desktop.memory.update(memory_id, archived=True)
+            else:
+                choice = QMessageBox.question(
+                    self,
+                    "Delete memory",
+                    "Permanently delete the selected memory record?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if choice == QMessageBox.Yes:
+                    self.runtime.desktop.memory.delete(memory_id)
+            self._refresh_desktop_hub_state()
+            return
+        if command in {
+            "automation-enable-selected",
+            "automation-disable-selected",
+        }:
+            workflow_id = self.assistant_hub.selected_automation_id()
+            if not workflow_id:
+                self._show_notification("Select an automation first.", "warning")
+                return
+            try:
+                if command == "automation-enable-selected":
+                    grant = self.runtime.desktop.automations.request_enable(
+                        workflow_id
+                    )
+                    self.runtime.desktop.automations.enable(
+                        workflow_id, grant.token
+                    )
+                else:
+                    self.runtime.desktop.automations.disable(workflow_id)
+                self._refresh_desktop_hub_state()
+            except (KeyError, PermissionError, ValueError) as exc:
+                self._show_notification(f"Automation update failed: {exc}", "error")
+            return
         if command == "diagnostics":
             self._open_diagnostics()
             return
@@ -7954,7 +8152,7 @@ class MoriceWindow(QWidget):
         if command == "accent":
             self._choose_accent_color()
             return
-        if command in {"notes", "browser", "media"}:
+        if command in {"notes", "browser", "media", "desktop"}:
             self._set_assistant_hub_visible(True)
             self.assistant_hub.show_tab(command.title())
             return
@@ -7971,7 +8169,41 @@ class MoriceWindow(QWidget):
             self.input.setFocus()
             return
         if command == "preview-file":
-            self._preview_workspace_file(str(argument or ""))
+            if isinstance(argument, dict):
+                self._preview_workspace_file(str(argument.get("path", "")))
+            else:
+                self._preview_workspace_file(str(argument or ""))
+            return
+        if command == "open-project" and isinstance(argument, dict):
+            root = normalize_project_folder(str(argument.get("root", "")))
+            if root and os.path.isdir(root) and not self._is_inside_app_folder(root):
+                self.project_folder = root
+                self.project_folder_input.setText(root)
+                self.project_folder_input.setToolTip(root)
+                self._set_chat_mode("project")
+                self._save_project_settings()
+                self._refresh_project_tree()
+                self._show_notification(
+                    f"Project workspace opened: {Path(root).name}", "success"
+                )
+            return
+        if command == "inspect-memory" and isinstance(argument, dict):
+            memory_id = str(argument.get("memoryId", ""))
+            record = next(
+                (
+                    item
+                    for item in self.runtime.desktop.memory.search("")
+                    if item.memory_id == memory_id
+                ),
+                None,
+            )
+            if record is not None:
+                self.append_message(
+                    MORICE_NAME,
+                    self._address(
+                        f"Memory ({record.scope}):\n\n{record.content}"
+                    ),
+                )
             return
         if command == "open-path":
             path = str(argument or "")
@@ -8047,9 +8279,20 @@ class MoriceWindow(QWidget):
         if not path:
             return
         self._set_assistant_hub_visible(True)
-        succeeded, detail = self.assistant_hub.preview_file(path)
+        try:
+            descriptor = self.runtime.desktop.files.preview(path)
+            self.assistant_hub.show_tab("Files")
+            succeeded, detail = self.assistant_hub.file_preview.show_descriptor(
+                descriptor
+            )
+        except (OSError, ValueError, TypeError) as exc:
+            succeeded, detail = False, str(exc)
         if os.path.isfile(path):
             self.workspace_state.add_recent_file(path)
+            try:
+                self.runtime.desktop.files.record_access(path)
+            except OSError:
+                pass
             self._record_activity(
                 "File previewed", os.path.abspath(path), category="files"
             )
@@ -8076,7 +8319,14 @@ class MoriceWindow(QWidget):
 
         def worker():
             try:
-                result = search_files(query, roots)
+                result = [
+                    item.path
+                    for item in self.runtime.desktop.files.search(
+                        query,
+                        roots,
+                        limit=80,
+                    )
+                ]
             except Exception:  # noqa: BLE001
                 result = []
             self.file_search_ready.emit({"query": query, "paths": result})
@@ -8086,6 +8336,18 @@ class MoriceWindow(QWidget):
     def _on_file_search_ready(self, result: object):
         data = result if isinstance(result, dict) else {}
         query = str(data.get("query", ""))
+        if data.get("scope") == "everywhere":
+            values = list(data.get("results", []))
+            self.assistant_hub.set_search_results(values)
+            self._record_activity(
+                "Search everywhere",
+                f"{query}: {len(values)} result(s)",
+                category="search",
+            )
+            self._show_notification(
+                f"Found {len(values)} result(s) across MORICE."
+            )
+            return
         paths = list(data.get("paths", []))
         self.assistant_hub.set_file_results(paths)
         self._record_activity(
@@ -8094,6 +8356,67 @@ class MoriceWindow(QWidget):
             category="files",
         )
         self._show_notification(f"Found {len(paths)} file(s) for {query}.")
+
+    def _register_desktop_search_providers(self):
+        def commands(query: str):
+            terms = _tokenize_for_ui_search(query)
+            for command in DEFAULT_COMMANDS:
+                if terms and not all(
+                    term in command.searchable_text for term in terms
+                ):
+                    continue
+                yield SearchEverywhereResult(
+                    "commands",
+                    command.title,
+                    command.hint,
+                    command.key,
+                    25.0,
+                )
+
+        def logs(query: str):
+            for record in self.runtime.logs.search(query)[-20:]:
+                yield SearchEverywhereResult(
+                    "logs",
+                    record.message[:140],
+                    f"{record.level} | {record.category} | {record.timestamp}",
+                    "diagnostics",
+                    12.0,
+                )
+
+        def tools(query: str):
+            needle = query.casefold()
+            for tool in self.runtime.agent.tools.registry.definitions():
+                label = str(tool.display_name or tool.tool_id)
+                detail = str(tool.description)
+                if needle not in f"{label} {detail}".casefold():
+                    continue
+                yield SearchEverywhereResult(
+                    "tools", label, detail, "diagnostics", 15.0
+                )
+
+        self.runtime.desktop.search.register("commands", commands)
+        self.runtime.desktop.search.register("logs", logs)
+        self.runtime.desktop.search.register("tools", tools)
+
+    def _start_search_everywhere(self, query: str):
+        self._set_assistant_hub_visible(True)
+        self.assistant_hub.show_tab("Files")
+        self.assistant_hub.file_results.clear()
+        self.assistant_hub.file_results.addItem("Searching MORICE and local files...")
+        roots = self._file_search_roots()
+
+        def worker():
+            try:
+                results = self.runtime.desktop.search.search(
+                    query, roots=roots, limit=80
+                )
+            except Exception:  # noqa: BLE001
+                results = []
+            self.file_search_ready.emit(
+                {"scope": "everywhere", "query": query, "results": results}
+            )
+
+        _start_background_task("search-everywhere", worker)
 
     def _refresh_system_snapshot(self):
         self._set_assistant_hub_visible(True)
@@ -8143,6 +8466,17 @@ class MoriceWindow(QWidget):
             self._show_notification("The screenshot could not be saved.", "error")
             return
         self.workspace_state.add_recent_file(target)
+        if self.chat_mode == "project" and self.project_folder:
+            try:
+                project = self.runtime.desktop.workspaces.register(
+                    self.project_folder
+                )
+                self.runtime.desktop.workspaces.update(
+                    project.project_id,
+                    screenshots=[*project.screenshots, target],
+                )
+            except (OSError, ValueError):
+                pass
         self._record_activity("Screenshot captured", target, "system")
         self._refresh_workspace_hub()
         self._save_workspace_session()
@@ -9195,6 +9529,26 @@ class MoriceWindow(QWidget):
                     "; ".join(preview_result.errors)
                     or "MORICE could not validate the project patch preview."
                 )
+            preview_files = (
+                preview_result.output.get("files", ())
+                if isinstance(preview_result.output, dict)
+                else ()
+            )
+            baselines = {
+                str(item.get("path", "")): item
+                for item in preview_files
+                if isinstance(item, dict)
+            }
+            for change in patch_arguments["changes"]:
+                baseline = baselines.get(str(change["path"]))
+                if baseline is None:
+                    raise ProjectValidationError(
+                        f"MORICE could not establish a safe patch baseline for {change['path']}."
+                    )
+                change["expected_exists"] = bool(baseline.get("exists", False))
+                change["expected_sha256"] = str(
+                    baseline.get("beforeSha256", "")
+                )
             self.pending_project_patch = patch_arguments
         elif pending_writes:
             permission_token = self.runtime.agent.permission_token(
@@ -9296,6 +9650,10 @@ class MoriceWindow(QWidget):
         self.changes_reject_btn.setEnabled(has_pending_patch)
         self.changes_undo_btn.setEnabled(bool(self.last_project_undo_id))
         self._refresh_project_tree()
+        try:
+            self.runtime.desktop.workspaces.register(self.project_folder)
+        except OSError:
+            pass
         self._refresh_project_actions()
         self._record_activity(
             "Project files updated",
@@ -9308,6 +9666,18 @@ class MoriceWindow(QWidget):
         arguments = copy.deepcopy(self.pending_project_patch or {})
         if not arguments.get("changes"):
             self.changes_action_status.setText("There is no pending patch to apply.")
+            return
+        pending_root = os.path.normcase(
+            os.path.realpath(str(arguments.get("root", "")))
+        )
+        current_root = os.path.normcase(os.path.realpath(self.project_folder))
+        if not pending_root or pending_root != current_root:
+            self.pending_project_patch = None
+            self.changes_apply_btn.setEnabled(False)
+            self.changes_reject_btn.setEnabled(False)
+            self.changes_action_status.setText(
+                "The work folder changed. Generate a fresh patch for the selected folder."
+            )
             return
         permission_token = self.runtime.agent.permission_token(
             "filesystem.apply_patch",
@@ -10797,6 +11167,15 @@ class MoriceWindow(QWidget):
         self.append_message(self.user_title, user_input, is_user=True, force_scroll=True)
         self.user_messages.append(user_input)
         self.workspace_state.add_recent_chat(user_input)
+        try:
+            self.runtime.desktop.memory.add(
+                "temporary",
+                user_input,
+                tags=("chat", "user"),
+                temporary=True,
+            )
+        except (RuntimeError, TypeError, ValueError):
+            pass
         self._record_activity(
             "Message sent",
             " ".join(user_input.split())[:240],

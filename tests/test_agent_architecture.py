@@ -5,8 +5,10 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from morice.agent_orchestrator import AgentOrchestrator
+from morice import agent_tools
 from morice.agent_tools import BuiltinTools
 from morice.agent_types import (
     ExecutionStage,
@@ -32,6 +34,24 @@ class IntentRouterTests(unittest.TestCase):
         self.assertIn(IntentType.VISUALIZATION, plan.intents)
         self.assertEqual(tuple(ExecutionStage), plan.stages)
         self.assertGreaterEqual(len(plan.subtasks), 4)
+
+    def test_every_suggested_action_tool_exists_in_the_registry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            registry_ids = {
+                definition.tool_id
+                for definition in BuiltinTools(Path(directory) / "agent").registry.definitions()
+            }
+            plan = IntentRouter().plan(
+                "Build the project, edit a file, and run its tests."
+            )
+            suggested = {
+                tool_id
+                for subtask in plan.subtasks
+                for tool_id in subtask.suggested_tools
+            }
+
+            self.assertTrue(suggested)
+            self.assertEqual(suggested - registry_ids, set())
 
     def test_unmatched_conversation_uses_general_chat(self):
         matches = IntentRouter().classify("hello there")
@@ -135,6 +155,144 @@ class ToolExecutionTests(unittest.TestCase):
             self.assertEqual(target.read_text(encoding="utf-8"), "print('before')\n")
             self.assertFalse((root / "new.py").exists())
             self.assertGreaterEqual(len(tools.history.recent()), 4)
+            patch_record = next(
+                record
+                for record in tools.history.recent()
+                if record.tool_id == "filesystem.apply_patch" and record.success
+            )
+            serialized = str(patch_record.parameters)
+            self.assertNotIn("print('after')", serialized)
+            self.assertIn("contentSha256", serialized)
+
+    def test_patch_refuses_to_overwrite_a_file_changed_after_preview(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "project"
+            root.mkdir()
+            target = root / "app.py"
+            target.write_text("original\n", encoding="utf-8")
+            tools = BuiltinTools(Path(directory) / "agent")
+            arguments = {
+                "root": str(root),
+                "changes": [{"path": "app.py", "content": "morice\n"}],
+            }
+            preview = tools.executor.execute(
+                ToolCall("filesystem.preview_patch", arguments)
+            )
+            baseline = preview.output["files"][0]
+            arguments["changes"][0].update(
+                {
+                    "expected_exists": baseline["exists"],
+                    "expected_sha256": baseline["beforeSha256"],
+                }
+            )
+            target.write_text("external edit\n", encoding="utf-8")
+            token = tools.permissions.grant("filesystem.apply_patch", arguments)
+            applied = tools.executor.execute(
+                ToolCall(
+                    "filesystem.apply_patch",
+                    arguments,
+                    permission_token=token,
+                )
+            )
+
+            self.assertFalse(applied.success)
+            self.assertIn("changed after preview", applied.errors[0])
+            self.assertEqual(target.read_text(encoding="utf-8"), "external edit\n")
+
+    def test_undo_refuses_to_destroy_edits_made_after_the_patch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "project"
+            root.mkdir()
+            target = root / "app.py"
+            target.write_text("before\n", encoding="utf-8")
+            tools = BuiltinTools(Path(directory) / "agent")
+            arguments = {
+                "root": str(root),
+                "changes": [{"path": "app.py", "content": "after\n"}],
+            }
+            token = tools.permissions.grant("filesystem.apply_patch", arguments)
+            applied = tools.executor.execute(
+                ToolCall(
+                    "filesystem.apply_patch",
+                    arguments,
+                    permission_token=token,
+                )
+            )
+            target.write_text("user edit\n", encoding="utf-8")
+            undo_arguments = {"undo_id": applied.metadata["undoId"]}
+            undo_token = tools.permissions.grant("action.undo", undo_arguments)
+            undone = tools.executor.execute(
+                ToolCall(
+                    "action.undo",
+                    undo_arguments,
+                    permission_token=undo_token,
+                )
+            )
+
+            self.assertFalse(undone.success)
+            self.assertIn("changed after", undone.errors[0])
+            self.assertEqual(target.read_text(encoding="utf-8"), "user edit\n")
+
+    def test_partial_patch_failure_is_rolled_back(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "project"
+            root.mkdir()
+            first = root / "first.txt"
+            second = root / "second.txt"
+            first.write_text("first-before", encoding="utf-8")
+            second.write_text("second-before", encoding="utf-8")
+            tools = BuiltinTools(Path(directory) / "agent")
+            arguments = {
+                "root": str(root),
+                "changes": [
+                    {"path": "first.txt", "content": "first-after"},
+                    {"path": "second.txt", "content": "second-after"},
+                ],
+            }
+            token = tools.permissions.grant("filesystem.apply_patch", arguments)
+            real_atomic_write = agent_tools._atomic_write
+            calls = 0
+
+            def flaky_write(path, data):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("simulated disk failure")
+                return real_atomic_write(path, data)
+
+            with mock.patch(
+                "morice.agent_tools._atomic_write",
+                side_effect=flaky_write,
+            ):
+                applied = tools.executor.execute(
+                    ToolCall(
+                        "filesystem.apply_patch",
+                        arguments,
+                        permission_token=token,
+                    )
+                )
+
+            self.assertFalse(applied.success)
+            self.assertEqual(first.read_text(encoding="utf-8"), "first-before")
+            self.assertEqual(second.read_text(encoding="utf-8"), "second-before")
+
+    def test_history_failure_does_not_hide_a_successful_tool_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "project"
+            root.mkdir()
+            (root / "needle.txt").write_text("needle", encoding="utf-8")
+            tools = BuiltinTools(Path(directory) / "agent")
+            tools.history.append = mock.Mock(side_effect=OSError("disk full"))
+
+            result = tools.executor.execute(
+                ToolCall(
+                    "filesystem.search",
+                    {"root": str(root), "query": "needle"},
+                )
+            )
+
+            self.assertTrue(result.success)
+            self.assertIn("history", result.warnings[0].lower())
 
     def test_permission_token_cannot_be_reused_or_changed(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -198,6 +356,23 @@ class ToolExecutionTests(unittest.TestCase):
             self.assertTrue(result.verified)
             self.assertEqual(result.output["exitCode"], 0)
             self.assertIn("agent-ok", result.output["stdout"])
+
+    def test_boolean_timeout_is_rejected_as_not_a_number(self):
+        with tempfile.TemporaryDirectory() as directory:
+            tools = BuiltinTools(Path(directory) / "agent")
+            result = tools.executor.execute(
+                ToolCall(
+                    "terminal.run",
+                    {
+                        "cwd": directory,
+                        "command": [sys.executable, "-c", "print('no')"],
+                        "timeout": True,
+                    },
+                )
+            )
+
+            self.assertFalse(result.success)
+            self.assertIn("must be number", result.errors[0])
 
     def test_running_terminal_tool_can_be_cancelled(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -301,6 +476,30 @@ class ModelAndContextTests(unittest.TestCase):
         self.assertLess(len(selected), len(history))
         self.assertTrue(selected[0]["content"].startswith("Earlier conversation summary:"))
 
+    def test_context_summary_contains_only_messages_that_were_omitted(self):
+        history = [
+            {"role": "user", "content": "launch unique relevant fact"},
+            *[
+                {
+                    "role": "assistant",
+                    "content": f"irrelevant-{index} " + ("x" * 1_200),
+                }
+                for index in range(10)
+            ],
+            {"role": "user", "content": "latest compact message"},
+        ]
+        selected, metadata = ContextManager().prepare(
+            history,
+            "launch",
+            token_budget=2_048,
+        )
+
+        self.assertTrue(metadata["compressed"])
+        summary = selected[0]["content"]
+        selected_body = [item["content"] for item in selected[1:]]
+        self.assertIn("launch unique relevant fact", selected_body)
+        self.assertNotIn("launch unique relevant fact", summary)
+
 
 class AgentOrchestratorTests(unittest.TestCase):
     def test_request_pipeline_indexes_project_and_exposes_all_stages(self):
@@ -329,6 +528,29 @@ class AgentOrchestratorTests(unittest.TestCase):
             self.assertEqual(snapshot["activeStages"]["final_response"], "completed")
             self.assertGreaterEqual(snapshot["toolCount"], 15)
             self.assertTrue(snapshot["recentActions"])
+
+    def test_visual_request_cannot_pass_without_renderer_validation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            agent = AgentOrchestrator(Path(directory) / "runtime")
+            context = agent.prepare_request("Plot y = x^2")
+
+            missing_validator = agent.execute(context.request_id, ())
+            failed_validator = agent.execute(
+                context.request_id,
+                (),
+                renderer_validator=lambda _renderer: False,
+            )
+            passed_validator = agent.execute(
+                context.request_id,
+                (),
+                renderer_validator=lambda renderer: renderer == "graph",
+            )
+
+            self.assertFalse(missing_validator.success)
+            self.assertFalse(missing_validator.verified)
+            self.assertFalse(failed_validator.success)
+            self.assertTrue(passed_validator.success)
+            self.assertTrue(passed_validator.verified)
 
     def test_runtime_snapshot_includes_agent_registry_and_history(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -11,6 +11,7 @@ os.environ.setdefault("MORICE_REDUCE_MOTION", "1")
 os.environ.setdefault("MORICE_START_AWAKE", "1")
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QMessageBox
 
 from morice.desktop_assistant import (
     collect_system_snapshot,
@@ -162,6 +163,44 @@ class WorkspaceUiTests(unittest.TestCase):
             else "Dark theme active",
         )
         self.assertFalse(self.window.title_bar.theme_btn.icon().isNull())
+
+    def test_phase_three_search_and_clipboard_are_integrated_with_visible_consent(self):
+        results = self.window.runtime.desktop.search.search(
+            "advanced diagnostics", roots=()
+        )
+        self.assertTrue(
+            any(
+                item.category == "commands" and item.action == "diagnostics"
+                for item in results
+            )
+        )
+        self.assertFalse(self.window.runtime.desktop.clipboard.enabled)
+        self.assertEqual(
+            self.window.assistant_hub.clipboard_monitor_button.text(),
+            "Enable for session",
+        )
+        with patch.object(
+            QMessageBox,
+            "question",
+            return_value=QMessageBox.Yes,
+        ):
+            self.window._on_workspace_command("clipboard-monitor")
+        QApplication.clipboard().setText("https://example.com/phase-three")
+        self.app.processEvents()
+
+        self.assertTrue(self.window.runtime.desktop.clipboard.enabled)
+        self.assertTrue(
+            any(
+                item.kind == "url"
+                for item in self.window.runtime.desktop.clipboard.history()
+            )
+        )
+        self.assertEqual(
+            self.window.assistant_hub.clipboard_monitor_button.text(),
+            "Disable",
+        )
+        self.window.runtime.desktop.clipboard.disable(clear=True)
+        self.window.assistant_hub.set_clipboard_status(False)
 
     def test_lab_closes_from_project_mode_even_during_splitter_transition(self):
         self.window._set_chat_mode("project")

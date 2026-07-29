@@ -104,6 +104,12 @@ DEFAULT_COMMANDS = (
     CommandItem("normal-chat", "Switch to Normal chat", "Conversation and VNext", "chat"),
     CommandItem("open-file", "Open file", "Preview a local file", "browse"),
     CommandItem("find-files", "Find files", "Search common local folders", "search"),
+    CommandItem(
+        "search-everywhere",
+        "Search everywhere",
+        "Files, projects, memory, commands, tools, and logs",
+        "global universal",
+    ),
     CommandItem("system", "System status", "CPU, memory, storage, battery", "hardware"),
     CommandItem(
         "diagnostics",
@@ -117,6 +123,12 @@ DEFAULT_COMMANDS = (
     CommandItem("notes", "Open notes", "Persistent scratch notes", "write"),
     CommandItem("browser", "Open browser", "Browse without leaving MORICE", "web"),
     CommandItem("media", "Open media controls", "Playback and volume", "music"),
+    CommandItem(
+        "desktop",
+        "Open desktop services",
+        "Notifications, memory, permissions, and automations",
+        "phase 3 operating environment",
+    ),
     CommandItem("new-window", "New MORICE window", "Open another workspace", "multi"),
 )
 
@@ -374,6 +386,38 @@ class FilePreview(QWidget):
             self.stack.setCurrentWidget(self.placeholder)
             return False, str(exc)
 
+    def show_descriptor(self, descriptor: Any) -> tuple[bool, str]:
+        """Display a validated core preview descriptor without reopening binary data."""
+        path = str(getattr(descriptor, "path", "") or "")
+        kind = str(getattr(descriptor, "kind", "") or "")
+        if kind in {"image", "pdf", "audio", "video", "json", "csv", "text"}:
+            return self.show_file(path)
+        metadata = getattr(descriptor, "metadata", None)
+        size = int(getattr(metadata, "size", 0) or 0)
+        self.current_path = path
+        self.open_external.setEnabled(bool(path))
+        self.header.setText(f"{path}\n{size / 1024:.1f} KB")
+        if not bool(getattr(descriptor, "available", False)):
+            reason = str(getattr(descriptor, "reason", "") or "Preview unavailable.")
+            self.placeholder.setText(reason)
+            self.stack.setCurrentWidget(self.placeholder)
+            return False, reason
+        text = str(getattr(descriptor, "text", "") or "")
+        entries = tuple(getattr(descriptor, "entries", ()) or ())
+        if text:
+            self.text.setPlainText(text)
+            self.stack.setCurrentWidget(self.text)
+            return True, f"{kind.upper()} content preview loaded."
+        if entries:
+            self.text.setPlainText("\n".join(str(item) for item in entries))
+            self.stack.setCurrentWidget(self.text)
+            return True, f"{kind.upper()} archive preview loaded."
+        self.placeholder.setText(
+            f"{kind.title() or 'File'} metadata loaded. No extractable text was found."
+        )
+        self.stack.setCurrentWidget(self.placeholder)
+        return True, f"{kind.title() or 'File'} metadata loaded."
+
     def _open_external(self) -> None:
         if self.current_path:
             self.open_external_requested.emit(self.current_path)
@@ -438,11 +482,13 @@ class AssistantHub(QFrame):
         self.notes_page = self._build_notes()
         self.browser_page = self._build_browser()
         self.media_page = self._build_media()
+        self.desktop_page = self._build_desktop()
         self.tools_page = self._group_tabs(
             ("System", self.system_page),
             ("Notes", self.notes_page),
             ("Browser", self.browser_page),
             ("Media", self.media_page),
+            ("Desktop", self.desktop_page),
         )
         self.tools_subtabs = self.tools_page.findChild(QTabWidget, "HubSubTabs")
         for name, page in zip(
@@ -580,7 +626,16 @@ class AssistantHub(QFrame):
                 "restore-clipboard", item.data(Qt.UserRole)
             )
         )
+        controls = QHBoxLayout()
+        self.clipboard_status = QLabel("Monitoring is off.")
+        self.clipboard_status.setObjectName("DashboardDetail")
+        self.clipboard_monitor_button = self._button(
+            "Enable for session", "clipboard-monitor"
+        )
+        controls.addWidget(self.clipboard_status, stretch=1)
+        controls.addWidget(self.clipboard_monitor_button)
         layout.addWidget(note)
+        layout.addLayout(controls)
         layout.addWidget(self.clipboard_list, stretch=1)
         return page
 
@@ -719,6 +774,64 @@ class AssistantHub(QFrame):
         layout.addStretch(1)
         return page
 
+    def _build_desktop(self) -> QWidget:
+        page, layout = self._page()
+        controls = QHBoxLayout()
+        controls.addWidget(self._button("Refresh", "desktop-refresh"))
+        self.memory_toggle_button = self._button("Disable memory", "memory-toggle")
+        controls.addWidget(self.memory_toggle_button)
+        controls.addWidget(self._button("Export memory", "memory-export"))
+        controls.addWidget(self._button("Import memory", "memory-import"))
+        self.desktop_status = QLabel("Desktop services are loading.")
+        self.desktop_status.setObjectName("DashboardDetail")
+        self.desktop_status.setWordWrap(True)
+
+        self.notification_list = QListWidget()
+        self.notification_list.setObjectName("WorkspaceNotifications")
+        self.notification_list.itemActivated.connect(
+            lambda item: self.command_requested.emit(
+                "notification-dismiss", item.data(Qt.UserRole)
+            )
+        )
+        self.memory_list = QListWidget()
+        self.memory_list.setObjectName("WorkspaceMemory")
+        self.memory_list.itemActivated.connect(
+            lambda item: self.command_requested.emit(
+                "inspect-memory", {"memoryId": item.data(Qt.UserRole)}
+            )
+        )
+        memory_actions = QHBoxLayout()
+        memory_actions.addWidget(
+            self._button("Pin", "memory-pin-selected")
+        )
+        memory_actions.addWidget(
+            self._button("Archive", "memory-archive-selected")
+        )
+        memory_actions.addWidget(
+            self._button("Delete", "memory-delete-selected")
+        )
+        self.automation_list = QListWidget()
+        self.automation_list.setObjectName("WorkspaceAutomations")
+        automation_actions = QHBoxLayout()
+        automation_actions.addWidget(
+            self._button("Enable", "automation-enable-selected")
+        )
+        automation_actions.addWidget(
+            self._button("Disable", "automation-disable-selected")
+        )
+
+        layout.addLayout(controls)
+        layout.addWidget(self.desktop_status)
+        layout.addWidget(QLabel("Notifications (activate to dismiss)"))
+        layout.addWidget(self.notification_list, stretch=1)
+        layout.addWidget(QLabel("Structured memory"))
+        layout.addWidget(self.memory_list, stretch=1)
+        layout.addLayout(memory_actions)
+        layout.addWidget(QLabel("Automations"))
+        layout.addWidget(self.automation_list, stretch=1)
+        layout.addLayout(automation_actions)
+        return page
+
     def open_media(self, path: str) -> tuple[bool, str]:
         target = os.path.abspath(os.path.expanduser(path))
         if self.media_player is None:
@@ -764,7 +877,7 @@ class AssistantHub(QFrame):
         if query:
             self.show_tab("Files")
             self.file_query.setText(query)
-            self.command_requested.emit("find-files", query)
+            self.command_requested.emit("search-everywhere", query)
 
     def _find_files(self) -> None:
         query = self.file_query.text().strip()
@@ -772,7 +885,11 @@ class AssistantHub(QFrame):
             self.command_requested.emit("find-files", query)
 
     def _preview_result(self, item: QListWidgetItem) -> None:
-        path = str(item.data(Qt.UserRole) or item.text())
+        value = item.data(Qt.UserRole)
+        if isinstance(value, dict):
+            self.command_requested.emit(str(value.get("action", "")), value)
+            return
+        path = str(value or item.text())
         self.command_requested.emit("preview-file", path)
 
     def _navigate(self) -> None:
@@ -855,6 +972,14 @@ class AssistantHub(QFrame):
         if not self.clipboard_list.count():
             self.clipboard_list.addItem("No text copied during this session.")
 
+    def set_clipboard_status(self, enabled: bool) -> None:
+        self.clipboard_status.setText(
+            "Monitoring is on for this session." if enabled else "Monitoring is off."
+        )
+        self.clipboard_monitor_button.setText(
+            "Disable" if enabled else "Enable for session"
+        )
+
     def set_file_results(self, paths: Iterable[str]) -> None:
         self.file_results.clear()
         for path in paths:
@@ -864,6 +989,24 @@ class AssistantHub(QFrame):
             self.file_results.addItem(item)
         if not self.file_results.count():
             self.file_results.addItem("No matching files found.")
+
+    def set_search_results(self, results: Iterable[Any]) -> None:
+        self.file_results.clear()
+        for result in results:
+            category = str(getattr(result, "category", "") or "result")
+            label = str(getattr(result, "label", "") or "Result")
+            detail = str(getattr(result, "detail", "") or "")
+            action = str(getattr(result, "action", "") or "")
+            metadata = dict(getattr(result, "metadata", {}) or {})
+            item = QListWidgetItem(f"{label}\n{category.title()} | {detail}")
+            item.setData(
+                Qt.UserRole,
+                {"action": action, "category": category, **metadata},
+            )
+            item.setToolTip(detail)
+            self.file_results.addItem(item)
+        if not self.file_results.count():
+            self.file_results.addItem("No matching files, projects, memory, or commands found.")
 
     def preview_file(self, path: str) -> tuple[bool, str]:
         self.show_tab("Files")
@@ -891,13 +1034,81 @@ class AssistantHub(QFrame):
         )
         self.system_summary.setText(summary)
 
+    def selected_memory_id(self) -> str:
+        item = self.memory_list.currentItem()
+        return str(item.data(Qt.UserRole) or "") if item is not None else ""
+
+    def selected_automation_id(self) -> str:
+        item = self.automation_list.currentItem()
+        return str(item.data(Qt.UserRole) or "") if item is not None else ""
+
+    def set_desktop_state(
+        self,
+        snapshot: dict[str, Any],
+        notifications: Iterable[Any],
+        memories: Iterable[Any],
+        automations: Iterable[Any],
+    ) -> None:
+        clipboard = dict(snapshot.get("clipboard", {}))
+        memory = dict(snapshot.get("memory", {}))
+        automation = dict(snapshot.get("automations", {}))
+        self.desktop_status.setText(
+            f"Permissions waiting: {snapshot.get('permissionRequests', 0)} | "
+            f"Clipboard: {'on' if clipboard.get('enabled') else 'off'} | "
+            f"Projects: {snapshot.get('projects', 0)} | "
+            f"Attachments: {snapshot.get('attachments', 0)} | "
+            f"Memory records: {memory.get('records', 0)} | "
+            f"Automations: {automation.get('enabled', 0)}/{automation.get('total', 0)} enabled"
+        )
+        self.memory_toggle_button.setText(
+            "Disable memory" if memory.get("enabled", True) else "Enable memory"
+        )
+        self.notification_list.clear()
+        for item in notifications:
+            label = (
+                f"{getattr(item, 'severity', 'info').upper()} | "
+                f"{getattr(item, 'title', 'MORICE')}\n"
+                f"{getattr(item, 'message', '')}"
+            )
+            widget_item = QListWidgetItem(label)
+            widget_item.setData(Qt.UserRole, getattr(item, "notification_id", ""))
+            self.notification_list.addItem(widget_item)
+        if not self.notification_list.count():
+            self.notification_list.addItem("No notifications.")
+
+        self.memory_list.clear()
+        for item in memories:
+            content = " ".join(str(getattr(item, "content", "")).split())
+            label = (
+                f"{getattr(item, 'scope', 'memory').title()} | "
+                f"{'Pinned | ' if getattr(item, 'pinned', False) else ''}"
+                f"{content[:180]}"
+            )
+            widget_item = QListWidgetItem(label)
+            widget_item.setData(Qt.UserRole, getattr(item, "memory_id", ""))
+            self.memory_list.addItem(widget_item)
+        if not self.memory_list.count():
+            self.memory_list.addItem("No stored memory.")
+
+        self.automation_list.clear()
+        for item in automations:
+            label = (
+                f"{'Enabled' if getattr(item, 'enabled', False) else 'Disabled'} | "
+                f"{getattr(item, 'name', 'Automation')}\n"
+                f"{getattr(item, 'event', '')} -> {getattr(item, 'action', '')}"
+            )
+            widget_item = QListWidgetItem(label)
+            widget_item.setData(Qt.UserRole, getattr(item, "workflow_id", ""))
+            self.automation_list.addItem(widget_item)
+        if not self.automation_list.count():
+            self.automation_list.addItem("No automations configured.")
+
     def show_tab(self, name: str) -> None:
-        if name in {"System", "Notes", "Browser", "Media"}:
+        tool_names = ("System", "Notes", "Browser", "Media", "Desktop")
+        if name in tool_names:
             self.tabs.setCurrentIndex(self.TAB_NAMES.index("Tools"))
             if self.tools_subtabs is not None:
-                self.tools_subtabs.setCurrentIndex(
-                    ("System", "Notes", "Browser", "Media").index(name)
-                )
+                self.tools_subtabs.setCurrentIndex(tool_names.index(name))
             return
         try:
             index = self.TAB_NAMES.index(name)

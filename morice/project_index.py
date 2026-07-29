@@ -283,9 +283,11 @@ class ProjectIndexer:
         if package_path.is_file():
             try:
                 package = json.loads(package_path.read_text(encoding="utf-8"))
+                dependencies = package.get("dependencies", {})
+                development = package.get("devDependencies", {})
                 deps = {
-                    **package.get("dependencies", {}),
-                    **package.get("devDependencies", {}),
+                    **(dependencies if isinstance(dependencies, dict) else {}),
+                    **(development if isinstance(development, dict) else {}),
                 }
                 for package_name, label in {
                     "react": "React",
@@ -299,13 +301,19 @@ class ProjectIndexer:
                 }.items():
                     if package_name in deps:
                         frameworks.add(label)
-            except (OSError, ValueError):
+            except (OSError, TypeError, ValueError):
                 pass
-        requirements = "\n".join(
-            path.read_text(encoding="utf-8", errors="replace").lower()
-            for path in (base / "requirements.txt", base / "pyproject.toml")
-            if path.is_file()
-        )
+        requirement_parts: list[str] = []
+        for path in (base / "requirements.txt", base / "pyproject.toml"):
+            if not path.is_file():
+                continue
+            try:
+                requirement_parts.append(
+                    path.read_text(encoding="utf-8", errors="replace").lower()
+                )
+            except OSError:
+                continue
+        requirements = "\n".join(requirement_parts)
         for marker, label in {
             "django": "Django",
             "fastapi": "FastAPI",
@@ -324,17 +332,29 @@ class ProjectIndexer:
         dependencies: set[str] = set()
         requirements = base / "requirements.txt"
         if requirements.is_file():
-            for line in requirements.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                lines = requirements.read_text(
+                    encoding="utf-8", errors="replace"
+                ).splitlines()
+            except OSError:
+                lines = ()
+            for line in lines:
                 clean = line.strip()
                 if clean and not clean.startswith(("#", "-")):
-                    dependencies.add(re.split(r"[<>=!~;\[]", clean, maxsplit=1)[0])
+                    dependencies.add(
+                        re.split(r"[<>=!~;\[]", clean, maxsplit=1)[0]
+                    )
         package_path = base / "package.json"
         if package_path.is_file():
             try:
                 package = json.loads(package_path.read_text(encoding="utf-8"))
-                dependencies.update(package.get("dependencies", {}).keys())
-                dependencies.update(package.get("devDependencies", {}).keys())
-            except (OSError, ValueError):
+                runtime = package.get("dependencies", {})
+                development = package.get("devDependencies", {})
+                if isinstance(runtime, dict):
+                    dependencies.update(runtime.keys())
+                if isinstance(development, dict):
+                    dependencies.update(development.keys())
+            except (OSError, TypeError, ValueError):
                 pass
         return tuple(sorted(dependencies))[:1_000]
 
@@ -372,7 +392,11 @@ class ProjectIndexer:
                 timeout=8,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
-            return completed.stdout.strip() if completed.returncode == 0 else ""
+            return (
+                completed.stdout[-100_000:].strip()
+                if completed.returncode == 0
+                else ""
+            )
 
         try:
             root = run("rev-parse", "--show-toplevel")

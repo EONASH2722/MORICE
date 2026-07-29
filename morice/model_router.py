@@ -185,28 +185,48 @@ class ContextManager:
         available = max(2_000, budget_chars - reserved)
         clean = [
             {
-                "role": str(item.get("role", "user")),
+                "role": (
+                    str(item.get("role", "user"))
+                    if str(item.get("role", "user"))
+                    in {"user", "assistant", "system", "tool"}
+                    else "user"
+                ),
                 "content": str(item.get("content", "")),
             }
             for item in history
             if str(item.get("content", "")).strip()
         ]
         query_terms = set(re.findall(r"[a-z0-9_]+", request.lower()))
-        selected: list[dict[str, str]] = []
+        selected_entries: list[tuple[int, dict[str, str]]] = []
         used = 0
-        for item in reversed(clean):
+        history_budget = max(1_000, int(available * 0.8))
+        for index in range(len(clean) - 1, -1, -1):
+            item = clean[index]
             content = item["content"]
             relevance = len(query_terms & set(re.findall(r"[a-z0-9_]+", content.lower())))
-            if selected and relevance == 0 and used > available * 0.65:
+            if selected_entries and relevance == 0 and used > history_budget * 0.65:
                 continue
-            if used + len(content) > available:
+            if used + len(content) > history_budget:
                 continue
-            selected.append(item)
+            selected_entries.append((index, item))
             used += len(content)
-        selected.reverse()
-        omitted = max(0, len(clean) - len(selected))
+        if not selected_entries and clean:
+            newest = dict(clean[-1])
+            newest["content"] = newest["content"][-history_budget:]
+            selected_entries.append((len(clean) - 1, newest))
+            used = len(newest["content"])
+        selected_entries.reverse()
+        selected_indices = {index for index, _item in selected_entries}
+        selected = [item for _index, item in selected_entries]
+        omitted_items = [
+            item for index, item in enumerate(clean) if index not in selected_indices
+        ]
+        omitted = len(omitted_items)
         if omitted:
-            summary = self.summarize(clean[:omitted], max_chars=min(1_600, available // 5))
+            summary = self.summarize(
+                omitted_items,
+                max_chars=min(1_600, max(0, available - used)),
+            )
             if summary:
                 selected.insert(
                     0,
