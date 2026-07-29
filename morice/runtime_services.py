@@ -23,6 +23,7 @@ from typing import Any, Iterable, Iterator
 
 from . import __version__
 from .agent_orchestrator import AgentOrchestrator
+from .plugin_manager import PluginManager
 from .desktop_environment import DesktopIntegrationLayer
 
 APP_VERSION = __version__
@@ -904,6 +905,7 @@ class RuntimeSnapshot:
     dependencies: dict[str, str]
     agent: dict[str, Any]
     desktop: dict[str, Any]
+    plugins: dict[str, Any]
 
 
 class RuntimeServices:
@@ -922,6 +924,20 @@ class RuntimeServices:
         self.health_checker = StartupHealthChecker(project_root, base)
         self.agent = AgentOrchestrator(base / "agent", logger=self.logs.log)
         self.desktop = DesktopIntegrationLayer(base / "desktop")
+        core_root = (
+            Path(project_root).resolve()
+            if project_root
+            else (
+                Path(sys.executable).resolve().parent
+                if getattr(sys, "frozen", False)
+                else Path(__file__).resolve().parents[1]
+            )
+        )
+        self.plugins = PluginManager(
+            base / "plugins",
+            core_root=core_root,
+            logger=self.logs.log,
+        )
         self.health_report = HealthReport(_utc_now(), ())
         self.recovery_info = RecoveryInfo(False)
         self._started = False
@@ -940,11 +956,21 @@ class RuntimeServices:
             self.recovery_info = self.recovery.begin_session()
             self.recovery.install_exception_hooks(self.logs)
             self.desktop.automations.start_scheduler()
+            self.plugins.discover()
+            plugin_startup = self.plugins.start_enabled()
+            self.plugins.publish_event(
+                "application.started",
+                {"version": APP_VERSION, "pid": os.getpid()},
+            )
             self.logs.log(
                 "INFO",
                 "MORICE runtime services started.",
                 category="startup",
-                metadata={"version": APP_VERSION, "pid": os.getpid()},
+                metadata={
+                    "version": APP_VERSION,
+                    "pid": os.getpid(),
+                    "plugins": plugin_startup,
+                },
             )
             self._started = True
             self._shutdown = False
@@ -1054,6 +1080,7 @@ class RuntimeServices:
             dependencies=dependencies,
             agent=self.agent.snapshot(),
             desktop=self.desktop.snapshot(),
+            plugins=self.plugins.diagnostics(),
         )
 
     def save_recovery_snapshot(self, payload: dict[str, Any]) -> None:
@@ -1080,6 +1107,7 @@ class RuntimeServices:
             )
             if clean:
                 self.recovery.mark_clean()
+            self.plugins.shutdown()
             self.desktop.shutdown()
             self.workers.shutdown()
             self.recovery.uninstall_exception_hooks()

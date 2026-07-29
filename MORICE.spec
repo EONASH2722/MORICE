@@ -24,7 +24,7 @@ a = Analysis(
         (os.path.join(project_dir, 'morice', 'assets', 'llama-bin'), 'morice\\assets\\llama-bin'),
         (os.path.join(project_dir, 'morice', 'assets', 'OCR_NOTES.md'), 'morice\\assets'),
     ],
-    hiddenimports=[],
+    hiddenimports=['morice.plugin_host'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

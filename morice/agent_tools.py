@@ -397,6 +397,11 @@ class ToolRegistry:
             self._definitions[definition.tool_id] = definition
             self._handlers[definition.tool_id] = handler
 
+    def unregister(self, tool_id: str) -> None:
+        with self._lock:
+            self._definitions.pop(tool_id, None)
+            self._handlers.pop(tool_id, None)
+
     def definition(self, tool_id: str) -> ToolDefinition | None:
         return self._definitions.get(tool_id)
 

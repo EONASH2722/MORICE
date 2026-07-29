@@ -141,6 +141,12 @@ DEFAULT_COMMANDS = (
         "Notifications, memory, permissions, and automations",
         "phase 3 operating environment",
     ),
+    CommandItem(
+        "plugins",
+        "Open Plugin Center",
+        "Install, review, update, debug, and build MORICE extensions",
+        "extensions marketplace sdk developer",
+    ),
     CommandItem("new-window", "New MORICE window", "Open another workspace", "multi"),
 )
 
@@ -197,6 +203,11 @@ class CommandPalette(QDialog):
         self._recent = tuple(
             key for key in (str(value) for value in keys) if key in valid
         )[:12]
+
+    def set_commands(self, commands: Iterable[CommandItem]) -> None:
+        self.commands = tuple(commands)
+        self.set_recent(self._recent)
+        self._filter(self.search.text())
 
     def _filter(self, value: str) -> None:
         terms = [part for part in value.lower().split() if part]
@@ -528,9 +539,41 @@ class AssistantHub(QFrame):
             ),
         ):
             self.tabs.addTab(page, name)
+        self._plugin_pages: list[QWidget] = []
 
         root.addLayout(header)
         root.addWidget(self.tabs, stretch=1)
+
+    def set_plugin_panels(
+        self,
+        contributions: Iterable[dict[str, Any]],
+        callback: Callable[[dict[str, Any]], None],
+    ) -> None:
+        for page in self._plugin_pages:
+            index = self.tabs.indexOf(page)
+            if index >= 0:
+                self.tabs.removeTab(index)
+            page.deleteLater()
+        self._plugin_pages.clear()
+        for contribution in tuple(contributions)[:12]:
+            page, layout = self._page()
+            title = QLabel(str(contribution.get("title", "Plugin panel")))
+            title.setObjectName("AssistantHubTitle")
+            detail = QLabel(
+                f"Provided by {contribution.get('pluginId', 'plugin')} through the "
+                "MORICE declarative UI bridge."
+            )
+            detail.setWordWrap(True)
+            action = QPushButton("Open")
+            action.clicked.connect(
+                lambda _checked=False, item=dict(contribution): callback(item)
+            )
+            layout.addWidget(title)
+            layout.addWidget(detail)
+            layout.addWidget(action, alignment=Qt.AlignLeft)
+            layout.addStretch(1)
+            self.tabs.addTab(page, str(contribution.get("title", "Plugin"))[:24])
+            self._plugin_pages.append(page)
 
     def _page(self) -> tuple[QWidget, QVBoxLayout]:
         page = QWidget()

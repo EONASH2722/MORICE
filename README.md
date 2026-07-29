@@ -4,7 +4,7 @@
 
 # MORICE
 
-MORICE is a local desktop AI workspace for people who want an assistant that can talk, research, understand local documents, build files, operate approved desktop tools, render mathematics, and run deterministic science visualizations without losing the feel of a personal tool. It combines a PySide6 glass interface, offline GGUF/Ollama model support, trusted model browsing, semantic local search, structured memory, notes lookup, optional web lookup, wake control, queued follow-up messages, a Project Mode file workspace, the validated VNext rendering engine, and a permission-controlled Phase 3 desktop environment.
+MORICE is a local desktop AI workspace for people who want an assistant that can talk, research, understand local documents, build files, operate approved desktop tools, render mathematics, and run deterministic science visualizations without losing the feel of a personal tool. It combines a PySide6 glass interface, offline GGUF/Ollama model support, trusted model browsing, semantic local search, structured memory, notes lookup, optional web lookup, wake control, queued follow-up messages, a Project Mode file workspace, the validated VNext rendering engine, a permission-controlled desktop environment, and a process-isolated Plugin SDK.
 
 <p align="center">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license">
@@ -16,6 +16,7 @@ MORICE is a local desktop AI workspace for people who want an assistant that can
   <img src="https://img.shields.io/badge/VNext-Science%20Workspace-0891b2" alt="Science Workspace">
   <img src="https://img.shields.io/badge/agent-typed%20tools-2563eb" alt="Typed agent tools">
   <img src="https://img.shields.io/badge/desktop-Phase%204-0ea5e9" alt="Phase 4 premium experience">
+  <img src="https://img.shields.io/badge/plugins-SDK%201.0-14b8a6" alt="Plugin SDK 1.0">
   <img src="https://img.shields.io/badge/wake-adaptive%20audio-22c55e" alt="Adaptive wake audio">
 </p>
 
@@ -77,7 +78,32 @@ See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, c
 - Personalization and appearance panel for the user title, wake phrase, response style, emoji amount, maturity level, five themes, accessibility/motion controls, workspace presets, and built-in or user-added fonts. Expressive emoji mode actively shapes replies, while MORICE's voice combines human cadence with precise machine reasoning.
 - Typo-aware and short-form-aware intent handling, so rough wording can still land in the right workflow.
 - Verified capability answers: questions such as `what all rendering can you do` return a complete implemented-feature inventory instead of an improvised model reply.
+- Process-isolated Plugin SDK with typed manifests, mandatory permission review, dependency/version checks, lifecycle state tracking, hot reload, crash recovery, native tool/renderer/command contributions, a searchable local/HTTPS marketplace, checksum-verified packages, version pinning, rollback, diagnostics, and developer templates.
 - MIT licensed, so the project can be studied, forked, customized, and improved.
+
+## Plugin SDK
+
+Open **Plugin Center** from `Ctrl+K` to install, inspect, pause, reload, update,
+or remove extensions. Plugin Center also includes version-specific permission
+review, runtime diagnostics, local/HTTPS marketplace catalogs, and a developer
+workspace that generates and packages sample plugins.
+
+Plugins run in separate bounded processes. MORICE validates their manifest,
+dependencies, platform compatibility, and requested permissions before code
+runs. A plugin crash or timeout removes its active tools and renderers without
+taking down the desktop app. Plugin packages reject traversal paths, symlinks,
+oversized payloads, and core-file writes.
+
+Supported contribution families include models, tools, deterministic renderers,
+commands, themes, workspaces, settings, memory providers, voice providers, and
+automations. The public lifecycle/event/API contract and complete sample are in
+[`docs/plugin-sdk.md`](docs/plugin-sdk.md).
+
+```powershell
+python -m morice.plugin_cli init .\hello-plugin --id example.hello --name "Hello MORICE"
+python -m morice.plugin_cli validate .\hello-plugin
+python -m morice.plugin_cli pack .\hello-plugin --output .\hello-plugin.zip
+```
 
 ## Agent Runtime
 

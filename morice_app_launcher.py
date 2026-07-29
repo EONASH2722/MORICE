@@ -65,6 +65,12 @@ def _fix_pyside_paths():
 _configure_local_model_defaults()
 _fix_pyside_paths()
 
+if "--morice-plugin-host" in sys.argv:
+    from morice.plugin_host import main as run_plugin_host
+
+    sys.argv.remove("--morice-plugin-host")
+    raise SystemExit(run_plugin_host())
+
 from morice.pyside_app import run_app
 
 

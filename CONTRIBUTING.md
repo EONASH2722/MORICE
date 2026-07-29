@@ -44,10 +44,24 @@ Then check:
 - The queue can add, reorder, remove, and auto-send messages.
 - Two claps or the configured wake line wakes MORICE.
 
+Plugin platform checks:
+
+```bat
+python -m unittest tests.test_plugin_platform -v
+python -m morice.plugin_cli validate path\to\plugin
+```
+
+Plugin authors should use namespaced contribution ids, declare only the
+permissions they need, and keep renderer output deterministic. See
+`docs/plugin-sdk.md` for the manifest, lifecycle, isolation, marketplace, and
+diagnostics contracts.
+
 ## Style Notes
 
 - Keep UI changes in `morice/pyside_app.py`.
 - Keep personality and command behavior in `morice/core.py`.
 - Keep wake-listener sensitivity in `morice_wake_listener.py`.
+- Keep extension contracts in `morice/plugin_sdk.py`; plugins must not import
+  private UI internals.
 - Prefer small, readable functions.
 - Do not commit large model files, `node_modules`, voice models, logs, or private memory files.

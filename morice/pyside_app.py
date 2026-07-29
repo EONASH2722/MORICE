@@ -195,6 +195,7 @@ from .ui_system import (
 )
 from .ui_workspace import (
     AssistantHub,
+    CommandItem,
     CommandPalette,
     DEFAULT_COMMANDS,
     FilePreview,
@@ -202,6 +203,7 @@ from .ui_workspace import (
     install_command_shortcut,
 )
 from .diagnostics_ui import DiagnosticsDialog
+from .plugin_ui import PluginCenter
 from .premium_experience import (
     ExperienceProfile,
     ExperienceProfileStore,
@@ -5390,6 +5392,7 @@ class TitleBar(QFrame):
 
         self.setObjectName("TitleBar")
         layout = QHBoxLayout(self)
+        self._layout = layout
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
 
@@ -5459,6 +5462,7 @@ class TitleBar(QFrame):
         for status in self._status_labels:
             layout.addWidget(status)
         layout.addStretch(1)
+        self._plugin_buttons: list[QPushButton] = []
 
         self.settings_btn = QPushButton()
         self.settings_btn.setObjectName("TitleButton")
@@ -5514,6 +5518,25 @@ class TitleBar(QFrame):
         layout.addWidget(self.min_btn)
         layout.addWidget(self.max_btn)
         layout.addWidget(self.close_btn)
+
+    def set_plugin_buttons(self, contributions: list[dict], callback):
+        for button in self._plugin_buttons:
+            self._layout.removeWidget(button)
+            button.deleteLater()
+        self._plugin_buttons.clear()
+        insert_at = self._layout.indexOf(self.settings_btn)
+        for contribution in contributions[:8]:
+            button = QPushButton(str(contribution.get("title", "Plugin"))[:18])
+            button.setObjectName("SidebarButton")
+            button.setToolTip(
+                f"Plugin: {contribution.get('pluginId', '')}"
+            )
+            button.clicked.connect(
+                lambda _checked=False, item=dict(contribution): callback(item)
+            )
+            self._layout.insertWidget(insert_at, button)
+            insert_at += 1
+            self._plugin_buttons.append(button)
 
     def set_theme_icon(self, theme: str):
         normalized = normalize_theme(theme)
@@ -5658,6 +5681,8 @@ class MoriceWindow(QWidget):
     file_search_ready = Signal(object)
     desktop_action_ready = Signal(str, bool)
     premium_metrics_ready = Signal(object)
+    plugin_catalog_changed = Signal()
+    plugin_notification_received = Signal(str, str)
 
     def __init__(
         self,
@@ -5842,6 +5867,10 @@ class MoriceWindow(QWidget):
             self._save_project_settings()
         self.science_artifacts: list[ScienceArtifact] = []
         self.visualization_manager = VisualizationManager()
+        self.runtime.plugins.bind(
+            tool_registry=self.runtime.agent.tools.registry,
+            renderer_registry=self.visualization_manager.registry,
+        )
         self.visualization_cards: dict[str, VisualizationGenerationCard] = {}
         self.visualization_futures: dict[str, object] = {}
         self.active_workspace_kind = "graph"
@@ -7651,6 +7680,14 @@ class MoriceWindow(QWidget):
         self.settings_shortcut.setContext(Qt.WindowShortcut)
         self.settings_shortcut.activated.connect(self.open_premium_settings)
         self.notification_toast = NotificationToast(self)
+        self.plugin_center = PluginCenter(self.runtime.plugins, self)
+        self.plugin_catalog_changed.connect(self._refresh_plugin_commands)
+        self.plugin_notification_received.connect(self._show_plugin_notification)
+        self.runtime.plugins.bind(
+            notification_callback=self.plugin_notification_received.emit,
+            command_callback=self.plugin_catalog_changed.emit,
+        )
+        self._refresh_plugin_commands()
         self.diagnostics_dialog = DiagnosticsDialog(
             self.runtime,
             self._diagnostics_context,
@@ -7815,7 +7852,7 @@ class MoriceWindow(QWidget):
             "renderer_capabilities": self.visualization_manager.capabilities(),
             "model": model,
             "gpu": gpu,
-            "tools": tuple(command.title for command in DEFAULT_COMMANDS),
+            "tools": tuple(command.title for command in self.command_palette.commands),
             "task_queue": (
                 len(self.message_queue)
                 + self.visualization_manager.scheduler.queued_jobs
@@ -8220,6 +8257,10 @@ class MoriceWindow(QWidget):
         self._save_appearance_settings()
         self._save_workspace_session()
         self._refresh_top_bar_status()
+        self.runtime.plugins.publish_event(
+            "workspace.changed",
+            {"preset": preset.name, "chatMode": self.chat_mode},
+        )
         if notify:
             self._show_notification(
                 f"{preset.name.title()} workspace layout applied.",
@@ -8609,6 +8650,11 @@ class MoriceWindow(QWidget):
         progress: int | None = None,
         details: str = "",
     ):
+        if not getattr(self, "_handling_plugin_notification", False):
+            self.runtime.plugins.publish_event(
+                "notification.created",
+                {"message": message[:2_000], "severity": severity},
+            )
         try:
             self.runtime.desktop.notifications.publish(
                 "MORICE",
@@ -8630,6 +8676,13 @@ class MoriceWindow(QWidget):
                 progress=progress,
                 details=details,
             )
+
+    def _show_plugin_notification(self, message: str, severity: str = "info"):
+        self._handling_plugin_notification = True
+        try:
+            self._show_notification(message, severity)
+        finally:
+            self._handling_plugin_notification = False
 
     def _on_workspace_notes_changed(self, notes: str):
         self.workspace_state.notes = notes[:200_000]
@@ -8722,7 +8775,124 @@ class MoriceWindow(QWidget):
         self._on_workspace_command(command, None)
         self._save_workspace_session()
 
+    def _refresh_plugin_commands(self):
+        if not hasattr(self, "command_palette"):
+            return
+        dynamic_commands = tuple(
+            CommandItem(
+                item["key"],
+                item["title"],
+                item["hint"],
+                item["keywords"],
+            )
+            for item in self.runtime.plugins.command_contributions()
+        )
+        catalog = self.runtime.plugins.contribution_catalog()
+        ui_contributions = tuple(catalog.get("ui", ()))
+        dynamic_ui = tuple(
+            CommandItem(
+                f"plugin-ui:{item['pluginId']}:{item['id']}",
+                item["title"],
+                f"{item['kind']} from {item['pluginId']}",
+                f"plugin extension {item['kind']}",
+            )
+            for item in ui_contributions
+        )
+        self.command_palette.set_commands(
+            (*DEFAULT_COMMANDS, *dynamic_commands, *dynamic_ui)
+        )
+        toolbar = [
+            item for item in ui_contributions if item.get("kind") == "toolbar-button"
+        ]
+        if hasattr(self, "title_bar"):
+            self.title_bar.set_plugin_buttons(toolbar, self._run_plugin_ui_contribution)
+        panels = [
+            item
+            for item in ui_contributions
+            if item.get("kind") in {"sidebar-panel", "workspace-panel"}
+        ]
+        panels.extend(
+            {
+                **item,
+                "kind": "workspace-panel",
+                "commandId": "",
+            }
+            for item in catalog.get("workspaces", ())
+        )
+        if hasattr(self, "assistant_hub"):
+            self.assistant_hub.set_plugin_panels(
+                panels,
+                self._run_plugin_ui_contribution,
+            )
+
+    def _run_plugin_ui_contribution(self, contribution: dict):
+        plugin_id = str(contribution.get("pluginId", ""))
+        command_id = str(contribution.get("commandId", ""))
+        if command_id:
+            try:
+                result = self.runtime.plugins.invoke_command(
+                    plugin_id, command_id, {}
+                )
+                self._show_notification(str(result or "Plugin action completed.")[:500], "success")
+            except Exception as exc:
+                self._show_notification(f"Plugin action failed: {exc}", "error")
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle(str(contribution.get("title", "Plugin surface")))
+        dialog.setMinimumSize(520, 320)
+        layout = QVBoxLayout(dialog)
+        title = QLabel(str(contribution.get("title", "Plugin surface")))
+        title.setObjectName("PluginDetailTitle")
+        detail = QLabel(
+            f"{contribution.get('kind', 'surface')} provided by {plugin_id}. "
+            "The surface is hosted by MORICE so plugin code cannot modify the core UI."
+        )
+        detail.setWordWrap(True)
+        open_center = QPushButton("Open Plugin Center")
+        open_center.clicked.connect(self.plugin_center.open_center)
+        layout.addWidget(title)
+        layout.addWidget(detail)
+        layout.addStretch(1)
+        layout.addWidget(open_center, alignment=Qt.AlignLeft)
+        dialog.show()
+        self._plugin_surface_dialogs = getattr(self, "_plugin_surface_dialogs", [])
+        self._plugin_surface_dialogs.append(dialog)
+
     def _on_workspace_command(self, command: str, argument: object = None):
+        if command == "plugins":
+            self.plugin_center.open_center()
+            return
+        if command.startswith("plugin:"):
+            _prefix, plugin_id, command_id = command.split(":", 2)
+            try:
+                result = self.runtime.plugins.invoke_command(
+                    plugin_id,
+                    command_id,
+                    argument if isinstance(argument, dict) else {},
+                )
+                detail = (
+                    json.dumps(result, ensure_ascii=False)
+                    if isinstance(result, (dict, list))
+                    else str(result or "Plugin command completed.")
+                )
+                self._show_notification(detail[:500], "success")
+            except Exception as exc:
+                self._show_notification(f"Plugin command failed: {exc}", "error")
+            return
+        if command.startswith("plugin-ui:"):
+            _prefix, plugin_id, component_id = command.split(":", 2)
+            contribution = next(
+                (
+                    item
+                    for item in self.runtime.plugins.contribution_catalog().get("ui", ())
+                    if item.get("pluginId") == plugin_id
+                    and item.get("id") == component_id
+                ),
+                None,
+            )
+            if contribution:
+                self._run_plugin_ui_contribution(contribution)
+            return
         if command == "settings":
             self.open_premium_settings()
             return
@@ -9038,6 +9208,7 @@ class MoriceWindow(QWidget):
             force_scroll=True,
         )
         self._record_activity("New chat", category="chat")
+        self.runtime.plugins.publish_event("chat.started", {"newChat": True})
         self._save_workspace_session()
 
     def _choose_workspace_file(self):
@@ -9135,7 +9306,7 @@ class MoriceWindow(QWidget):
     def _register_desktop_search_providers(self):
         def commands(query: str):
             terms = _tokenize_for_ui_search(query)
-            for command in DEFAULT_COMMANDS:
+            for command in self.command_palette.commands:
                 if terms and not all(
                     term in command.searchable_text for term in terms
                 ):
@@ -9253,6 +9424,10 @@ class MoriceWindow(QWidget):
             except (OSError, ValueError):
                 pass
         self._record_activity("Screenshot captured", target, "system")
+        self.runtime.plugins.publish_event(
+            "screenshot.captured",
+            {"path": target, "projectFolder": self.project_folder},
+        )
         self._refresh_workspace_hub()
         self._save_workspace_session()
         self._show_notification(f"Screenshot saved to {target}", "success", 7000)
@@ -9492,6 +9667,10 @@ class MoriceWindow(QWidget):
         self._save_project_settings()
         self._refresh_mode_panel()
         self._refresh_project_tree()
+        self.runtime.plugins.publish_event(
+            "project.loaded",
+            {"path": self.project_folder, "access": self.project_access},
+        )
         self.mode_status.setText("Work folder saved. Project mode can use this as the build root.")
 
     def _ensure_project_folder_for_build(self) -> bool:
@@ -9608,6 +9787,14 @@ class MoriceWindow(QWidget):
         self._refresh_mode_panel()
         if old_name != self.model_name or replaced_file:
             reset_model_runtime()
+            self.runtime.plugins.publish_event(
+                "model.changed",
+                {"name": self.model_name, "path": self.model_path},
+            )
+            self.runtime.plugins.publish_event(
+                "model.switched",
+                {"name": self.model_name, "path": self.model_path},
+            )
         if self.model_name:
             replacement = " It replaced the selected GGUF file." if replaced_file else ""
             self.mode_status.setText(f"Ollama model saved: {self.model_name}. MORICE will use it next.{replacement}")
@@ -11096,6 +11283,18 @@ class MoriceWindow(QWidget):
 
         future = self.visualization_manager.submit(request, progress)
         self.visualization_futures[request.job_id] = future
+        self.runtime.plugins.publish_event(
+            "visualization.started",
+            {
+                "jobId": request.job_id,
+                "rendererId": decision.renderer_id,
+                "prompt": user_input[:2_000],
+            },
+        )
+        self.runtime.plugins.publish_event(
+            "renderer.started",
+            {"jobId": request.job_id, "rendererId": decision.renderer_id},
+        )
 
         def completed(completed_future):
             try:
@@ -11125,6 +11324,26 @@ class MoriceWindow(QWidget):
         self.visualization_futures.pop(result.job_id, None)
         if card is None:
             return
+        self.runtime.plugins.publish_event(
+            "visualization.finished",
+            {
+                "jobId": result.job_id,
+                "rendererId": result.renderer_id,
+                "status": result.status,
+                "validated": result.validated,
+                "durationMs": result.duration_ms,
+                "error": result.error,
+            },
+        )
+        self.runtime.plugins.publish_event(
+            "renderer.finished",
+            {
+                "jobId": result.job_id,
+                "rendererId": result.renderer_id,
+                "status": result.status,
+                "validated": result.validated,
+            },
+        )
         if not result.ok or result.artifact is None:
             message = result.error or "The renderer did not produce a validated visualization."
             card.set_error(message)
@@ -11142,6 +11361,15 @@ class MoriceWindow(QWidget):
             return
 
         artifact = result.artifact
+        self.runtime.plugins.publish_event(
+            "visualization.created",
+            {
+                "jobId": result.job_id,
+                "rendererId": result.renderer_id,
+                "kind": artifact.kind,
+                "title": artifact.title,
+            },
+        )
         self._add_science_artifact(artifact)
         if artifact.kind == "graph" and artifact.graph:
             workspace = InlineGraphWorkspace(artifact.graph)
@@ -11652,6 +11880,14 @@ class MoriceWindow(QWidget):
             " ".join(message.split())[:240],
             category="chat",
         )
+        self.runtime.plugins.publish_event(
+            "chat.finished",
+            {
+                "author": author,
+                "isUser": is_user,
+                "characters": len(message),
+            },
+        )
         self._complete_agent_ui(response_present=bool(message))
         self._save_workspace_session()
         self._set_busy(False)
@@ -12082,12 +12318,24 @@ class MoriceWindow(QWidget):
                 tags=("chat", "user"),
                 temporary=True,
             )
+            self.runtime.plugins.publish_event(
+                "memory.updated",
+                {"scope": "temporary", "source": "chat"},
+            )
         except (RuntimeError, TypeError, ValueError):
             pass
         self._record_activity(
             "Message sent",
             " ".join(user_input.split())[:240],
             category="chat",
+        )
+        self.runtime.plugins.publish_event(
+            "chat.started",
+            {
+                "mode": self.chat_mode,
+                "characters": len(user_input),
+                "projectFolder": self.project_folder if self.chat_mode == "project" else "",
+            },
         )
         if not self.first_user_message:
             self.first_user_message = user_input
@@ -12102,6 +12350,10 @@ class MoriceWindow(QWidget):
         if wake_message:
             self._append_direct_reply(user_input, wake_message, address=False)
             self.awake = True
+            self.runtime.plugins.publish_event(
+                "voice.activated",
+                {"source": "wake-phrase", "phrase": self.wake_phrase},
+            )
             return
 
         if not self.awake:
@@ -12590,10 +12842,16 @@ class MoriceWindow(QWidget):
             )
             return
         self.recovery_timer.stop()
+        if self.project_folder:
+            self.runtime.plugins.publish_event(
+                "project.closed",
+                {"path": self.project_folder},
+            )
         if hasattr(self, "_monitor_callback"):
             self.runtime.desktop.system_monitor.unsubscribe(self._monitor_callback)
         if hasattr(self, "premium_settings_dialog"):
             self.premium_settings_dialog.close()
+        self.plugin_center.shutdown()
         self.diagnostics_dialog.close()
         self.visualization_manager.shutdown()
         self.animation_engine.stop_all()
