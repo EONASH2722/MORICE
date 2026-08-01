@@ -1,5 +1,7 @@
 #define MyAppName "MORICE"
-#define MyAppVersion "0.7.0-vnext"
+#ifndef MyAppVersion
+  #define MyAppVersion "0.7.0"
+#endif
 #define MyAppPublisher "EONASH2722"
 #define MyAppExeName "MORICE.exe"
 #define MyAppSourceDir "..\dist\MORICE"
@@ -17,7 +19,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\release
-OutputBaseFilename=MORICE-Setup-{#MyAppVersion}
+OutputBaseFilename=MORICE-Setup-v{#MyAppVersion}-Windows-x64
 SetupIconFile=..\morice\assets\morice_logo.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/fast

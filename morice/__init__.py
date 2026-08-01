@@ -1,4 +1,8 @@
 
 """MORICE desktop AI platform."""
 
-__version__ = "0.7.0-vnext"
+from .version import VERSION
+
+__version__ = VERSION
+
+__all__ = ["VERSION", "__version__"]

@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/release-0.7.0--vnext-4f46e5" alt="Release 0.7.0-vnext">
+  <img src="https://img.shields.io/badge/release-v0.7.0-4f46e5" alt="Release 0.7.0">
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4" alt="Windows 10 and 11">
   <img src="https://img.shields.io/badge/Python-3.12%2B-3776ab" alt="Python 3.12+">
   <img src="https://img.shields.io/badge/UI-PySide6-41cd52" alt="PySide6">
@@ -117,17 +117,28 @@ The release lane targets a Qwen2.5 Coder 7B Q4 GGUF. Actual fit depends on conte
 
 Use **Panel > Change model** to select a model suited to your hardware. See [Models and performance](docs/model-guide.md).
 
-## Install
+## Download And Installation
 
-### Windows installer
+### Option 1 - Recommended Windows installer
 
-Download `MORICE-Setup-0.7.0-vnext.exe` and every adjacent numbered `.bin` slice from the same release into one folder, then run the setup executable. Installation is per-user and does not require administrator access.
+Download `MORICE-Setup-v0.7.0-Windows-x64.exe` and every adjacent numbered `.bin` slice from the same GitHub release into one folder, then run the setup executable. Installation is per-user, creates a Start menu shortcut, and offers an optional desktop shortcut without requiring administrator access.
 
-### Portable package
+### Option 2 - Portable clean ZIP
 
-Download every `MORICE-0.7.0-vnext-portable.zip.part*` file, the `.parts.json` manifest, and `MORICE-0.7.0-vnext-portable-reassemble.ps1`. Run the reassembler, extract the verified ZIP, and launch `MORICE.exe`.
+Download every `MORICE-Portable-v0.7.0-Windows-x64.zip.part*` file, its `.parts.json` manifest, and `MORICE-Portable-v0.7.0-Windows-x64-reassemble.ps1` into one folder. Open PowerShell in that folder and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\MORICE-Portable-v0.7.0-Windows-x64-reassemble.ps1`, then extract the verified ZIP and launch `MORICE.exe`. The portable package is self-contained and includes the release model; keep `MORICE.exe`, `_internal`, and all bundled files together.
 
-Always verify downloads against `checksums.json`. Full instructions are in the [user manual](docs/user-manual.md).
+### Option 3 - Python package
+
+The release includes a model-free wheel and source distribution for advanced users. Install the downloaded wheel in a clean Python 3.12+ environment:
+
+```powershell
+python -m pip install .\morice_ai-0.7.0-py3-none-any.whl
+morice
+```
+
+Upgrade with `python -m pip install --upgrade <wheel-path>` and remove with `python -m pip uninstall morice-ai`. Select a local GGUF or Ollama model after launch. The package has been prepared locally but is not advertised as published on PyPI, GitHub Packages, WinGet, Chocolatey, or Scoop until those channels accept it.
+
+Always verify downloads against `SHA256SUMS.txt` or `checksums.json`. Full instructions are in the [user manual](docs/user-manual.md).
 
 ### Run from source
 
@@ -156,6 +167,7 @@ MORICE/
 |-- third_party/            Redistributable notices and approved runtime material
 |-- morice_app_launcher.py  Source entry point
 |-- MORICE.spec             PyInstaller application specification
+|-- pyproject.toml          Python package metadata and entry points
 `-- requirements.txt        Python runtime dependencies
 ```
 
@@ -176,7 +188,7 @@ Create verified Windows release assets with:
 powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
 ```
 
-The release script builds the PyInstaller application, portable Zip64 package, split installer assets, and SHA-256 metadata only after its configured checks pass.
+The release script builds the PyInstaller application, portable Zip64 package, split installer assets, Python wheel and source distribution, documentation/source bundles, package-content report, and SHA-256 metadata only after its configured checks pass.
 
 ## Documentation
 
@@ -192,7 +204,7 @@ The release script builds the PyInstaller application, portable Zip64 package, s
 - [Developer guide](docs/developer-guide.md)
 - [Frequently asked questions](docs/faq.md)
 - [Troubleshooting](docs/troubleshooting.md)
-- [Release notes](docs/release-notes-0.7.0-vnext.md)
+- [Release notes](docs/release-notes-0.7.0.md)
 
 ## Contributing And Security
 

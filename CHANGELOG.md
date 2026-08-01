@@ -11,7 +11,14 @@ All notable changes to MORICE are documented here.
 - Corrected renderer IDs and removed claims for hosted model providers and unimplemented general-purpose solvers.
 - Added a reusable GitHub release template and refreshed current packaged-build screenshots.
 
-## [0.7.0-vnext] - 2026-08-01
+### Release Engineering
+
+- Standardized the public version as semantic `0.7.0` from one Python version source.
+- Added verified Python wheel and source-distribution packaging with GUI and CLI entry points.
+- Added archive policy, secret, split-part, checksum, and package-content audits.
+- Added release-validation CI and documented the honest publication status of every package channel.
+
+## [0.7.0] - 2026-08-02
 
 ### Added
 

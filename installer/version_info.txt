@@ -22,7 +22,7 @@ VSVersionInfo(
             StringStruct('LegalCopyright', 'Copyright (c) MORICE contributors'),
             StringStruct('OriginalFilename', 'MORICE.exe'),
             StringStruct('ProductName', 'MORICE'),
-            StringStruct('ProductVersion', '0.7.0 VNext')
+            StringStruct('ProductVersion', '0.7.0')
           ]
         )
       ]

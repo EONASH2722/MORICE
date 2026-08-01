@@ -34,7 +34,7 @@ The authoritative source is the active-model status and model manager, not the m
 
 ### Can I use a hosted API?
 
-General hosted-provider API-key configuration is not integrated in `0.7.0-vnext`. Use a local GGUF or local Ollama model.
+General hosted-provider API-key configuration is not integrated in `0.7.0`. Use a local GGUF or local Ollama model.
 
 ## Visualization
 

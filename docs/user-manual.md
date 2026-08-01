@@ -4,11 +4,15 @@
 
 ### Installer
 
-Keep `MORICE-Setup-0.7.0-vnext.exe` and all numbered installer `.bin` slices from the same release together. Run the setup executable and launch MORICE from the installed shortcut.
+Keep `MORICE-Setup-v0.7.0-Windows-x64.exe` and all numbered installer `.bin` slices from the same release together. Run the setup executable and launch MORICE from the installed shortcut.
 
 ### Portable
 
-Keep every portable `.part*` file, the `.parts.json` manifest, and the provided reassembly script together. Run the script, verify the resulting ZIP, extract the complete folder, and launch `MORICE.exe`. Do not run it from inside the ZIP or separate the executable from `_internal`.
+Keep every portable `.part*` file, the `.parts.json` manifest, and the provided reassembly script together. Open PowerShell in that folder and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\MORICE-Portable-v0.7.0-Windows-x64-reassemble.ps1`. Extract the verified ZIP and launch `MORICE.exe`; do not run it from inside the ZIP or separate the executable from `_internal`.
+
+### Python package
+
+The wheel is a model-free advanced installation. Install the downloaded `morice_ai-0.7.0-py3-none-any.whl` with `python -m pip install <wheel-path>`, then run `morice`. Configure a local GGUF or Ollama model in the application. This release does not claim a public package-manager channel until publication is independently verified.
 
 ## First Launch
 

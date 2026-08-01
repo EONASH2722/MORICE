@@ -8,6 +8,11 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Release = Join-Path $Root "release"
 $Dist = Join-Path $Root "dist\MORICE"
+$Version = (& python -c "from morice.version import VERSION; print(VERSION)").Trim()
+if ($LASTEXITCODE -ne 0 -or -not $Version) {
+    throw "Unable to read the authoritative MORICE version."
+}
+$TagVersion = "v$Version"
 
 function Invoke-Checked {
     param(
@@ -26,6 +31,9 @@ function Invoke-Checked {
 if (-not $SkipTests) {
     Push-Location $Root
     try {
+        Invoke-Checked "Version consistency" {
+            python (Join-Path $PSScriptRoot "validate_version.py") --root $Root
+        }
         Invoke-Checked "Python tests" {
             python -m unittest discover -s tests
         }
@@ -60,11 +68,7 @@ $ResolvedRelease = (Resolve-Path -LiteralPath $Release).Path
 if (-not $ResolvedRelease.StartsWith($ResolvedRoot, [StringComparison]::OrdinalIgnoreCase)) {
     throw "Release directory resolved outside the MORICE workspace."
 }
-Get-ChildItem -LiteralPath $Release -File |
-Where-Object {
-    $_.Name -like "MORICE-*" -or $_.Name -eq "checksums.json"
-} |
-Remove-Item -Force
+Get-ChildItem -LiteralPath $Release -Force | Remove-Item -Recurse -Force
 
 Push-Location $Root
 try {
@@ -81,7 +85,7 @@ if (-not (Test-Path (Join-Path $Dist "MORICE.exe"))) {
 }
 
 if (-not $SkipPortable) {
-    $Portable = Join-Path $Release "MORICE-0.7.0-vnext-portable.zip"
+    $Portable = Join-Path $Release "MORICE-Portable-$TagVersion-Windows-x64.zip"
     Invoke-Checked "Portable package build" {
         & python (Join-Path $PSScriptRoot "package_portable.py") `
             --source $Dist `
@@ -95,24 +99,40 @@ if (-not $SkipPortable) {
     }
     Copy-Item `
         -LiteralPath (Join-Path $Root "installer\MORICE-Portable-Reassemble.ps1") `
-        -Destination (Join-Path $Release "MORICE-0.7.0-vnext-portable-reassemble.ps1") `
+        -Destination (Join-Path $Release "MORICE-Portable-$TagVersion-Windows-x64-reassemble.ps1") `
         -Force
     Remove-Item -LiteralPath $Portable -Force
 }
 
-$DocsBundle = Join-Path $Release "MORICE-0.7.0-vnext-documentation.zip"
+$DocsBundle = Join-Path $Release "MORICE-$TagVersion-Documentation.zip"
 Invoke-Checked "Documentation package build" {
     & python (Join-Path $PSScriptRoot "package_docs.py") `
         --root $Root `
         --output $DocsBundle
 }
 
-$SourceBundle = Join-Path $Release "MORICE-0.7.0-vnext-source.zip"
+$SourceBundle = Join-Path $Release "MORICE-$TagVersion-Source.zip"
 Invoke-Checked "Source package build" {
     & python (Join-Path $PSScriptRoot "package_source.py") `
         --root $Root `
-        --output $SourceBundle
+        --output $SourceBundle `
+        --version $Version
 }
+
+Invoke-Checked "Python wheel and source distribution" {
+    Push-Location $env:TEMP
+    try {
+        & python -m build --outdir $Release $Root
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+Copy-Item `
+    -LiteralPath (Join-Path $Root "docs\release-notes-0.7.0.md") `
+    -Destination (Join-Path $Release "MORICE-$TagVersion-Release-Notes.md") `
+    -Force
 
 if (-not $SkipInstaller) {
     $Compiler = Get-Command "ISCC.exe" -ErrorAction SilentlyContinue
@@ -136,12 +156,20 @@ if (-not $SkipInstaller) {
         throw "Inno Setup 6 is required to compile installer\MORICE.iss."
     }
     Invoke-Checked "Installer build" {
-        & $CompilerPath (Join-Path $Root "installer\MORICE.iss")
+        & $CompilerPath "/DMyAppVersion=$Version" (Join-Path $Root "installer\MORICE.iss")
     }
 }
 
+$Report = Join-Path $Release "MORICE-$TagVersion-Package-Contents.json"
+Invoke-Checked "Release content audit" {
+    & python (Join-Path $PSScriptRoot "audit_release.py") `
+        --release $Release `
+        --version $Version `
+        --report $Report
+}
+
 Get-ChildItem -LiteralPath $Release -File |
-Where-Object { $_.Name -ne "checksums.json" } |
+Where-Object { $_.Name -notin @("checksums.json", "SHA256SUMS.txt") } |
 ForEach-Object {
     $Hash = Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName
     [PSCustomObject]@{
@@ -150,5 +178,18 @@ ForEach-Object {
         SHA256 = $Hash.Hash.ToLowerInvariant()
     }
 } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Release "checksums.json") -Encoding UTF8
+
+$ChecksumManifest = Get-Content -LiteralPath (Join-Path $Release "checksums.json") -Raw |
+    ConvertFrom-Json
+@($ChecksumManifest) | ForEach-Object {
+    "{0}  {1}" -f $_.SHA256, $_.Name
+} | Set-Content -LiteralPath (Join-Path $Release "SHA256SUMS.txt") -Encoding ascii
+
+Invoke-Checked "Release checksum verification" {
+    & python (Join-Path $PSScriptRoot "audit_release.py") `
+        --release $Release `
+        --version $Version `
+        --verify-checksums
+}
 
 Write-Host "MORICE release artifacts are ready in $Release"

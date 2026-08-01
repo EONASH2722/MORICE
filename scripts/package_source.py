@@ -25,7 +25,7 @@ EXCLUDED_SUFFIXES = {".gguf", ".log", ".pyc", ".pyo", ".whl"}
 
 def _source_files(root: Path) -> list[Path]:
     completed = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        ["git", "ls-files", "--cached", "-z"],
         cwd=root,
         check=True,
         capture_output=True,
@@ -48,7 +48,7 @@ def _source_files(root: Path) -> list[Path]:
     return sorted(set(files))
 
 
-def package_source(root: Path, output: Path) -> dict[str, int | str]:
+def package_source(root: Path, output: Path, version: str) -> dict[str, int | str]:
     root = root.resolve()
     output = output.resolve()
     files = _source_files(root)
@@ -62,7 +62,7 @@ def package_source(root: Path, output: Path) -> dict[str, int | str]:
     try:
         with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
             for path in files:
-                archive.write(path, f"MORICE-0.7.0-vnext/{path.relative_to(root).as_posix()}")
+                archive.write(path, f"MORICE-{version}/{path.relative_to(root).as_posix()}")
         with zipfile.ZipFile(temporary, "r") as archive:
             bad_member = archive.testzip()
             if bad_member:
@@ -79,8 +79,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build a clean MORICE source archive.")
     parser.add_argument("--root", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--version", required=True)
     arguments = parser.parse_args()
-    print(json.dumps(package_source(arguments.root, arguments.output), indent=2))
+    print(
+        json.dumps(
+            package_source(arguments.root, arguments.output, arguments.version),
+            indent=2,
+        )
+    )
     return 0
 
 

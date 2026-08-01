@@ -1,6 +1,6 @@
 # Feature Matrix
 
-This matrix is the release boundary for MORICE `0.7.0-vnext`. It is intentionally narrower than MORICE's long-term roadmap.
+This matrix is the release boundary for MORICE `0.7.0`. It is intentionally narrower than MORICE's long-term roadmap.
 
 ## Desktop And Conversation
 

@@ -1,6 +1,6 @@
 # MORICE Documentation
 
-This documentation describes the current `0.7.0-vnext` Windows application. Claims are tied to source code, tests, or a packaged-build UI check; planned capabilities are not presented as shipped features.
+This documentation describes the current `0.7.0` Windows application. Claims are tied to source code, tests, or a packaged-build UI check; planned capabilities are not presented as shipped features.
 
 ## Start Here
 
@@ -22,10 +22,12 @@ This documentation describes the current `0.7.0-vnext` Windows application. Clai
 | [Advanced configuration](advanced-configuration.md) | Appearance, accessibility, local inference, context, and performance tuning |
 | [Plugin SDK](plugin-sdk.md) | Plugin manifests, process isolation, contributions, permissions, and tests |
 | [Developer guide](developer-guide.md) | Environment setup, code map, checks, pull requests, and renderer development |
+| [Package distribution](package-distribution.md) | Release artifacts, Python package, channel status, checksums, and signing |
 
 ## Project Information
 
-- [Release notes](release-notes-0.7.0-vnext.md)
+- [Release notes](release-notes-0.7.0.md)
+- [Release audit](release-audit-0.7.0.md)
 - [Changelog](../CHANGELOG.md)
 - [Contributing](../CONTRIBUTING.md)
 - [Security](../SECURITY.md)

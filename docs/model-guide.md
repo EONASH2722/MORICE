@@ -16,7 +16,7 @@ Enter an installed Ollama model tag in the model control. MORICE queries the loc
 
 ### Cloud Providers
 
-General hosted OpenAI, Anthropic, Gemini, or third-party API-key configuration is not part of `0.7.0-vnext`. Do not document or depend on it as a release feature.
+General hosted OpenAI, Anthropic, Gemini, or third-party API-key configuration is not part of `0.7.0`. Do not document or depend on it as a release feature.
 
 ## GPU Detection
 

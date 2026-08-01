@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 if (-not $ManifestPath) {
-    $ManifestPath = Get-ChildItem -LiteralPath $PSScriptRoot -Filter "MORICE-*-portable.zip.parts.json" |
+    $ManifestPath = Get-ChildItem -LiteralPath $PSScriptRoot -Filter "MORICE-Portable-*.zip.parts.json" |
         Select-Object -First 1 -ExpandProperty FullName
 }
 if (-not $ManifestPath -or -not (Test-Path -LiteralPath $ManifestPath)) {
