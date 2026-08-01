@@ -565,6 +565,7 @@ class CapabilityDetector:
 
 UNAVAILABLE_RENDERERS = {
     "model.generic-3d": "The general 3D renderer is not installed yet.",
+    "unsupported.visual": "No installed deterministic renderer supports this visual request yet.",
 }
 
 
@@ -708,7 +709,11 @@ class VisualizationManager:
                 "The request explicitly asks for a structured diagram.",
                 0.92,
             )
-        return None
+        return VisualizationDecision(
+            "unsupported.visual",
+            "The request explicitly asks for a visual, but no installed renderer claimed it.",
+            1.0,
+        )
 
     def create_request(self, prompt: str, decision: VisualizationDecision) -> VisualizationRequest:
         return VisualizationRequest(uuid.uuid4().hex, prompt.strip(), decision)

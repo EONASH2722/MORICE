@@ -10,7 +10,7 @@ os.environ.setdefault("MORICE_REDUCE_MOTION", "1")
 os.environ.setdefault("MORICE_START_AWAKE", "1")
 
 from PySide6.QtCore import QRect, Qt
-from PySide6.QtWidgets import QApplication, QPushButton
+from PySide6.QtWidgets import QApplication, QPushButton, QSizePolicy
 
 from morice.premium_experience import (
     ExperienceProfile,
@@ -138,6 +138,8 @@ class PremiumUiTests(unittest.TestCase):
     def test_chat_bubbles_have_timestamp_copy_edit_and_reactions(self):
         bubble = ChatBubble("Captain", "```python\nprint('ready')\n```", is_user=True)
         self.assertEqual(bubble.accessibleName(), "Captain message")
+        self.assertEqual(bubble.sizePolicy().horizontalPolicy(), QSizePolicy.Expanding)
+        self.assertEqual(bubble.maximumWidth(), 16777215)
         self.assertTrue(
             any(
                 button.toolTip() == "Copy message"
@@ -145,7 +147,32 @@ class PremiumUiTests(unittest.TestCase):
             )
         )
         bubble.reaction_button.click()
-        self.assertNotEqual(bubble.reaction_button.text(), "+")
+        self.assertEqual(bubble.reaction_button.text(), "M^")
+
+    def test_user_and_assistant_messages_use_the_full_chat_row(self):
+        user_row = self.window._create_message_row("Captain", "Build it", True, animate=False)
+        assistant_row = self.window._create_message_row("MORICE", "Built and verified", False, animate=False)
+        self.app.processEvents()
+        for row in (user_row, assistant_row):
+            bubble = row.findChild(ChatBubble)
+            self.assertIsNotNone(bubble)
+            self.assertEqual(row.layout().count(), 1)
+            self.assertEqual(bubble.sizePolicy().horizontalPolicy(), QSizePolicy.Expanding)
+            self.assertEqual(bubble.maximumWidth(), 16777215)
+
+    def test_docked_composer_hides_low_priority_controls_when_narrow(self):
+        self.window._dock_composer_immediate()
+        self.window.input_frame.setFixedWidth(540)
+        self.window._update_composer_responsive_state()
+        self.app.processEvents()
+
+        self.assertFalse(self.window.composer_centered)
+        self.assertTrue(self.window.attach_btn.isVisible())
+        self.assertFalse(self.window.voice_btn.isVisible())
+        self.assertFalse(self.window.model_selector_btn.isVisible())
+        self.assertTrue(self.window.precision_btn.isVisible())
+        self.assertFalse(self.window.personalization_btn.isVisible())
+        self.assertTrue(self.window.send_btn.isVisible())
 
     def test_workspace_presets_rearrange_existing_panels(self):
         self.window._apply_workspace_preset("science", notify=False)
@@ -155,6 +182,12 @@ class PremiumUiTests(unittest.TestCase):
         self.window._apply_workspace_preset("project", notify=False)
         self.app.processEvents()
         self.assertEqual(self.window.chat_mode, "project")
+        self.assertFalse(self.window.changes_panel.isVisible())
+        self.window._on_project_changes_ready(
+            "Updated app.py",
+            "<p><span style='color:#7cf7b5'>+ print('ready')</span></p>",
+        )
+        self.app.processEvents()
         self.assertTrue(self.window.changes_panel.isVisible())
         self.assertEqual(self.window.workspace_preset, "project")
 

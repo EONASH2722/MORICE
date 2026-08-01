@@ -241,6 +241,11 @@ def wants_scene(prompt: str) -> bool:
         }
     ):
         return False
+    if "dashboard" in lowered or re.search(
+        r"\b(?:cpu|gpu|ram|vram|disk|network)\s+usage\b",
+        lowered,
+    ):
+        return False
     return _visual_request(prompt) and any(
         any(_contains_alias(lowered, alias) for alias in aliases)
         for _scene_type, aliases in _SCENE_ALIASES

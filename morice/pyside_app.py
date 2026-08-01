@@ -124,6 +124,8 @@ from .core import (
     riddle_response,
     emotional_checkin_response,
     current_datetime_response,
+    harmful_request_response,
+    ensure_visible_response,
 )
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload, search_notes
 from .llm_client import chat
@@ -1629,8 +1631,8 @@ class ChatBubble(QFrame):
         self.is_user = bool(is_user)
         self._reaction = ""
         self.setObjectName("ChatBubble")
-        self.setMaximumWidth(940)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.setMaximumWidth(16777215)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(6)
@@ -1663,7 +1665,7 @@ class ChatBubble(QFrame):
                 lambda: self.edit_requested.emit(self.message),
             )
             header.addWidget(edit_button)
-        reaction_button = QPushButton("+")
+        reaction_button = QPushButton("M+")
         reaction_button.setObjectName("MessageAction")
         reaction_button.setFixedSize(26, 26)
         reaction_button.setToolTip("React to this message")
@@ -1706,9 +1708,9 @@ class ChatBubble(QFrame):
             clipboard.setText(self.message)
 
     def _cycle_reaction(self) -> None:
-        choices = ("", "\N{THUMBS UP SIGN}", "\N{THUMBS DOWN SIGN}")
+        choices = ("", "M^", "Mv")
         self._reaction = choices[(choices.index(self._reaction) + 1) % len(choices)]
-        self.reaction_button.setText(self._reaction or "+")
+        self.reaction_button.setText(self._reaction or "M+")
         self.reaction_changed.emit(self._reaction)
 
 
@@ -3742,6 +3744,10 @@ class PhysicsCanvas(QWidget):
         self._trails.clear()
         self._replay.clear()
         self.running = True
+        self.show_trails = bool(
+            artifact
+            and artifact.instruction.get("parameters", {}).get("showTrails", False)
+        )
         self.render_mode = "3d" if self._supports_3d_view(artifact) else "2d"
         self.view_yaw = math.radians(38.0)
         self.view_pitch = math.radians(24.0)
@@ -3928,13 +3934,93 @@ class PhysicsCanvas(QWidget):
         if len(self._replay) > replay_limit:
             del self._replay[: len(self._replay) - replay_limit]
         width, height = self.artifact.bounds
-        is_3d = self.artifact.simulation_type == "particle-3d"
+        is_3d = self.artifact.simulation_type in {"particle-3d", "lorenz-3d"}
         depth = float(self.artifact.instruction.get("parameters", {}).get("depth") or height)
         dt = 1 / 60 * self.speed
         particles = self.artifact.particles
         frame_collisions = 0
         parameters = self.artifact.instruction.setdefault("parameters", {})
-        if self.artifact.simulation_type == "pendulum-2d" and particles:
+        if self.artifact.simulation_type == "lorenz-3d" and particles:
+            sigma = float(parameters.get("sigma", 10.0))
+            rho = float(parameters.get("rho", 28.0))
+            beta = float(parameters.get("beta", 8.0 / 3.0))
+            state = [float(value) for value in parameters.get("state", [0.1, 0.0, 0.0])]
+            integration_step = max(0.0005, min(0.02, float(parameters.get("integrationStep", 0.005))))
+
+            def derivative(current):
+                x_value, y_value, z_value = current
+                return (
+                    sigma * (y_value - x_value),
+                    x_value * (rho - z_value) - y_value,
+                    x_value * y_value - beta * z_value,
+                )
+
+            remaining = dt
+            while remaining > 1e-12:
+                step_size = min(integration_step, remaining)
+                k1 = derivative(state)
+                k2 = derivative([state[index] + k1[index] * step_size * 0.5 for index in range(3)])
+                k3 = derivative([state[index] + k2[index] * step_size * 0.5 for index in range(3)])
+                k4 = derivative([state[index] + k3[index] * step_size for index in range(3)])
+                state = [
+                    state[index]
+                    + step_size * (k1[index] + 2 * k2[index] + 2 * k3[index] + k4[index]) / 6.0
+                    for index in range(3)
+                ]
+                remaining -= step_size
+            parameters["state"] = state
+            particle = particles[0]
+            previous = (particle.x, particle.y, particle.z)
+            particle.x = width * 0.5 + state[0] * 7.0
+            particle.y = height * 0.5 + (state[2] - 25.0) * 5.2
+            particle.z = height * 0.5 + state[1] * 7.0
+            particle.vx = (particle.x - previous[0]) / max(1e-9, dt)
+            particle.vy = (particle.y - previous[1]) / max(1e-9, dt)
+            particle.vz = (particle.z - previous[2]) / max(1e-9, dt)
+        elif self.artifact.simulation_type == "double-pendulum-2d" and len(particles) >= 2:
+            anchor_x, anchor_y = [float(value) for value in parameters["anchor"]]
+            length_1, length_2 = [float(value) for value in parameters["lengths"]]
+            angle_1, angle_2 = [float(value) for value in parameters["angles"]]
+            velocity_1, velocity_2 = [float(value) for value in parameters["angularVelocities"]]
+            mass_1, mass_2 = [float(value) for value in parameters.get("masses", [1.0, 1.0])]
+            physical_gravity = float(parameters.get("physicalGravity", 9.81))
+            difference = angle_1 - angle_2
+            common = 2 * mass_1 + mass_2 - mass_2 * math.cos(2 * difference)
+            acceleration_1 = (
+                -physical_gravity * (2 * mass_1 + mass_2) * math.sin(angle_1)
+                - mass_2 * physical_gravity * math.sin(angle_1 - 2 * angle_2)
+                - 2
+                * math.sin(difference)
+                * mass_2
+                * (velocity_2 * velocity_2 * length_2 + velocity_1 * velocity_1 * length_1 * math.cos(difference))
+            ) / max(1e-9, length_1 * common)
+            acceleration_2 = (
+                2
+                * math.sin(difference)
+                * (
+                    velocity_1 * velocity_1 * length_1 * (mass_1 + mass_2)
+                    + physical_gravity * (mass_1 + mass_2) * math.cos(angle_1)
+                    + velocity_2 * velocity_2 * length_2 * mass_2 * math.cos(difference)
+                )
+            ) / max(1e-9, length_2 * common)
+            velocity_1 += acceleration_1 * dt
+            velocity_2 += acceleration_2 * dt
+            angle_1 += velocity_1 * dt
+            angle_2 += velocity_2 * dt
+            parameters["angles"] = [angle_1, angle_2]
+            parameters["angularVelocities"] = [velocity_1, velocity_2]
+            first, second = particles[:2]
+            previous_first = (first.x, first.y)
+            previous_second = (second.x, second.y)
+            first.x = anchor_x + math.sin(angle_1) * length_1
+            first.y = anchor_y + math.cos(angle_1) * length_1
+            second.x = first.x + math.sin(angle_2) * length_2
+            second.y = first.y + math.cos(angle_2) * length_2
+            first.vx = (first.x - previous_first[0]) / max(1e-9, dt)
+            first.vy = (first.y - previous_first[1]) / max(1e-9, dt)
+            second.vx = (second.x - previous_second[0]) / max(1e-9, dt)
+            second.vy = (second.y - previous_second[1]) / max(1e-9, dt)
+        elif self.artifact.simulation_type == "pendulum-2d" and particles:
             anchor_x, anchor_y = [float(value) for value in parameters["anchor"]]
             length = float(parameters["length"])
             angle = float(parameters.get("angleRadians", 0.0))
@@ -3981,6 +4067,8 @@ class PhysicsCanvas(QWidget):
         for particle in particles:
             if self.artifact.simulation_type in {
                 "pendulum-2d",
+                "double-pendulum-2d",
+                "lorenz-3d",
                 "wave-2d",
                 "circular-motion-2d",
             }:
@@ -4039,6 +4127,8 @@ class PhysicsCanvas(QWidget):
             "spring-2d",
             "orbit-2d",
             "pendulum-2d",
+            "double-pendulum-2d",
+            "lorenz-3d",
             "wave-2d",
             "circular-motion-2d",
         }:
@@ -4192,7 +4282,7 @@ class PhysicsCanvas(QWidget):
             painter.drawText(rect, Qt.AlignCenter, "No simulation generated yet")
             return
         sim_w, sim_h = self.artifact.bounds
-        is_3d = self.artifact.simulation_type == "particle-3d"
+        is_3d = self.artifact.simulation_type in {"particle-3d", "lorenz-3d"}
         supports_3d_view = self._supports_3d_view(self.artifact)
         depth = float(self.artifact.instruction.get("parameters", {}).get("depth") or sim_h)
         if supports_3d_view and self.render_mode == "3d":
@@ -4219,6 +4309,40 @@ class PhysicsCanvas(QWidget):
                     adjacent_key = tuple(adjacent)
                     if corner[axis] == 0:
                         painter.drawLine(point, corners[adjacent_key])
+
+            if self.artifact.simulation_type == "double-pendulum-2d" and len(self.artifact.particles) >= 2:
+                parameters = self.artifact.instruction.get("parameters", {})
+                anchor_values = parameters.get("anchor", [sim_w * 0.5, 55.0])
+                anchor = self._project_particle_3d(
+                    float(anchor_values[0]),
+                    float(anchor_values[1]),
+                    depth * 0.5,
+                    sim_w,
+                    sim_h,
+                    depth,
+                    field,
+                )[0]
+                first = self._project_particle_3d(
+                    self.artifact.particles[0].x,
+                    self.artifact.particles[0].y,
+                    self.artifact.particles[0].z,
+                    sim_w,
+                    sim_h,
+                    depth,
+                    field,
+                )[0]
+                second = self._project_particle_3d(
+                    self.artifact.particles[1].x,
+                    self.artifact.particles[1].y,
+                    self.artifact.particles[1].z,
+                    sim_w,
+                    sim_h,
+                    depth,
+                    field,
+                )[0]
+                painter.setPen(QPen(QColor(215, 226, 240, 225), 3))
+                painter.drawLine(anchor, first)
+                painter.drawLine(first, second)
 
             if self.show_trails:
                 for index, trail in self._trails.items():
@@ -4301,6 +4425,24 @@ class PhysicsCanvas(QWidget):
             painter.setPen(QPen(QColor(170, 130, 255, 210), 2))
             painter.drawLine(anchor, end)
             painter.setBrush(QColor(255, 255, 255, 230))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(anchor, 5, 5)
+        elif self.artifact.simulation_type == "double-pendulum-2d" and len(self.artifact.particles) >= 2:
+            anchor_values = self.artifact.instruction.get("parameters", {}).get(
+                "anchor", [sim_w * 0.5, 55.0]
+            )
+            anchor = QPoint(
+                int(left + float(anchor_values[0]) * scale),
+                int(top + float(anchor_values[1]) * scale),
+            )
+            first = self.artifact.particles[0]
+            second = self.artifact.particles[1]
+            first_point = QPoint(int(left + first.x * scale), int(top + first.y * scale))
+            second_point = QPoint(int(left + second.x * scale), int(top + second.y * scale))
+            painter.setPen(QPen(QColor(205, 218, 238, 220), 3))
+            painter.drawLine(anchor, first_point)
+            painter.drawLine(first_point, second_point)
+            painter.setBrush(QColor(255, 255, 255, 235))
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(anchor, 5, 5)
         elif self.artifact.simulation_type == "pendulum-2d" and self.artifact.particles:
@@ -6284,12 +6426,13 @@ class MoriceWindow(QWidget):
 
         self.changes_panel = QFrame()
         self.changes_panel.setObjectName("ProjectChangesPanel")
-        self.changes_panel.setMinimumWidth(440)
-        self.changes_panel.setMaximumWidth(760)
-        self.changes_panel.resize(440, 620)
+        self.changes_panel.setMinimumWidth(390)
+        self.changes_panel.setMaximumWidth(680)
+        self.changes_panel.resize(390, 620)
         self.changes_minimized = False
         self.changes_expanded = False
         self.changes_panel_dismissed = False
+        self.changes_available = False
         changes_layout = QVBoxLayout(self.changes_panel)
         changes_layout.setContentsMargins(14, 14, 14, 14)
         changes_layout.setSpacing(10)
@@ -6308,10 +6451,12 @@ class MoriceWindow(QWidget):
         self.changes_minimize_btn.setVisible(False)
         self.changes_expand_btn = QPushButton("[]")
         self.changes_expand_btn.setObjectName("ChangesIconButton")
+        self.changes_expand_btn.setFixedSize(30, 30)
         self.changes_expand_btn.setToolTip("Widen project changes")
         self.changes_expand_btn.clicked.connect(self._toggle_changes_width)
         self.changes_close_btn = QPushButton()
         self.changes_close_btn.setObjectName("ChangesIconButton")
+        self.changes_close_btn.setFixedSize(30, 30)
         self.changes_close_btn.setIcon(
             QApplication.style().standardIcon(QStyle.SP_TitleBarCloseButton)
         )
@@ -6419,17 +6564,21 @@ class MoriceWindow(QWidget):
         self.changes_action_status = QLabel("No runnable project detected yet.")
         self.changes_action_status.setObjectName("ProjectChangesSummary")
         self.changes_action_status.setWordWrap(True)
-        action_row = QHBoxLayout()
-        action_row.setContentsMargins(0, 0, 0, 0)
-        action_row.setSpacing(8)
-        action_row.addWidget(self.changes_verify_btn)
-        action_row.addWidget(self.changes_run_btn)
-        action_row.addWidget(self.changes_apply_btn)
-        action_row.addWidget(self.changes_reject_btn)
-        action_row.addWidget(self.changes_undo_btn)
+        run_action_row = QHBoxLayout()
+        run_action_row.setContentsMargins(0, 0, 0, 0)
+        run_action_row.setSpacing(8)
+        run_action_row.addWidget(self.changes_verify_btn)
+        run_action_row.addWidget(self.changes_run_btn)
+        patch_action_row = QHBoxLayout()
+        patch_action_row.setContentsMargins(0, 0, 0, 0)
+        patch_action_row.setSpacing(8)
+        patch_action_row.addWidget(self.changes_apply_btn)
+        patch_action_row.addWidget(self.changes_reject_btn)
+        patch_action_row.addWidget(self.changes_undo_btn)
         changes_page_layout.addWidget(self.changes_summary)
         changes_page_layout.addWidget(self.changes_view, stretch=1)
-        changes_page_layout.addLayout(action_row)
+        changes_page_layout.addLayout(run_action_row)
+        changes_page_layout.addLayout(patch_action_row)
         changes_page_layout.addWidget(self.changes_action_status)
         self.project_workspace_stack.addWidget(self.project_changes_page)
 
@@ -6858,16 +7007,27 @@ class MoriceWindow(QWidget):
         self.quick_actions_btn.setAccessibleName("Open quick actions")
         self.quick_actions_btn.clicked.connect(self.open_command_palette)
 
+        for tool_button in (
+            self.attach_btn,
+            self.voice_btn,
+            self.model_selector_btn,
+            self.project_selector_btn,
+            self.quick_actions_btn,
+        ):
+            tool_button.setFixedSize(38, 38)
+
         precision_btn = QPushButton("Precision: ON")
         precision_btn.setObjectName("PrecisionButton")
         precision_btn.clicked.connect(self.on_toggle_precision)
         self.precision_btn = precision_btn
         self.precision_btn.setProperty("active", "true")
+        self.precision_btn.setMinimumWidth(106)
 
         personalization_btn = QPushButton()
         personalization_btn.setObjectName("PersonalizationStatus")
         personalization_btn.clicked.connect(self.toggle_sidebar)
         self.personalization_btn = personalization_btn
+        self.personalization_btn.setMinimumWidth(112)
 
         access_status_btn = QPushButton()
         access_status_btn.setObjectName("ProjectAccessStatus")
@@ -6884,6 +7044,7 @@ class MoriceWindow(QWidget):
         send_btn = SendButton("Send")
         send_btn.clicked.connect(self.on_send)
         self.send_btn = send_btn
+        self.send_btn.setMinimumWidth(82)
 
         input_layout.addWidget(self.attach_btn)
         input_layout.addWidget(self.voice_btn)
@@ -8329,9 +8490,10 @@ class MoriceWindow(QWidget):
             self._set_chat_mode("project")
         self._animate_panel_visibility(self.mode_panel, preset.mode_panel)
         self._animate_panel_visibility(self.workspace_panel, preset.science_panel)
-        if preset.project_panel:
+        show_changes = preset.project_panel and self.changes_available
+        if show_changes:
             self.changes_panel_dismissed = False
-        self._animate_panel_visibility(self.changes_panel, preset.project_panel)
+        self._animate_panel_visibility(self.changes_panel, show_changes)
         self._animate_panel_visibility(
             self.sidebar,
             preset.personalization_panel,
@@ -9786,6 +9948,8 @@ class MoriceWindow(QWidget):
         """Route panel transitions through the shared animation engine."""
         self._panel_target_visibility[panel] = visible
         self.animation_engine.fade(panel, visible, duration=180)
+        if visible and panel is getattr(self, "changes_panel", None):
+            QTimer.singleShot(0, self._ensure_changes_panel_allocation)
 
     def _animate_input_glow(self, blur_radius: int, alpha: int):
         if self.input_glow is None:
@@ -9862,8 +10026,6 @@ class MoriceWindow(QWidget):
             self._refresh_mode_panel()
             return
         self.chat_mode = clean_mode
-        if self.chat_mode == "project":
-            self.changes_panel_dismissed = False
         self.settings["chat_mode"] = self.chat_mode
         self._save_project_settings()
         self._refresh_mode_panel()
@@ -10183,7 +10345,7 @@ class MoriceWindow(QWidget):
             return
         is_project = self.chat_mode == "project"
         self._set_project_details_visible(is_project)
-        if is_project and not self.changes_panel_dismissed:
+        if is_project and self.changes_available and not self.changes_panel_dismissed:
             self._animate_panel_visibility(self.changes_panel, True)
             self._refresh_project_tree()
         else:
@@ -10218,6 +10380,7 @@ class MoriceWindow(QWidget):
             button.setProperty("active", "true" if active else "false")
             button.style().unpolish(button)
             button.style().polish(button)
+        QTimer.singleShot(0, self._update_composer_responsive_state)
         if not is_project:
             self.mode_status.setText(
                 "Normal chat is for everyday questions, quick replies, and casual work.\n"
@@ -10820,6 +10983,7 @@ class MoriceWindow(QWidget):
 
     def _on_project_changes_ready(self, summary: str, diff_html: str):
         self._set_changes_minimized(False)
+        self.changes_available = True
         self.changes_panel_dismissed = False
         self.changes_summary.setText(summary or "Project files updated.")
         self.changes_view.setHtml(
@@ -11290,25 +11454,35 @@ class MoriceWindow(QWidget):
         self.changes_panel_dismissed = True
         self._animate_panel_visibility(self.changes_panel, False)
 
+    def _ensure_changes_panel_allocation(self):
+        """Give the review pane enough splitter space for its header and controls."""
+        panel_index = self.workspace_splitter.indexOf(self.changes_panel)
+        chat_index = self.workspace_splitter.indexOf(self.chat_container)
+        sizes = self.workspace_splitter.sizes()
+        if panel_index < 0 or panel_index >= len(sizes):
+            return
+        target_width = 620 if self.changes_expanded else 390
+        current_width = sizes[panel_index]
+        sizes[panel_index] = target_width
+        if 0 <= chat_index < len(sizes) and current_width < target_width:
+            sizes[chat_index] = max(360, sizes[chat_index] - (target_width - current_width))
+        self.workspace_splitter.setSizes(sizes)
+        self.changes_panel.resize(target_width, self.changes_panel.height())
+
     def _set_changes_minimized(self, minimized: bool):
         self.changes_minimized = False
         self.changes_content.setVisible(True)
         self.changes_title.setVisible(True)
         self.changes_minimize_btn.setVisible(False)
         self.changes_expand_btn.setVisible(True)
-        self.changes_panel.resize(640 if self.changes_expanded else 440, self.changes_panel.height())
+        self.changes_panel.resize(620 if self.changes_expanded else 390, self.changes_panel.height())
 
     def _toggle_changes_width(self):
         if self.changes_minimized:
             self._set_changes_minimized(False)
         self.changes_expanded = not self.changes_expanded
-        target_width = 640 if self.changes_expanded else 440
-        sizes = self.workspace_splitter.sizes()
-        panel_index = self.workspace_splitter.indexOf(self.changes_panel)
-        if 0 <= panel_index < len(sizes):
-            sizes[panel_index] = target_width
-            self.workspace_splitter.setSizes(sizes)
-        self.changes_panel.resize(target_width, self.changes_panel.height())
+        target_width = 620 if self.changes_expanded else 390
+        self._ensure_changes_panel_allocation()
         self.changes_expand_btn.setText("<>" if self.changes_expanded else "[]")
         self.changes_expand_btn.setToolTip("Use normal width" if self.changes_expanded else "Widen project changes")
 
@@ -11770,6 +11944,7 @@ class MoriceWindow(QWidget):
         row = QFrame()
         row.setObjectName("MessageRow")
         row.setProperty("chatMessage", "true")
+        row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
         row_layout.setSpacing(0)
@@ -11783,14 +11958,8 @@ class MoriceWindow(QWidget):
             )
         )
         bubble.installEventFilter(self)
-        maximum = max(360, min(940, self.scroll.viewport().width() - 120))
-        bubble.setMaximumWidth(maximum)
-        if is_user:
-            row_layout.addStretch(1)
-            row_layout.addWidget(bubble)
-        else:
-            row_layout.addWidget(bubble)
-            row_layout.addStretch(1)
+        bubble.setMaximumWidth(16777215)
+        row_layout.addWidget(bubble, stretch=1)
         for button in bubble.findChildren(QPushButton):
             if hasattr(self, "micro_interactions"):
                 button.installEventFilter(self.micro_interactions)
@@ -12245,6 +12414,55 @@ class MoriceWindow(QWidget):
                 widget.installEventFilter(self)
             self._composer_filters_installed = True
 
+        QTimer.singleShot(0, self._update_composer_responsive_state)
+
+    def _update_composer_responsive_state(self):
+        """Keep centered composer commands legible in compact windows."""
+        if not hasattr(self, "input_frame"):
+            return
+
+        available = self.input_frame.width()
+        if available <= 0:
+            return
+
+        is_project = self.chat_mode == "project"
+        if available >= 760:
+            visible_tools = {
+                self.attach_btn,
+                self.voice_btn,
+                self.model_selector_btn,
+                self.project_selector_btn,
+                self.quick_actions_btn,
+            }
+        elif available >= 620:
+            visible_tools = {self.attach_btn, self.voice_btn}
+        elif available >= 480:
+            visible_tools = {self.attach_btn}
+        else:
+            visible_tools = set()
+
+        for tool_button in (
+            self.attach_btn,
+            self.voice_btn,
+            self.model_selector_btn,
+            self.project_selector_btn,
+            self.quick_actions_btn,
+        ):
+            tool_button.setVisible(tool_button in visible_tools)
+
+        self.precision_btn.setVisible(available >= 480)
+        self.personalization_btn.setVisible(not is_project and available >= 620)
+        self.access_status_btn.setVisible(is_project and available >= 620)
+        self.project_lookup_btn.setVisible(is_project and available >= 920)
+
+        if available >= 620:
+            self.input.setMinimumWidth(120)
+        elif available >= 480:
+            self.input.setMinimumWidth(92)
+        else:
+            self.input.setMinimumWidth(72)
+        self.send_btn.setMinimumWidth(82 if available >= 480 else 64)
+
     def _refresh_input_hover_from_cursor(self):
         if not hasattr(self, "input_frame"):
             return
@@ -12499,10 +12717,8 @@ class MoriceWindow(QWidget):
                 margin,
             )
             self.notification_toast.raise_()
-        if hasattr(self, "scroll"):
-            maximum = max(360, min(940, self.scroll.viewport().width() - 120))
-            for bubble in self.chat_list.findChildren(ChatBubble):
-                bubble.setMaximumWidth(maximum)
+        if hasattr(self, "input_frame"):
+            QTimer.singleShot(0, self._update_composer_responsive_state)
         self._schedule_latest_scroll()
 
     def showEvent(self, event):
@@ -12620,6 +12836,11 @@ class MoriceWindow(QWidget):
         father_reply = father_identity_response(user_input, self.user_title)
         if father_reply:
             self._append_direct_reply(user_input, father_reply)
+            return
+
+        harmful_reply = harmful_request_response(user_input, self.user_title)
+        if harmful_reply:
+            self._append_direct_reply(user_input, harmful_reply, address=False)
             return
 
         datetime_reply = current_datetime_response(user_input)
@@ -12935,6 +13156,8 @@ class MoriceWindow(QWidget):
                         math_steps_mode=self.math_steps_mode or wants_steps_detail(user_input),
                         gguf_path=self.model_path,
                     )
+                model_returned_text = bool(str(reply or "").strip())
+                reply = ensure_visible_response(reply)
                 completion_ms = (time.perf_counter() - completion_started) * 1000
                 estimated_tps = self.runtime.profiler.record_model_completion(
                     len(reply),
@@ -12947,6 +13170,7 @@ class MoriceWindow(QWidget):
                     metadata={
                         "projectMode": project_build_request,
                         "replyCharacters": len(reply),
+                        "emptyCompletion": not model_returned_text,
                         "durationMs": completion_ms,
                         "estimatedTokensPerSecond": estimated_tps,
                     },
@@ -12954,11 +13178,12 @@ class MoriceWindow(QWidget):
                 if agent_request_id:
                     self.runtime.agent.record_model_result(
                         agent_request_id,
-                        success=True,
+                        success=model_returned_text,
                         latency_ms=completion_ms,
                         prompt_tokens=max(1, len(model_user_input) // 4),
                         generated_tokens=max(1, len(reply) // 4),
                         gpu_layers=int(os.getenv("MORICE_GPU_LAYERS", "0") or 0),
+                        error="" if model_returned_text else "The selected model returned an empty completion.",
                     )
                 visible_reply = reply
                 if project_build_request:
@@ -13051,6 +13276,7 @@ class MoriceWindow(QWidget):
                         visible_reply = f"I could not safely turn that request into project files yet.{detail}\n\n{folder_hint}"
                 else:
                     visible_reply = self.visualization_manager.sanitize_model_reply(visible_reply)
+                    visible_reply = ensure_visible_response(visible_reply)
                 self.history.append({"role": "user", "content": user_input})
                 self.history.append({"role": "assistant", "content": visible_reply})
                 try:

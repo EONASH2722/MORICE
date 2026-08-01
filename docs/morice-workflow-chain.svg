@@ -1,138 +1,73 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
-  <title id="title">MORICE workflow engine</title>
-  <desc id="desc">A dark professional workflow chart showing how MORICE routes chat, queued follow-ups, project builds, science visualizations, web and notes context, and model selection.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" role="img" aria-labelledby="title desc">
+  <title id="title">MORICE validated request workflow</title>
+  <desc id="desc">A user request is routed to normal chat, VNext visualization, Project Mode, or desktop tools. Every result passes host validation before presentation.</desc>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#050713"/>
-      <stop offset="42%" stop-color="#101428"/>
-      <stop offset="74%" stop-color="#052333"/>
-      <stop offset="100%" stop-color="#04060d"/>
-    </linearGradient>
-    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#171f38"/>
-      <stop offset="100%" stop-color="#0a1224"/>
-    </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#7c4dff"/>
-      <stop offset="48%" stop-color="#24b8d6"/>
-      <stop offset="100%" stop-color="#7df2a8"/>
-    </linearGradient>
-    <linearGradient id="project" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#5130c8"/>
-      <stop offset="100%" stop-color="#1c9cc2"/>
-    </linearGradient>
-    <linearGradient id="science" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0f82db"/>
-      <stop offset="100%" stop-color="#26d3b1"/>
-    </linearGradient>
-    <linearGradient id="context" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#2e8f66"/>
-      <stop offset="100%" stop-color="#a5e86c"/>
-    </linearGradient>
-    <filter id="glow" x="-24%" y="-24%" width="148%" height="148%">
-      <feGaussianBlur stdDeviation="5" result="blur"/>
-      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.42 0 0 0 0 0.78 0 0 0 0 1 0 0 0 0.56 0"/>
-      <feMerge>
-        <feMergeNode/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
-      <path d="M2,2 L10,6 L2,10 Z" fill="#9bdcff"/>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#64d8ff"/>
     </marker>
     <style>
-      .title { font-family: Segoe UI, Inter, Arial, sans-serif; fill: #f7fbff; font-size: 30px; font-weight: 800; }
-      .subtitle { font-family: Segoe UI, Inter, Arial, sans-serif; fill: #c6d7e8; font-size: 16px; }
-      .label { font-family: Segoe UI, Inter, Arial, sans-serif; fill: #ffffff; font-size: 22px; font-weight: 800; }
-      .small { font-family: Segoe UI, Inter, Arial, sans-serif; fill: #d7e7f6; font-size: 14px; }
-      .tiny { font-family: Segoe UI, Inter, Arial, sans-serif; fill: #b9d5e8; font-size: 13px; }
-      .box { stroke: rgba(180,220,255,0.45); stroke-width: 1.5; rx: 20; filter: url(#glow); }
-      .line { fill: none; stroke: #9bdcff; stroke-width: 3; marker-end: url(#arrow); opacity: 0.88; }
-      .rail { fill: rgba(255,255,255,0.055); stroke: rgba(170,210,255,0.24); stroke-width: 1.2; rx: 18; }
+      .bg{fill:#080b12}.panel{fill:#111824;stroke:#36506a;stroke-width:2}.route{fill:#172438;stroke:#64d8ff;stroke-width:2}.visual{fill:#16312f;stroke:#55d6b0;stroke-width:2}.project{fill:#26203b;stroke:#9c7cff;stroke-width:2}.output{fill:#18232a;stroke:#7fda9a;stroke-width:2}.line{stroke:#64d8ff;stroke-width:2.5;fill:none;marker-end:url(#arrow)}.title{fill:#f7f9fc;font:700 30px 'Segoe UI',sans-serif}.head{fill:#f7f9fc;font:700 19px 'Segoe UI',sans-serif}.copy{fill:#b9c5d3;font:15px 'Segoe UI',sans-serif}.tag{fill:#64d8ff;font:700 13px Consolas,monospace}.note{fill:#91a1b5;font:14px 'Segoe UI',sans-serif}
     </style>
   </defs>
+  <rect class="bg" width="1200" height="620"/>
+  <text class="tag" x="52" y="54">M//FLOW</text>
+  <text class="title" x="52" y="91">One request. Host-owned execution.</text>
+  <text class="copy" x="52" y="121">Models reason; MORICE routes, validates, renders, writes, and reports the real result.</text>
 
-  <rect width="1280" height="720" fill="url(#bg)"/>
-  <path d="M0 612 C155 560 260 646 420 590 C560 540 680 540 826 598 C980 660 1110 640 1280 584 L1280 720 L0 720 Z" fill="url(#accent)" opacity="0.16"/>
+  <rect class="panel" x="52" y="180" rx="6" width="205" height="108"/>
+  <text class="head" x="76" y="219">User request</text>
+  <text class="copy" x="76" y="248">Text, file, equation,</text>
+  <text class="copy" x="76" y="271">simulation, or project</text>
 
-  <g opacity="0.82">
-    <circle cx="120" cy="108" r="2" fill="#e8fbff"/>
-    <circle cx="244" cy="86" r="1.7" fill="#c9f0ff"/>
-    <circle cx="426" cy="124" r="2.2" fill="#ffffff"/>
-    <circle cx="650" cy="78" r="1.7" fill="#a7e7ff"/>
-    <circle cx="826" cy="118" r="2" fill="#ffffff"/>
-    <circle cx="1082" cy="90" r="2.3" fill="#ffffff"/>
-    <circle cx="1182" cy="154" r="1.8" fill="#c5f4ff"/>
-    <circle cx="180" cy="620" r="1.9" fill="#c5f4ff"/>
-    <circle cx="374" cy="650" r="2.2" fill="#ffffff"/>
-    <circle cx="928" cy="634" r="2" fill="#b2f7ff"/>
-  </g>
+  <rect class="route" x="330" y="180" rx="6" width="230" height="108"/>
+  <text class="tag" x="354" y="208">M//ROUTE</text>
+  <text class="head" x="354" y="238">Intent router</text>
+  <text class="copy" x="354" y="265">Context + capability check</text>
 
-  <text x="58" y="62" class="title">MORICE workflow engine</text>
-  <text x="58" y="91" class="subtitle">One prompt enters MORICE, then the right local, project, science, or context lane takes over.</text>
+  <rect class="panel" x="642" y="180" rx="6" width="220" height="108"/>
+  <text class="tag" x="666" y="208">M//MODEL</text>
+  <text class="head" x="666" y="238">Selected local model</text>
+  <text class="copy" x="666" y="265">Reasoning and typed intent</text>
 
-  <rect x="58" y="148" width="210" height="94" class="box" fill="rgba(10,15,30,0.94)"/>
-  <text x="84" y="184" class="label">User prompt</text>
-  <text x="84" y="212" class="small">Chat, Project, Lab</text>
-  <text x="84" y="233" class="small">@web, @notes, files</text>
+  <rect class="output" x="940" y="180" rx="6" width="208" height="108"/>
+  <text class="tag" x="964" y="208">M//RESULT</text>
+  <text class="head" x="964" y="238">Visible response</text>
+  <text class="copy" x="964" y="265">Real output or clear error</text>
 
-  <line x1="268" y1="195" x2="346" y2="195" class="line"/>
+  <path class="line" d="M257 234 H330"/>
+  <path class="line" d="M560 234 H642"/>
+  <path class="line" d="M862 234 H940"/>
 
-  <rect x="360" y="132" width="246" height="126" class="box" fill="url(#panel)"/>
-  <text x="392" y="174" class="label">Intent router</text>
-  <text x="392" y="203" class="small">Wake state and mode</text>
-  <text x="392" y="224" class="small">Typo-aware command sense</text>
-  <text x="392" y="245" class="small">Selected model settings</text>
+  <rect class="visual" x="52" y="380" rx="6" width="250" height="142"/>
+  <text class="tag" x="76" y="410">M//VIS</text>
+  <text class="head" x="76" y="440">VNext renderers</text>
+  <text class="copy" x="76" y="468">Typed artifact</text>
+  <text class="copy" x="76" y="491">Validation + live workspace</text>
 
-  <line x1="606" y1="195" x2="682" y2="195" class="line"/>
+  <rect class="project" x="345" y="380" rx="6" width="250" height="142"/>
+  <text class="tag" x="369" y="410">M//DEV</text>
+  <text class="head" x="369" y="440">Project Mode</text>
+  <text class="copy" x="369" y="468">Manifest + protected paths</text>
+  <text class="copy" x="369" y="491">Diff preview + explicit apply</text>
 
-  <rect x="696" y="132" width="246" height="126" class="box" fill="rgba(8,20,30,0.94)"/>
-  <text x="728" y="174" class="label">Local model</text>
-  <text x="728" y="203" class="small">Bundled or selected GGUF</text>
-  <text x="728" y="224" class="small">Ollama model support</text>
-  <text x="728" y="245" class="small">Long-answer budget</text>
+  <rect class="route" x="638" y="380" rx="6" width="250" height="142"/>
+  <text class="tag" x="662" y="410">M//SYS</text>
+  <text class="head" x="662" y="440">Desktop tools</text>
+  <text class="copy" x="662" y="468">Typed command + permission</text>
+  <text class="copy" x="662" y="491">Execution + verification</text>
 
-  <line x1="942" y1="195" x2="1022" y2="195" class="line"/>
+  <rect class="output" x="931" y="380" rx="6" width="217" height="142"/>
+  <text class="tag" x="955" y="410">M//CHECK</text>
+  <text class="head" x="955" y="440">Host validation</text>
+  <text class="copy" x="955" y="468">No fake success</text>
+  <text class="copy" x="955" y="491">No silent completion</text>
 
-  <rect x="1036" y="148" width="188" height="94" class="box" fill="rgba(10,24,26,0.94)"/>
-  <text x="1064" y="184" class="label">Result</text>
-  <text x="1064" y="212" class="small">Reply, files, diff,</text>
-  <text x="1064" y="233" class="small">graph, or simulation</text>
+  <path class="line" d="M445 288 V330 H177 V380"/>
+  <path class="line" d="M445 288 V380"/>
+  <path class="line" d="M445 330 H763 V380"/>
+  <path class="line" d="M302 451 H345"/>
+  <path class="line" d="M595 451 H638"/>
+  <path class="line" d="M888 451 H931"/>
 
-  <path d="M483 258 C483 306 202 302 202 350" class="line"/>
-  <rect x="62" y="350" width="280" height="152" class="box" fill="url(#project)" opacity="0.96"/>
-  <text x="92" y="388" class="label">Project Mode</text>
-  <text x="92" y="417" class="small">Work-folder snapshot</text>
-  <text x="92" y="440" class="small">Safe writes and file diffs</text>
-  <text x="92" y="463" class="small">Local fallback builder</text>
-  <text x="92" y="486" class="small">Folder-only or full access</text>
-
-  <path d="M483 258 C483 306 484 306 484 350" class="line"/>
-  <rect x="372" y="350" width="258" height="152" class="box" fill="url(#science)" opacity="0.96"/>
-  <text x="402" y="388" class="label">Inline VNext</text>
-  <text x="402" y="417" class="small">Graphs and surfaces render</text>
-  <text x="402" y="440" class="small">Physics and molecules run</text>
-  <text x="402" y="463" class="small">Workspaces stay in chat</text>
-  <text x="402" y="486" class="small">Validation blocks fake output</text>
-
-  <path d="M483 258 C483 306 790 302 790 350" class="line"/>
-  <rect x="664" y="350" width="278" height="152" class="box" fill="url(#context)" opacity="0.96"/>
-  <text x="694" y="388" class="label">Context lanes</text>
-  <text x="694" y="417" class="small">@web for current sources</text>
-  <text x="694" y="440" class="small">@notes for private files</text>
-  <text x="694" y="463" class="small">Compact context only</text>
-  <text x="694" y="486" class="small">Normal chat stays local</text>
-
-  <path d="M819 258 C819 306 1098 302 1098 350" class="line"/>
-  <rect x="972" y="350" width="250" height="152" class="box" fill="rgba(18,26,50,0.96)"/>
-  <text x="1002" y="388" class="label">Model Browser</text>
-  <text x="1002" y="417" class="small">Detect GPU and VRAM</text>
-  <text x="1002" y="440" class="small">Score fit and usefulness</text>
-  <text x="1002" y="463" class="small">Verify GGUF files</text>
-  <text x="1002" y="486" class="small">Switch models in app</text>
-
-  <rect x="214" y="560" width="852" height="86" class="rail"/>
-  <text x="252" y="592" class="label" font-size="20">Queue and safety rail</text>
-  <text x="252" y="620" class="small">While MORICE is replying, new messages enter the queue instead of interrupting the active job.</text>
-  <text x="252" y="642" class="small">The user can reorder, remove, or clear queued work from the panel before it runs.</text>
+  <text class="note" x="52" y="580">Normal chat stays conversational. Visualization and file operations remain deterministic, inspectable, and honest.</text>
 </svg>

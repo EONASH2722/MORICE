@@ -191,6 +191,8 @@ def wants_graph(text: str) -> bool:
         }
     ):
         return False
+    if "mandelbrot" in lowered:
+        return bool(re.search(r"\b(?:draw|graph|plot|render|show|visuali[sz]e)\b", lowered))
     if "polar" in lowered or "parametric" in lowered or re.search(r"\br\s*=", text or "", flags=re.IGNORECASE):
         return True
     if re.search(r"\b(?:y|f\s*\(\s*x\s*\))\s*=", text or "", flags=re.IGNORECASE):
@@ -229,6 +231,7 @@ def wants_physics(text: str) -> bool:
             "force",
             "gravity",
             "gas",
+            "lorenz",
             "motion",
             "orbit",
             "particle",
@@ -737,6 +740,61 @@ def _build_surface_artifact(text: str) -> ScienceArtifact | None:
     return ScienceArtifact("graph", title, instruction, graph=graph)
 
 
+def _build_mandelbrot_artifact(text: str) -> ScienceArtifact | None:
+    if "mandelbrot" not in (text or "").lower():
+        return None
+    columns, rows, iterations = 96, 72, 96
+    x_axis = np.linspace(-2.2, 0.8, columns)
+    y_axis = np.linspace(-1.25, 1.25, rows)
+    values = np.zeros((rows, columns), dtype=float)
+    for row, imaginary in enumerate(y_axis):
+        for column, real in enumerate(x_axis):
+            constant = complex(float(real), float(imaginary))
+            value = 0j
+            escaped_at = iterations
+            for step in range(iterations):
+                value = value * value + constant
+                if value.real * value.real + value.imag * value.imag > 4.0:
+                    escaped_at = step + 1
+                    break
+            if escaped_at < iterations:
+                magnitude = max(2.0000001, abs(value))
+                values[row, column] = escaped_at + 1.0 - math.log2(math.log2(magnitude))
+            else:
+                values[row, column] = float(iterations)
+    instruction = {
+        "simulationType": "mandelbrot",
+        "equations": ["z[n+1] = z[n]^2 + c, z[0] = 0"],
+        "parameters": {
+            "xDomain": [-2.2, 0.8],
+            "yDomain": [-1.25, 1.25],
+            "iterations": iterations,
+            "samples": [columns, rows],
+            "views": ["2d", "3d"],
+            "interactive": True,
+            "deterministic": True,
+            "metric": "smoothed-escape-iteration",
+        },
+    }
+    surface = GraphSurface(
+        label="Mandelbrot escape-time field",
+        expression="z[n+1] = z[n]^2 + c",
+        x=[float(value) for value in x_axis],
+        y=[float(value) for value in y_axis],
+        z=[[float(value) for value in row] for row in values],
+        z_range=(float(np.min(values)), float(np.max(values))),
+    )
+    graph = GraphArtifact(
+        "Mandelbrot set",
+        instruction,
+        [],
+        (-2.2, 0.8),
+        (-1.25, 1.25),
+        surface=surface,
+    )
+    return ScienceArtifact("graph", graph.title, instruction, graph=graph)
+
+
 def _build_implicit_artifact(text: str) -> ScienceArtifact | None:
     raw = (text or "").replace("²", "^2").replace("³", "^3").replace("−", "-")
     if re.search(r"\b(?:y|z|r)\s*=", raw, flags=re.IGNORECASE):
@@ -886,6 +944,9 @@ def _build_implicit_artifact(text: str) -> ScienceArtifact | None:
 def build_graph_artifact(text: str) -> ScienceArtifact | None:
     if not wants_graph(text):
         return None
+    mandelbrot = _build_mandelbrot_artifact(text)
+    if mandelbrot:
+        return mandelbrot
     implicit = _build_implicit_artifact(text)
     if implicit:
         return implicit
@@ -992,12 +1053,56 @@ def build_physics_artifact(text: str) -> ScienceArtifact | None:
             "soft-body",
             "rigid body",
             "rigid-body",
-            "double pendulum",
         }
     ):
         return None
 
-    if "projectile" in lowered:
+    if "lorenz" in lowered:
+        count = 1
+        gravity = 0.0
+        friction = 1.0
+        restitution = 1.0
+        simulation_type = "lorenz-3d"
+        particles.append(
+            Particle(
+                width * 0.5,
+                height * 0.5,
+                0.0,
+                0.0,
+                4.5,
+                1.0,
+                "#64d8ff",
+                z=height * 0.5,
+                vz=0.0,
+            )
+        )
+    elif "double pendulum" in lowered:
+        count = 2
+        gravity = 9.81
+        friction = 1.0
+        restitution = 1.0
+        simulation_type = "double-pendulum-2d"
+        anchor_x, anchor_y = width * 0.5, 55.0
+        length_1, length_2 = 108.0, 102.0
+        angle_1, angle_2 = math.radians(32.0), math.radians(12.0)
+        first_x = anchor_x + math.sin(angle_1) * length_1
+        first_y = anchor_y + math.cos(angle_1) * length_1
+        particles.extend(
+            (
+                Particle(first_x, first_y, 0.0, 0.0, 12.0, 1.0, "#64d8ff", z=height * 0.5),
+                Particle(
+                    first_x + math.sin(angle_2) * length_2,
+                    first_y + math.cos(angle_2) * length_2,
+                    0.0,
+                    0.0,
+                    13.0,
+                    1.0,
+                    "#ff8db3",
+                    z=height * 0.5,
+                ),
+            )
+        )
+    elif "projectile" in lowered:
         count = 1
         speed_match = re.search(r"(?:speed|velocity)\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)", lowered)
         angle_match = re.search(r"(?:angle|at)\s*(?:of|=|:)?\s*(\d+(?:\.\d+)?)\s*(?:degrees?|deg|\u00b0)?", lowered)
@@ -1140,11 +1245,13 @@ def build_physics_artifact(text: str) -> ScienceArtifact | None:
             "showTrails": "trail" in lowered or "trajectory" in lowered,
             "showKineticEnergy": "kinetic" in lowered or "energy" in lowered,
             "bounds": [width, height],
-            "depth": height if simulation_type == "particle-3d" else 0.0,
+            "depth": height if simulation_type in {"particle-3d", "lorenz-3d", "double-pendulum-2d"} else 0.0,
             "views": (
                 ["2d", "3d"]
                 if simulation_type in {
                     "particle-3d",
+                    "lorenz-3d",
+                    "double-pendulum-2d",
                     "orbit-2d",
                     "circular-motion-2d",
                 }
@@ -1153,7 +1260,30 @@ def build_physics_artifact(text: str) -> ScienceArtifact | None:
             "deterministic": True,
         },
     }
-    if simulation_type == "pendulum-2d":
+    if simulation_type == "lorenz-3d":
+        instruction["parameters"].update(
+            {
+                "sigma": 10.0,
+                "rho": 28.0,
+                "beta": 8.0 / 3.0,
+                "state": [0.1, 0.0, 0.0],
+                "integrationStep": 0.005,
+                "showTrails": True,
+                "depth": height,
+            }
+        )
+    elif simulation_type == "double-pendulum-2d":
+        instruction["parameters"].update(
+            {
+                "anchor": [anchor_x, anchor_y],
+                "lengths": [length_1, length_2],
+                "angles": [angle_1, angle_2],
+                "angularVelocities": [0.0, 0.0],
+                "masses": [1.0, 1.0],
+                "physicalGravity": 9.81,
+            }
+        )
+    elif simulation_type == "pendulum-2d":
         instruction["parameters"].update(
             {
                 "anchor": [width * 0.5, 72.0],

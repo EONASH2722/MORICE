@@ -1,41 +1,56 @@
-# MORICE Troubleshooting
+# Troubleshooting
 
-## MORICE does not start
+## MORICE Does Not Start
 
-Run the packaged EXE from `dist\MORICE`. Check `%APPDATA%\MORICE\runtime\logs`
-and `last-update-result.json` under the platform update folder. Use
-`python -m morice.cli` only for source-level diagnosis.
+- Run `MORICE.exe` from the extracted portable folder, not from inside the ZIP.
+- Keep `_internal`, the bundled model, and `MORICE.exe` together.
+- Verify the download against `checksums.json`.
+- Install current GPU drivers and the Microsoft Visual C++ runtime.
+- From source, use Python 3.12+ and install `requirements.txt` in a clean virtual environment.
 
-## Model will not load
+## Model Returns Nothing
 
-Confirm the file has a `.gguf` extension and valid GGUF metadata. Compare its
-estimated VRAM with the Hardware page. Lower GPU layers or select a smaller
-quantization when VRAM is tight.
+MORICE now shows an explicit empty-response error rather than a blank assistant bubble. Retry once,
+reduce the prompt/context size, close VRAM-heavy applications, or choose a different model. Check
+the model manager's run plan and application logs.
 
-## Project output is not applied
+## Visualization Unavailable
 
-Choose a valid work folder outside the application directory. Review the diff
-and approve that exact patch. If the file changed after preview, request a new
-preview; MORICE intentionally refuses stale writes.
+This means no validated artifact was mounted. Read the error card; it will name a parse failure,
+unsupported renderer, missing path, or runtime error. Use an explicit equation, molecule name,
+numeric data set, or supported simulation type. MORICE does not replace failures with fake output.
 
-## Visualization is unavailable
+## Wrong Renderer Selected
 
-Open Diagnostics and inspect Renderer registry. MORICE does not replace a
-failed graph or simulation with descriptive text pretending that it rendered.
+State the visual type directly: `plot`, `simulate`, `render molecule`, `visualize data structure`,
+or `open local file`. Include the actual equation, object, numeric values, or valid path. Renderer
+predicates are tested to keep dashboard labels such as `Current Time` from becoming clock requests.
 
-## Plugin fails
+## Project Mode Does Not Write Files
 
-Open Plugin Center diagnostics. Check compatibility, dependencies, permission
-review, process exit, and timeout. Disable the plugin or roll back to its
-previous verified package.
+- Select a work folder with `+`.
+- Do not select the MORICE installation folder.
+- Review the proposed patch and press Apply.
+- In folder-limited mode, keep all requested paths under the selected root.
+- If the model returns invalid JSON, MORICE attempts repair and then a deterministic fallback where supported.
 
-## Update fails
+## Wake Phrase Is Missed
 
-Inspect `last-update-result.json`. MORICE rejects a mismatched byte count,
-SHA-256 checksum, unsafe ZIP path, symbolic link, unsupported package type, or
-package without `MORICE.exe`. Portable updates preserve rollback copies.
+```powershell
+python diagnose-wake-listener.py
+```
 
-## Secure backup cannot be opened
+Check Windows microphone privacy access, choose the correct input, reduce background audio, and
+run calibration again. Very low-quality or noise-cancelled headset inputs can still clip speech.
 
-Encrypted backup is tied to the Windows user through DPAPI. Restore it from
-the same Windows account. MORICE has no insecure plaintext fallback.
+## Build Verification
+
+```powershell
+python -m compileall -q morice
+python -m unittest discover -s tests
+cd vnext
+pnpm test
+pnpm run typecheck
+```
+
+For a release build, use `scripts\build-release.ps1`; do not package an old `dist\MORICE` folder.

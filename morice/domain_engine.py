@@ -364,6 +364,8 @@ def _formula_from_prompt(prompt: str) -> str:
         .replace("₆", "6")
         .replace("⁺", "+")
     )
+    if re.search(r"\bbenzene\b", normalized, flags=re.IGNORECASE):
+        return "C6H6"
     for key in sorted(MOLECULE_LIBRARY, key=len, reverse=True):
         if re.search(
             rf"(?<![A-Za-z0-9]){re.escape(key)}(?![A-Za-z0-9])",
@@ -400,6 +402,57 @@ def wants_molecule(prompt: str) -> bool:
 
 def build_molecule_artifact(prompt: str):
     formula_key = _formula_from_prompt(prompt)
+    if formula_key == "C6H6":
+        carbon_radius = 1.0
+        hydrogen_radius = 1.72
+        atoms: list[MoleculeAtom] = []
+        for index in range(6):
+            angle = math.tau * index / 6.0
+            atoms.append(
+                MoleculeAtom(index, "C", math.cos(angle) * carbon_radius, math.sin(angle) * carbon_radius, 0.0)
+            )
+        for index in range(6):
+            angle = math.tau * index / 6.0
+            atoms.append(
+                MoleculeAtom(6 + index, "H", math.cos(angle) * hydrogen_radius, math.sin(angle) * hydrogen_radius, 0.0)
+            )
+        bonds = [
+            MoleculeBond(index, (index + 1) % 6, 2 if index % 2 == 0 else 1)
+            for index in range(6)
+        ]
+        bonds.extend(MoleculeBond(index, 6 + index, 1) for index in range(6))
+        instruction = {
+            "simulationType": "molecule",
+            "equations": [],
+            "parameters": {
+                "formula": "C6H6",
+                "views": ["2d", "3d"],
+                "interactive": True,
+                "deterministic": True,
+                "source": "curated-vsepr-library",
+                "representation": "planar-aromatic-ring",
+            },
+        }
+        molecule = MoleculeArtifact(
+            title="Benzene (C6H6)",
+            formula="C6H6",
+            geometry="planar hexagonal aromatic ring",
+            electron_geometry="trigonal planar at each carbon",
+            atoms=atoms,
+            bonds=bonds,
+            central_atom=0,
+            central_lone_pairs=0,
+            reference_angles=[120.0],
+            coordinate_model="idealized-planar-aromatic",
+            instruction=instruction,
+            notes=[
+                "Alternating bond orders depict one Kekule resonance form; the carbon-carbon bonds are equivalent in the resonance hybrid.",
+                "Coordinates are an idealized educational geometry, not an optimized quantum-chemical structure.",
+            ],
+        )
+        from .science_engine import ScienceArtifact
+
+        return ScienceArtifact("chemistry", molecule.title, instruction, chemistry=molecule)
     specification = MOLECULE_LIBRARY.get(formula_key)
     if not specification:
         return None
@@ -484,6 +537,35 @@ def build_molecule_artifact(prompt: str):
 
 
 KNOWN_DIAGRAMS: tuple[tuple[tuple[str, ...], str, str, list[str], list[tuple[int, int, str]]], ...] = (
+    (
+        ("scientific dashboard", "system dashboard", "telemetry dashboard"),
+        "Scientific system dashboard",
+        "dashboard",
+        [
+            "CPU usage",
+            "GPU usage",
+            "RAM usage",
+            "VRAM usage",
+            "Disk read/write",
+            "Network speed",
+            "FPS counter",
+            "Current time",
+            "Current date",
+        ],
+        [],
+    ),
+    (
+        ("maxwell equations", "maxwell's equations", "maxwells equations"),
+        "Maxwell's equations",
+        "equations",
+        [
+            "Gauss electric: div E = rho / epsilon0",
+            "Gauss magnetic: div B = 0",
+            "Faraday: curl E = -dB/dt",
+            "Ampere-Maxwell: curl B = mu0 J + mu0 epsilon0 dE/dt",
+        ],
+        [],
+    ),
     (
         ("osi", "osi model"),
         "OSI seven-layer model",
@@ -815,7 +897,7 @@ def wants_diagram(prompt: str) -> bool:
     lowered = (prompt or "").lower()
     visual = bool(
         re.search(
-            r"\b(?:animate|diagram|draw|flowchart|model|show|timeline|tree|visuali[sz]e)\b",
+            r"\b(?:animate|create|design|diagram|draw|flowchart|model|render|show|timeline|tree|visuali[sz]e)\b",
             lowered,
         )
     )

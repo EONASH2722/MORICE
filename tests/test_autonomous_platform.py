@@ -303,6 +303,37 @@ class BackupExportUpdateTests(unittest.TestCase):
                 )
                 self.assertIsNone(archive.testzip())
 
+    def test_large_release_asset_split_has_verified_reassembly_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "MORICE-portable.zip"
+            payload = (b"MORICE-release-data\n" * 140_000) + b"complete"
+            source.write_bytes(payload)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(__file__).parents[1] / "scripts" / "split_release_asset.py"),
+                    "--source",
+                    str(source),
+                    "--output-dir",
+                    str(root),
+                    "--part-size",
+                    str(1024 * 1024),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                creationflags=CREATE_NO_WINDOW,
+            )
+            report = json.loads(completed.stdout)
+            self.assertGreaterEqual(len(report["parts"]), 2)
+            rebuilt = b"".join(
+                (root / part["name"]).read_bytes() for part in report["parts"]
+            )
+            self.assertEqual(rebuilt, payload)
+            self.assertEqual(report["bytes"], len(payload))
+            self.assertTrue((root / "MORICE-portable.zip.parts.json").is_file())
+
     def test_export_skips_detected_secret_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -482,9 +513,15 @@ class BackupExportUpdateTests(unittest.TestCase):
                 )
 
             run.assert_called_once()
-            relaunch.assert_called_once_with(
-                [str(install / "MORICE.exe")],
-                cwd=install,
+            relaunch.assert_called_once()
+            relaunch_args, relaunch_kwargs = relaunch.call_args
+            self.assertEqual(
+                Path(relaunch_args[0][0]).resolve(),
+                (install / "MORICE.exe").resolve(),
+            )
+            self.assertEqual(
+                Path(relaunch_kwargs["cwd"]).resolve(),
+                install.resolve(),
             )
             result = json.loads(
                 (updates / "last-update-result.json").read_text(

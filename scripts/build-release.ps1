@@ -54,6 +54,18 @@ if (-not $SkipTests) {
     }
 }
 
+New-Item -ItemType Directory -Force -Path $Release | Out-Null
+$ResolvedRoot = (Resolve-Path -LiteralPath $Root).Path
+$ResolvedRelease = (Resolve-Path -LiteralPath $Release).Path
+if (-not $ResolvedRelease.StartsWith($ResolvedRoot, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Release directory resolved outside the MORICE workspace."
+}
+Get-ChildItem -LiteralPath $Release -File |
+Where-Object {
+    $_.Name -like "MORICE-*" -or $_.Name -eq "checksums.json"
+} |
+Remove-Item -Force
+
 Push-Location $Root
 try {
     Invoke-Checked "PyInstaller build" {
@@ -68,8 +80,6 @@ if (-not (Test-Path (Join-Path $Dist "MORICE.exe"))) {
     throw "PyInstaller did not produce dist\MORICE\MORICE.exe."
 }
 
-New-Item -ItemType Directory -Force -Path $Release | Out-Null
-
 if (-not $SkipPortable) {
     $Portable = Join-Path $Release "MORICE-0.7.0-vnext-portable.zip"
     Invoke-Checked "Portable package build" {
@@ -77,6 +87,31 @@ if (-not $SkipPortable) {
             --source $Dist `
             --output $Portable
     }
+    Invoke-Checked "Portable release split" {
+        & python (Join-Path $PSScriptRoot "split_release_asset.py") `
+            --source $Portable `
+            --output-dir $Release `
+            --part-size 1900000000
+    }
+    Copy-Item `
+        -LiteralPath (Join-Path $Root "installer\MORICE-Portable-Reassemble.ps1") `
+        -Destination (Join-Path $Release "MORICE-0.7.0-vnext-portable-reassemble.ps1") `
+        -Force
+    Remove-Item -LiteralPath $Portable -Force
+}
+
+$DocsBundle = Join-Path $Release "MORICE-0.7.0-vnext-documentation.zip"
+Invoke-Checked "Documentation package build" {
+    & python (Join-Path $PSScriptRoot "package_docs.py") `
+        --root $Root `
+        --output $DocsBundle
+}
+
+$SourceBundle = Join-Path $Release "MORICE-0.7.0-vnext-source.zip"
+Invoke-Checked "Source package build" {
+    & python (Join-Path $PSScriptRoot "package_source.py") `
+        --root $Root `
+        --output $SourceBundle
 }
 
 if (-not $SkipInstaller) {

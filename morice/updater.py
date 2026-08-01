@@ -91,6 +91,11 @@ def _apply_portable_update(
     install_root: Path,
     rollback_root: Path,
 ) -> list[str]:
+    # Windows can present the same directory through both an 8.3 alias and its
+    # long name. Resolve both roots once so containment checks compare the same
+    # canonical representation instead of rejecting a valid destination.
+    install_root = install_root.expanduser().resolve()
+    rollback_root = rollback_root.expanduser().resolve()
     changed: list[str] = []
     rollback_root.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="morice-update-") as directory:

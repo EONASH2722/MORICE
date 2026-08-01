@@ -573,6 +573,11 @@ class InlineVisualizationTests(unittest.TestCase):
                 handle.write("print('ready')\n")
             self.window.project_folder = folder
             self.window._set_chat_mode("project")
+            self.app.processEvents()
+            self.assertFalse(self.window.changes_available)
+            self.assertFalse(
+                self.window._panel_target_visibility[self.window.changes_panel]
+            )
             self.window._on_project_changes_ready(
                 "Updated main.py",
                 "<p><span style='color:#7cf7b5'>+ print('ready')</span></p>",
@@ -581,8 +586,12 @@ class InlineVisualizationTests(unittest.TestCase):
 
             self.assertFalse(self.window.changes_content.isHidden())
             self.assertFalse(self.window.changes_minimized)
-            self.assertGreaterEqual(self.window.changes_panel.width(), 440)
+            self.assertGreaterEqual(self.window.changes_panel.width(), 390)
             self.assertFalse(self.window.changes_close_btn.isHidden())
+            self.assertLessEqual(
+                self.window.changes_close_btn.geometry().right(),
+                self.window.changes_panel.contentsRect().right(),
+            )
             self.window._set_project_workspace_tab(0)
             self.assertGreaterEqual(
                 self.window.project_file_tree.topLevelItem(0).childCount(),
@@ -611,6 +620,31 @@ class InlineVisualizationTests(unittest.TestCase):
             self.assertTrue(
                 self.window._panel_target_visibility[self.window.changes_panel]
             )
+
+    def test_centered_composer_keeps_command_labels_readable_when_compact(self):
+        self.window.composer_centered = True
+        self.window.input_frame.resize(580, 64)
+        self.window._update_composer_responsive_state()
+
+        self.assertTrue(self.window.voice_btn.isHidden())
+        self.assertTrue(self.window.model_selector_btn.isHidden())
+        self.assertTrue(self.window.project_selector_btn.isHidden())
+        self.assertTrue(self.window.quick_actions_btn.isHidden())
+        self.assertFalse(self.window.precision_btn.isHidden())
+        self.assertTrue(self.window.personalization_btn.isHidden())
+        self.assertGreaterEqual(self.window.precision_btn.minimumWidth(), 106)
+        self.assertGreaterEqual(self.window.personalization_btn.minimumWidth(), 112)
+        self.assertGreaterEqual(self.window.send_btn.minimumWidth(), 82)
+
+        self.window.input_frame.resize(820, 64)
+        self.window._update_composer_responsive_state()
+        self.assertFalse(self.window.attach_btn.isHidden())
+        self.assertFalse(self.window.voice_btn.isHidden())
+        self.assertFalse(self.window.model_selector_btn.isHidden())
+        self.assertFalse(self.window.project_selector_btn.isHidden())
+        self.assertFalse(self.window.quick_actions_btn.isHidden())
+        self.assertFalse(self.window.precision_btn.isHidden())
+        self.assertFalse(self.window.personalization_btn.isHidden())
 
     def test_project_manifest_writes_validated_files_atomically(self):
         with tempfile.TemporaryDirectory() as folder:

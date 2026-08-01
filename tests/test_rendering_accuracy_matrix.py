@@ -177,6 +177,45 @@ class RenderingAccuracyMatrix(unittest.TestCase):
             )
         )
 
+    def test_11_benzene_has_twelve_atoms_and_a_planar_aromatic_ring(self):
+        artifact = self._render("Render a complete interactive Benzene molecule.")
+        molecule = artifact.chemistry
+        self.assertEqual(molecule.formula, "C6H6")
+        self.assertEqual(len(molecule.atoms), 12)
+        self.assertEqual(len(molecule.bonds), 12)
+        self.assertTrue(all(math.isclose(atom.z, 0.0, abs_tol=1e-12) for atom in molecule.atoms))
+        self.assertEqual(molecule.instruction["parameters"]["views"], ["2d", "3d"])
+
+    def test_12_mandelbrot_uses_the_escape_time_recurrence(self):
+        artifact = self._render("Render an interactive Mandelbrot fractal.")
+        surface = artifact.graph.surface
+        self.assertEqual(artifact.graph.instruction["simulationType"], "mandelbrot")
+        self.assertEqual(artifact.graph.instruction["parameters"]["views"], ["2d", "3d"])
+        zero_column = min(range(len(surface.x)), key=lambda index: abs(surface.x[index]))
+        zero_row = min(range(len(surface.y)), key=lambda index: abs(surface.y[index]))
+        self.assertEqual(surface.z[zero_row][zero_column], 96.0)
+
+    def test_13_lorenz_and_double_pendulum_have_explicit_solver_state(self):
+        lorenz = self._render("Render an interactive 3D Lorenz attractor.").physics
+        pendulum = self._render("Render a real-time double pendulum simulation.").physics
+        self.assertEqual(lorenz.simulation_type, "lorenz-3d")
+        self.assertEqual(lorenz.instruction["parameters"]["state"], [0.1, 0.0, 0.0])
+        self.assertEqual(lorenz.instruction["parameters"]["views"], ["2d", "3d"])
+        self.assertEqual(pendulum.simulation_type, "double-pendulum-2d")
+        self.assertEqual(len(pendulum.particles), 2)
+        self.assertEqual(len(pendulum.instruction["parameters"]["lengths"]), 2)
+        self.assertEqual(pendulum.instruction["parameters"]["views"], ["2d", "3d"])
+
+    def test_14_dashboard_and_maxwell_prompts_do_not_cross_route(self):
+        dashboard = self._render(
+            "Create a modern scientific dashboard with CPU Usage, GPU Usage, RAM Usage, Current Time, and Current Date."
+        )
+        maxwell = self._render("Render Maxwell's equations with divergence and curl.")
+        self.assertEqual(dashboard.diagram.title, "Scientific system dashboard")
+        self.assertEqual(dashboard.diagram.diagram_type, "dashboard")
+        self.assertEqual(maxwell.diagram.title, "Maxwell's equations")
+        self.assertEqual(len(maxwell.diagram.nodes), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

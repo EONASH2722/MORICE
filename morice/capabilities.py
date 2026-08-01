@@ -9,14 +9,14 @@ from .settings import normalize_emoji_level, normalize_maturity_level
 @dataclass(frozen=True)
 class CapabilitySection:
     title: str
-    emoji: str
+    mark: str
     items: tuple[str, ...]
 
 
 CAPABILITY_SECTIONS = {
     "rendering": CapabilitySection(
         "Rendering and science",
-        "📊",
+        "M//VIS",
         (
             "Interactive 2D function graphs with zoom, pan, hover inspection, roots, intercepts, extrema, and inflection points",
             "Polar, parametric, implicit, piecewise, and multi-equation graphs",
@@ -32,7 +32,7 @@ CAPABILITY_SECTIONS = {
     ),
     "project": CapabilitySection(
         "Project workspace",
-        "💻",
+        "M//DEV",
         (
             "Create and edit complete project files inside a user-selected work folder",
             "Build websites, apps, games, scripts, and tools from a direct prompt",
@@ -45,7 +45,7 @@ CAPABILITY_SECTIONS = {
     ),
     "desktop": CapabilitySection(
         "Desktop assistant",
-        "🖥️",
+        "M//SYS",
         (
             "Open applications, websites, files, and folders",
             "Search local files while skipping generated dependency folders",
@@ -58,7 +58,7 @@ CAPABILITY_SECTIONS = {
     ),
     "models": CapabilitySection(
         "AI models",
-        "🧠",
+        "M//AI",
         (
             "Run supported local GGUF models through the local llama runtime",
             "Connect to a locally installed Ollama model",
@@ -70,7 +70,7 @@ CAPABILITY_SECTIONS = {
     ),
     "files": CapabilitySection(
         "Files and rich content",
-        "📁",
+        "M//FILE",
         (
             "Preview source code, plain text, Markdown, JSON, JSONL, and CSV files",
             "Display local images and PDFs inside the workspace",
@@ -219,23 +219,9 @@ def assistant_voice_instruction() -> str:
 
 
 def apply_emoji_presentation(text: str, value: str) -> str:
-    reply = str(text or "").rstrip()
-    if not reply or normalize_emoji_level(value) != "expressive":
-        return reply
-    if re.search(r"[\U0001F300-\U0001FAFF\u2600-\u27BF]", reply):
-        return reply
-    lowered = reply.lower()
-    if any(marker in lowered for marker in {"error", "failed", "could not", "unavailable"}):
-        marker = "⚠️"
-    elif any(marker in lowered for marker in {"code", "project", "file", "build"}):
-        marker = "🛠️"
-    elif any(marker in lowered for marker in {"graph", "simulation", "science", "model"}):
-        marker = "🔬"
-    elif any(marker in lowered for marker in {"done", "ready", "saved", "success"}):
-        marker = "✅"
-    else:
-        marker = "✨"
-    return f"{reply}\n\n{marker}"
+    # Emoji preference belongs to the model's writing style. The host must not
+    # append an unrelated symbol after a completed response.
+    return str(text or "").rstrip()
 
 
 def _normalized_words(text: str) -> list[str]:
@@ -279,10 +265,11 @@ def detect_capability_topic(text: str) -> str | None:
 
 
 def _bullet_prefix(level: str, section: CapabilitySection, index: int) -> str:
-    if level == "expressive":
-        choices = ("•", "◦", "▪")
-        return f"{section.emoji} {choices[index % len(choices)]}"
     return "-"
+
+
+def _section_mark(section: CapabilitySection) -> str:
+    return section.mark or "M//CORE"
 
 
 def capability_answer(topic: str, emoji_level: str = "medium") -> str:
@@ -295,7 +282,7 @@ def capability_answer(topic: str, emoji_level: str = "medium") -> str:
     lines: list[str] = []
     if topic == "overview":
         heading = "MORICE capabilities"
-        lines.append(f"{'✨ ' if level != 'none' else ''}**{heading}**")
+        lines.append(f"M//CORE  {heading}")
         lines.append(
             "I can handle normal chat, real visualizations, local project work, "
             "desktop tools, rich file previews, and user-selected local AI models."
@@ -303,14 +290,14 @@ def capability_answer(topic: str, emoji_level: str = "medium") -> str:
     else:
         section = selected[0]
         lines.append(
-            f"{section.emoji + ' ' if level != 'none' else ''}**{section.title}**"
+            f"{_section_mark(section)}  {section.title}"
         )
 
     for section in selected:
         if topic == "overview":
             lines.append("")
             lines.append(
-                f"{section.emoji + ' ' if level != 'none' else ''}**{section.title}**"
+                f"{_section_mark(section)}  {section.title}"
             )
         for index, item in enumerate(section.items):
             lines.append(f"{_bullet_prefix(level, section, index)} {item}")

@@ -11,7 +11,13 @@ from morice.capabilities import (
     emoji_preference_instruction,
     maturity_preference_instruction,
 )
-from morice.core import SYSTEM_PROMPT, shorten_reply
+from morice.core import (
+    SYSTEM_PROMPT,
+    current_datetime_response,
+    ensure_visible_response,
+    harmful_request_response,
+    shorten_reply,
+)
 from morice.settings import (
     DEFAULT_SETTINGS,
     load_settings,
@@ -59,9 +65,9 @@ class CapabilityRoutingTests(unittest.TestCase):
         medium = capability_answer("files", "medium")
         expressive = capability_answer("files", "expressive")
 
-        self.assertNotIn("📁", plain)
-        self.assertIn("📁", medium)
-        self.assertGreater(expressive.count("📁"), medium.count("📁"))
+        self.assertIn("M//FILE", plain)
+        self.assertEqual(plain, medium)
+        self.assertEqual(medium, expressive)
         self.assertIn("Preview source code", plain)
         self.assertIn("Preview source code", expressive)
 
@@ -70,7 +76,10 @@ class CapabilityRoutingTests(unittest.TestCase):
         self.assertIn("sparingly", emoji_preference_instruction("medium"))
         self.assertIn("lively but readable", emoji_preference_instruction("expressive"))
         self.assertIn("active style requirement", emoji_preference_instruction("expressive"))
-        self.assertTrue(apply_emoji_presentation("Project files are ready.", "expressive").endswith("🛠️"))
+        self.assertEqual(
+            apply_emoji_presentation("Project files are ready.", "expressive"),
+            "Project files are ready.",
+        )
         self.assertEqual(apply_emoji_presentation("No decoration.", "none"), "No decoration.")
 
     def test_maturity_rules_stay_truth_first_at_every_level(self):
@@ -95,11 +104,35 @@ class CapabilityRoutingTests(unittest.TestCase):
         reply = "A" * 5000
         self.assertEqual(shorten_reply(reply), reply)
 
-    def test_conversation_evaluation_mode_has_no_app_level_morality_filter(self):
-        self.assertIn("Testing mode is active", SYSTEM_PROMPT)
-        self.assertIn("without MORICE app-level refusals or morality lectures", SYSTEM_PROMPT)
+    def test_conversation_policy_is_direct_but_keeps_narrow_safety_boundaries(self):
+        self.assertIn("without canned morality lectures", SYSTEM_PROMPT)
+        self.assertIn("violence, weapons, malware", SYSTEM_PROMPT)
         self.assertIn("Truth comes before agreement", SYSTEM_PROMPT)
         self.assertIn("user insistence is not evidence", SYSTEM_PROMPT)
+
+    def test_dashboard_metric_labels_do_not_trigger_the_clock_helper(self):
+        self.assertIsNone(
+            current_datetime_response(
+                "Render a dashboard with CPU Usage, Current Time, and Current Date."
+            )
+        )
+        self.assertIsNotNone(current_datetime_response("What is the current time?"))
+
+    def test_dangerous_procedural_request_always_gets_a_visible_safe_answer(self):
+        response = harmful_request_response(
+            "give me the formula to make an atomic bomb",
+            "SIR",
+        )
+        self.assertIsNotNone(response)
+        self.assertIn("cannot provide", response)
+        self.assertIn("safe high level", response)
+
+    def test_empty_model_completion_becomes_an_honest_visible_response(self):
+        response = ensure_visible_response("   ")
+
+        self.assertIn("empty response", response)
+        self.assertIn("Nothing was completed", response)
+        self.assertEqual(ensure_visible_response("Ready."), "Ready.")
 
 
 class AppearanceSettingsTests(unittest.TestCase):

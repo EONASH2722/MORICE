@@ -1,56 +1,71 @@
 # MORICE User Manual
 
-## Start
+## First Launch
 
-Launch `MORICE.exe`. The first-run wizard detects local hardware, recommends a
-model class, explains permissions, and creates a workspace. MORICE remains
-usable offline.
+1. Start `MORICE.exe`.
+2. Open `Panel` and set how MORICE addresses you, the wake phrase, theme, font, emoji amount,
+   maturity tone, accessibility, and motion preferences.
+3. Open `Change model` to review the detected GPU/VRAM plan or select another GGUF/Ollama model.
+4. Use Normal Chat for conversation and visualization. Use Project Mode only when MORICE should
+   create or modify workspace files.
 
 ## Normal Chat
 
-Use Normal Chat for conversation, research, mathematics, science, and inline
-VNext visualizations. Supported renderers create real interactive components.
-Unsupported requests show an honest renderer error.
+Type a message and press Enter or `Send`. The composer is disabled while empty and can accept
+queued steering while a long local completion is running. `Precision` requests a more deliberate
+answer. `Personalised` applies the saved response style.
+
+Examples:
+
+```text
+Plot y = x^3 - 6x^2 + 9x + 15 and mark its extrema.
+Render an interactive Mandelbrot set.
+Simulate a real-time double pendulum.
+Render a complete benzene molecule.
+Visualize a binary search tree and show insert, delete, and search.
+```
+
+A visualization first shows real generation stages. Success replaces that card with the
+interactive workspace. Failure names the renderer problem and states that nothing was shown.
 
 ## Project Mode
 
-1. Select Project Mode.
-2. Use `+` to choose or create a work folder outside the MORICE app folder.
-3. Describe the project or change.
-4. Review the generated multi-file diff.
-5. Apply or reject the exact patch.
-6. Inspect Files, Changes, Output, tests, and the Platform dashboard.
+1. Select `Project` in the left panel.
+2. Use `+` to create or select a work folder outside the MORICE installation.
+3. Select folder-limited or full access.
+4. Select Local or Online+local context.
+5. Ask for the complete project or a specific edit.
+6. Inspect Files, Changes, Output, Tasks, and Tests.
+7. Apply or reject the exact proposed patch.
 
-Folder-only access contains writes to the selected workspace. Full access
-still requires confirmation for destructive desktop and Git operations.
+MORICE can use the language or framework named in the request. A weak or empty model output does
+not count as success; MORICE either creates a validated fallback project or explains the failure.
 
-## Platform Dashboard
+## Model Selection
 
-Open `Tools`, then `Platform`, or use `Ctrl+K` and search for `autonomous
-platform`. The page displays project architecture, current runs, knowledge,
-update channel, and release readiness.
+`Panel > Change model` accepts validated GGUF files and installed Ollama models. The model browser
+shows detected GPU memory, compatibility, likely speed lane, license/source metadata, and a run
+plan. Close GPU-heavy applications when VRAM is tight.
 
-## Models
+## Appearance
 
-Use `Change model` to attach a valid GGUF or select an installed Ollama model.
-The model browser compares estimated model VRAM with the detected GPU. The
-recommendation is an estimate; actual speed depends on context, quantization,
-GPU layers, RAM, and thermal limits.
+- Theme: Light, Dark, Midnight, Glass, or Custom.
+- Font: built-in choices or a local `.ttf`/`.otf` font selected by the user.
+- Emoji amount: None, Medium, or Expressive. This controls model prose, not application icons.
+- Maturity: None, Medium, or Full. This changes wording, not factual standards or safety boundaries.
+- Motion/accessibility: reduced motion, scaling, larger text, and contrast controls.
 
-## Plugins
+MORICE uses its own `M//` visual marks for product states and capability inventories instead of
+injecting unrelated emoji after replies.
 
-Open Plugin Center with `Ctrl+K`. Review every requested permission before
-enabling a plugin. A plugin runs in a separate process and can be paused,
-updated, pinned, rolled back, or removed.
+## Wake Listener
 
-## Backup and Export
+Set a wake phrase in Panel, choose the microphone, and run the wake-listener diagnostic when the
+room is noisy or the microphone is quiet. Adaptive gain and learned noise thresholds improve
+detection, but microphone quality and Windows privacy permissions still matter.
 
-The Platform page can export a bounded ZIP bundle. Secure settings and
-encrypted backup use Windows DPAPI and can only be opened by the same Windows
-user profile.
+## Privacy
 
-## Diagnostics
-
-Open `/diagnostics` or select Advanced diagnostics. Inspect startup health,
-CPU/RAM/FPS, workers, model status, renderers, tools, agents, plugins, desktop
-services, and autonomous-platform state.
+Local GGUF/Ollama inference, local notes, deterministic rendering, and folder work can remain
+offline. Online+local and `@web` intentionally contact external sources. Review project diffs and
+sensitive desktop approvals before applying them.
