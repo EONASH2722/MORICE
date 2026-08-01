@@ -2,6 +2,15 @@
 
 All notable changes to MORICE are documented here.
 
+## [Unreleased]
+
+### Documentation
+
+- Rebuilt the public README around verified release behavior and explicit capability boundaries.
+- Added feature, model, Project Mode, advanced configuration, developer, and screenshot-provenance guides.
+- Corrected renderer IDs and removed claims for hosted model providers and unimplemented general-purpose solvers.
+- Added a reusable GitHub release template and refreshed current packaged-build screenshots.
+
 ## [0.7.0-vnext] - 2026-08-01
 
 ### Added

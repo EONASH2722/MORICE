@@ -1,74 +1,75 @@
 # VNext Rendering Architecture
 
-VNext renders deterministic artifacts in Normal Chat. Project Mode is a development
-workspace and is not required for science visualization.
+VNext is MORICE's host-rendered artifact pipeline. Visuals appear in Normal Chat; Project Mode remains a file-building workspace.
 
 ## Contract
 
 ```text
-user request
+User request
   -> visualization decision
   -> renderer selection
   -> typed data preparation
-  -> resource load
+  -> queued resource work
   -> artifact validation
-  -> workspace creation
-  -> mount in chat
-  -> success response
+  -> interactive widget creation
+  -> mount inside chat
+  -> artifact-grounded completion
 ```
 
-If any stage fails, the progress card becomes an error card and MORICE states that nothing
-was rendered. Model text that pretends a graph or simulation appeared is removed.
+If any stage fails, the progress card becomes **Visualization unavailable** and MORICE states that nothing was rendered. Model prose cannot mark a job successful.
 
-## Runtime Services
+## Host Services
 
-- `VisualizationManager`: owns decisions, sanitization, and lifecycle.
-- `RendererRegistry`: maps stable renderer IDs to deterministic renderer implementations.
-- `RenderScheduler`: bounds asynchronous jobs and tracks active futures.
-- `ResourceManager`: caches reusable resources and releases them on shutdown.
-- `VisualizationResult`: carries status, renderer ID, validated artifact, timing, stages, and error.
-- Inline workspaces: graph, physics, molecule, biology, data structure, chart, diagram, scene, and document widgets.
-
-## Accuracy Rules
-
-- Equations are parsed through an allowlisted expression grammar.
-- Graph landmarks are computed from the same series displayed by the canvas.
-- 2D and 3D views share one validated data set or physical state.
-- Physics integrators update host-owned state; the model cannot draw trajectories.
-- Chemistry uses explicit atom, bond, geometry, and reference-angle data.
-- A renderer must reject a request it cannot parse instead of guessing a plausible-looking result.
-- Completion text is created from the exact artifact passed to that job, preventing cross-request summaries.
+- **VisualizationManager:** request lifecycle, sanitization, queueing, validation, completion, and shutdown.
+- **RendererRegistry:** stable renderer IDs and deterministic implementations.
+- **RenderScheduler:** bounded asynchronous jobs and active-future tracking.
+- **ResourceManager:** artifact cache and memory cleanup.
+- **Runtime profiler:** current renderer, timing, active jobs, and resource telemetry.
+- **Inline workspaces:** graph, physics, molecule, biology, data structure, chart, diagram, scene, and document widgets.
 
 ## Implemented Renderer IDs
 
 | ID | Output |
 | --- | --- |
-| `math.graph` | 2D functions, special curves, Mandelbrot, and 2D/3D surfaces |
-| `physics.simulation` | Supported deterministic physics scenes |
+| `math.graph` | Interactive graphs, special curves, Mandelbrot, and sampled surfaces |
+| `physics.simulation` | Deterministic supported physics scenes |
 | `chemistry.molecule` | Curated molecular structures |
-| `biology.interactive` | DNA, neuron, and cell artifacts |
-| `computer-science.structure` | Interactive data structures |
-| `chart.numeric` | Numeric charts |
-| `diagram.structured` | Structured technical diagrams |
-| `scene.component` | Educational 2D/3D component schematics |
-| `viewer.document` | Valid local document previews |
-| `unsupported.visual` | Honest unavailable result for explicit but unsupported visual requests |
+| `diagram.structured` | Structured technical/domain diagrams |
+| `biology.educational` | DNA, neuron, and cell educational models |
+| `computer-science.data-structures` | Interactive data-structure operations |
+| `data.chart` | Numeric bar, line, pie, scatter, and histogram charts |
+| `model.schematic-3d` | Educational 2D/3D component schematics |
+| `viewer.document` | Validated local file previews |
 
-## Interaction
+Explicit visual requests outside these deterministic builders resolve to an honest unavailable result.
 
-Available controls depend on the artifact: zoom, pan, rotate, hover inspection, 2D/3D
-selection, pause/resume, step, reset, time scale, vectors, trails, object labels, parameters,
-and PNG/SVG/PDF/JSON export.
+## Accuracy Rules
 
-## Current Limits
+- Mathematical expressions use an allowlisted grammar and finite sampled values.
+- Graph landmarks come from the same artifact displayed by the canvas.
+- Requested particle counts, projectile speed/angle, bounds, mass, and other supported parameters are parsed into host-owned simulation state.
+- Physics bodies must have finite coordinates, positive mass, and positive radius.
+- Chemistry structures must come from the curated library and pass atom/bond topology validation.
+- Biology geometry requires finite points and real labels.
+- Data structures require declared structures and initial values; operations mutate the widget's actual state.
+- Charts require explicit finite numeric points.
+- Schematics accept only validated primitives and label themselves educational rather than CAD-certified.
+- Document preview requires an existing unchanged local file no larger than 32 MB.
 
-VNext is not a general CAD, CFD, quantum-chemistry, medical-diagnostic, or molecular-dynamics
-solver. Component schematics are educational and not dimensionally certified. Unsupported
-fluids, arbitrary molecules, or ambiguous prompts fail visibly. Performance depends on artifact
-size and the host GPU; background work is bounded so chat remains responsive.
+Where both 2D and 3D views exist, they share the same validated artifact or simulation state; switching projection must not silently rebuild different data.
 
-## Extending VNext
+## Interaction And Export
 
-Add a renderer with a stable ID, strict request predicate, typed artifact builder, validator,
-and inline workspace. Add positive, negative, and cross-routing tests before registering it.
-Never add a prose-only placeholder for an unimplemented renderer.
+Controls are renderer-specific and include zoom, pan, rotate, hover inspection, projection switch, pause/resume, step, replay, reset, time scale, vectors, trails, labels, and parameter editing. Export formats are enabled only where the active workspace implements them; graph and supported scene paths expose image/vector/PDF options, while physics can export state JSON.
+
+## Performance
+
+Rendering is lazy, jobs are bounded, hidden physics canvases stop consuming frames, background work is throttled, and resources are released on workspace close/shutdown. Frame rate depends on hardware and artifact size; 60 FPS is a target for ordinary scenes, not a guarantee for every particle count or CPU-only system.
+
+## Limits
+
+VNext is not a general CAD, CFD, medical, quantum-chemistry, orbital ephemeris, or molecular-dynamics solver. Curated educational models do not carry laboratory or manufacturing certification. Unknown chemistry, unsupported physics, ambiguous numeric data, and nonexistent local files fail visibly.
+
+## Adding A Renderer
+
+Add a stable ID, strict prompt predicate, typed builder, validator, memory estimate, and real inline widget. Tests must cover positive routing, negative routing, numerical/topological accuracy, progress-card replacement, interaction, export where applicable, hidden/closed cleanup, and failure honesty.

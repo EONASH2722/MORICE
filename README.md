@@ -1,12 +1,19 @@
 <p align="center">
-  <img src="morice/assets/morice-logo-rgb.png" alt="MORICE logo" width="144">
+  <img src="morice/assets/morice-logo-rgb.png" alt="MORICE logo" width="148">
 </p>
 
 <h1 align="center">MORICE</h1>
 
 <p align="center">
-  A local-first Windows AI workspace for conversation, deterministic visualizations,
-  project building, desktop tools, and user-selected GGUF models.
+  <strong>A local-first Windows AI workspace for chat, reviewed project changes, and validated interactive rendering.</strong>
+</p>
+
+<p align="center">
+  <a href="docs/user-manual.md">User guide</a> &middot;
+  <a href="docs/feature-matrix.md">Feature matrix</a> &middot;
+  <a href="docs/project-mode.md">Project Mode</a> &middot;
+  <a href="docs/vnext-science-workspace.md">VNext rendering</a> &middot;
+  <a href="docs/developer-guide.md">Developer guide</a>
 </p>
 
 <p align="center">
@@ -14,127 +21,115 @@
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4" alt="Windows 10 and 11">
   <img src="https://img.shields.io/badge/Python-3.12%2B-3776ab" alt="Python 3.12+">
   <img src="https://img.shields.io/badge/UI-PySide6-41cd52" alt="PySide6">
-  <img src="https://img.shields.io/badge/license-MIT-16a34a" alt="MIT license">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="MIT license"></a>
 </p>
 
-MORICE keeps the language model separate from execution and rendering. Models reason and
-produce typed instructions; MORICE validates those instructions, writes approved project
-files, and renders supported visual artifacts itself. A model cannot claim that a graph,
-simulation, file, or project exists unless the host produced and validated it.
+MORICE is a desktop assistant built around a strict boundary: language models propose, while the host application validates and performs. The selected model can write an answer or produce typed instructions, but MORICE owns file access, renderer execution, desktop permissions, and visible success or failure states. It never treats text such as `[a graph appears]` as proof that an artifact exists.
 
-![MORICE normal chat](docs/screenshots/morice-home.png)
+![MORICE normal chat home](docs/screenshots/morice-home.png)
 
-## What Is Included
+## Why MORICE
 
-- Local chat through the bundled Qwen2.5 Coder 7B GGUF, another GGUF selected in-app, or a local Ollama model.
-- Real in-chat visualizations in Normal Chat, with progress, validation, interaction, and honest error states.
-- Project Mode with a selected work folder, proposed file changes, diff review, output, tests, and explicit apply controls.
-- Local-only and Online+local workflows, notes lookup, optional web context, queued follow-up messages, and conversation memory.
-- GPU and VRAM detection, model compatibility estimates, trusted GGUF browsing, and model-file validation.
-- Adaptive wake listening, configurable address and wake phrase, themes, fonts, accessibility settings, and workspace presets.
-- Permission-controlled desktop tools, local previews, diagnostics, recovery, updates, backups, and a process-isolated plugin SDK.
+- **Local-first inference:** use a validated GGUF through the local llama runtime or a model served by local Ollama.
+- **Normal Chat with real artifacts:** graphs, simulations, molecular views, diagrams, charts, biology models, data structures, schematics, and local file previews appear in the conversation only after host validation.
+- **Reviewed project building:** prompts become proposed files and diffs inside a selected work folder, with protected paths and explicit apply controls.
+- **Model-independent rendering:** changing the language model does not change the deterministic renderer contract.
+- **Desktop workspace:** files, activity, tasks, logs, notes, browser context, media controls, system status, desktop actions, memory, automations, diagnostics, and plugins live behind permission-aware host services.
+- **Personal desktop experience:** configurable name, wake phrase, theme, opacity, fonts, emoji amount, response maturity, motion, contrast, text size, and workspace layout.
 
-## VNext Rendering
-
-Visualization belongs to Normal Chat. Ask for a supported graph, simulation, molecule,
-diagram, chart, biology model, data structure, component schematic, or local document preview.
-MORICE creates a typed artifact, validates it, and replaces the progress card with a real
-interactive workspace.
+## Current Application
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/morice-live-graph.png" alt="Interactive graph in MORICE"></td>
-    <td width="50%"><img src="docs/screenshots/morice-particle-simulation.png" alt="Live particle simulation in MORICE"></td>
+    <td width="50%"><img src="docs/screenshots/morice-live-graph.png" alt="Validated interactive graph in MORICE"></td>
+    <td width="50%"><img src="docs/screenshots/morice-particle-simulation.png" alt="Validated particle simulation in MORICE"></td>
   </tr>
   <tr>
-    <td align="center"><strong>Validated graph with inspection and export</strong></td>
-    <td align="center"><strong>Live simulation with playback and state controls</strong></td>
+    <td align="center"><strong>Interactive graph</strong><br>Inspection, pan, zoom, reset, and export</td>
+    <td align="center"><strong>Live simulation</strong><br>Playback, time control, replay, and state export</td>
   </tr>
-</table>
-
-### Verified Renderer Families
-
-| Family | Current deterministic support |
-| --- | --- |
-| Graphs | Multiple functions, roots/intercepts/extrema, piecewise, polar, parametric, implicit, Mandelbrot, and linked 2D/3D surfaces |
-| Physics | Particles, projectile motion, pendulum, double pendulum, springs, waves, circular/orbital motion, and Lorenz attractor |
-| Chemistry | Curated molecular geometry, including benzene and supported VSEPR molecules, with shared 2D/3D atom and bond state |
-| Biology | DNA, neuron, and cell models with labels, animation controls, and 2D/3D views |
-| Computer science | BST, AVL, graph, linked list, queue, stack, and hash-table operations with highlights and complexity display |
-| Charts | Bar, line, pie, scatter, and histogram charts from numeric prompt data |
-| Diagrams | Flow, timeline, networking, OS, database, AI, security, circuit, biology, engineering, Maxwell equations, and telemetry layouts |
-| Schematics | Educational component views for supported computers, cameras, vehicles, structures, machines, and electronics |
-| Documents | Local text, source, Markdown, JSON, CSV, image, and PDF previews when a valid local path is supplied |
-| Rich text | Markdown, tables, highlighted code, and KaTeX inline/display mathematics |
-
-Unsupported or unparseable requests produce a visible `Visualization unavailable` result.
-MORICE does not insert fake text such as `[a graph is shown]`.
-
-See [VNext architecture](docs/vnext-science-workspace.md) for the rendering contract and
-current limitations.
-
-## Project Mode
-
-Project Mode turns a prompt into reviewed workspace changes instead of a copy-paste answer.
-
-1. Select or create a work folder with `+`.
-2. Choose `Limited to folder` or `Full access`.
-3. Choose `Local` or `Online+local` context.
-4. Ask MORICE to build or modify the project in the language and framework you want.
-5. Review the proposed files and green/red diff.
-6. Apply or reject the exact change set, then run the generated project and tests.
-
-`Limited to folder` confines file operations to the selected root. `Full access` expands the
-available workspace but does not remove validation, protected-path checks, or explicit approval
-for sensitive operations.
-
-## Model Manager
-
-The renderer pipeline is model-agnostic. Changing the model changes language and coding quality;
-it does not let a model bypass artifact validation or file permissions.
-
-<table>
   <tr>
     <td width="50%"><img src="docs/screenshots/morice-model-manager.png" alt="MORICE model manager"></td>
-    <td width="50%"><img src="docs/screenshots/morice-model-browser.png" alt="MORICE model browser with GPU detection"></td>
+    <td width="50%"><img src="docs/screenshots/morice-settings.png" alt="MORICE appearance settings"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Model manager</strong><br>GPU-aware run planning and validated model switching</td>
+    <td align="center"><strong>Appearance settings</strong><br>Theme, accent, opacity, motion, accessibility, and profiles</td>
   </tr>
 </table>
 
-### Bundled Model VRAM Guide
+Screenshots were checked against the packaged Windows build at commit `1d464af`. See the [screenshot inventory](docs/screenshots/README.md) for provenance.
 
-The official package uses a Qwen2.5 Coder 7B Q4 GGUF. Actual use depends on context length,
-GPU layers, driver overhead, and other applications using VRAM.
+## Verified Capabilities
 
-| Dedicated VRAM | Expected run plan |
+### Conversation
+
+- Full-width user and MORICE messages with long-response continuation safeguards.
+- Conversation-aware model prompts, saved response style, optional notes context, and queued follow-up messages.
+- Normal Chat starts with a clean visible conversation; persistent memory is separately scoped and managed through Tools.
+- Adaptive wake-listener diagnostics and configurable address/wake phrase when microphone dependencies are available.
+
+### VNext Visualization
+
+| Renderer | Verified deterministic scope |
+| --- | --- |
+| Graph | Multiple Cartesian functions, piecewise, polar, parametric, implicit, Mandelbrot, and linked 2D/3D surfaces |
+| Physics | Particles, projectile motion, pendulum and double pendulum, springs, waves, circular/orbital motion, and Lorenz attractor |
+| Chemistry | Curated molecular structures and supported VSEPR geometries with shared 2D/3D atom/bond state |
+| Biology | DNA, neuron, and cell educational models with labels and 2D/3D views |
+| Data structures | BST, AVL, graph, linked list, queue, stack, and hash-table operations with highlights and complexity |
+| Charts | Bar, line, pie, scatter, and histogram charts from explicit numeric prompt data |
+| Diagrams | Structured domain templates for flows, timelines, networking, OS, databases, AI, security, circuits, biology, and engineering |
+| Schematics | Educational component layouts using validated box, sphere, and cylinder primitives; not manufacturing CAD |
+| Documents | Local text, source, Markdown, JSON, CSV, image, and PDF previews for valid local paths up to 32 MB |
+
+Unsupported or unparseable inputs produce a visible **Visualization unavailable** card. MORICE does not substitute a fake image or a prose claim. Exact coverage and limits are maintained in the [feature matrix](docs/feature-matrix.md).
+
+### Project Mode
+
+1. Select or create a work folder.
+2. Choose **Limited to folder** or **Full access**.
+3. Choose local or **Online+local** context.
+4. Describe the project, language, framework, and constraints.
+5. Review proposed files, red/green diffs, build output, tests, and Git status.
+6. Apply or reject the validated change set.
+
+Project Mode accepts arbitrary text-based languages and frameworks; quality still depends on the selected model, available toolchain, and prompt. Its local fallback builder covers a smaller set of web-project patterns when the model does not return valid project JSON. Read the [Project Mode guide](docs/project-mode.md) before enabling broader access.
+
+## Model Support
+
+| Source | Status | Notes |
+| --- | --- | --- |
+| Local GGUF | Supported | Selected in-app, format-checked, and served through the local llama runtime |
+| Local Ollama | Supported | Uses an installed local Ollama service and available local model tags |
+| OpenAI-compatible local llama endpoint | Internal runtime | Used by MORICE's bundled local server path |
+| Hosted OpenAI, Anthropic, or other cloud APIs | Not integrated in this release | Do not enter provider API keys; use local GGUF/Ollama |
+
+The release lane targets a Qwen2.5 Coder 7B Q4 GGUF. Actual fit depends on context length, GPU layers, driver overhead, and competing GPU workloads.
+
+| Dedicated VRAM | Practical starting point |
 | ---: | --- |
-| 0-3 GB | CPU-first or very small partial offload; usable but slow; 12-16 GB system RAM recommended |
-| 4 GB | Partial GPU offload with a conservative context; close background GPU applications |
-| 6 GB | Recommended balanced lane for the bundled model; near-full/full offload depends on context and runtime overhead |
+| 0-3 GB | CPU-first or small partial offload; expect slow generation and use adequate system RAM |
+| 4 GB | Conservative context and partial offload |
+| 6 GB | Recommended balanced lane for the release model |
 | 8 GB | Comfortable full-offload target with more context headroom |
-| 12 GB+ | Strong headroom for longer contexts or a larger replacement model |
+| 12 GB+ | Headroom for longer contexts or a larger replacement model |
 
-Use `Panel > Change model` to select another valid GGUF or local Ollama model that fits your
-hardware. MORICE rejects files that do not pass model-format validation.
+Use **Panel > Change model** to select a model suited to your hardware. See [Models and performance](docs/model-guide.md).
 
-## Installation
+## Install
 
-### Official Installer
+### Windows installer
 
-Download `MORICE-Setup-0.7.0-vnext.exe` and every numbered `.bin` slice shown beside it in the
-same release. Keep those files together, then run the Setup executable. The installer is per-user
-and does not require administrator access.
+Download `MORICE-Setup-0.7.0-vnext.exe` and every adjacent numbered `.bin` slice from the same release into one folder, then run the setup executable. Installation is per-user and does not require administrator access.
 
-### Portable ZIP
+### Portable package
 
-Download every `MORICE-0.7.0-vnext-portable.zip.part*` file, the matching `.parts.json` manifest,
-and `MORICE-0.7.0-vnext-portable-reassemble.ps1` into one folder. Run the reassembler, extract the
-verified ZIP it creates, and launch `MORICE.exe`. The split is required only because the complete
-portable ZIP is larger than GitHub's per-file release limit. The archive contains runtime files only;
-it excludes source caches, virtual environments, editor state, build logs, and development notes.
+Download every `MORICE-0.7.0-vnext-portable.zip.part*` file, the `.parts.json` manifest, and `MORICE-0.7.0-vnext-portable-reassemble.ps1`. Run the reassembler, extract the verified ZIP, and launch `MORICE.exe`.
 
-Verify downloads against `checksums.json` from the same release.
+Always verify downloads against `checksums.json`. Full instructions are in the [user manual](docs/user-manual.md).
 
-## Run From Source
+### Run from source
 
 ```powershell
 git clone https://github.com/EONASH2722/MORICE.git
@@ -145,10 +140,28 @@ python -m pip install -r requirements.txt
 python morice_app_launcher.py
 ```
 
-The repository does not track the large GGUF or llama runtime binaries. Put a valid model at the
-path shown by the app, use Ollama, or choose a model through `Panel > Change model`.
+The repository does not track llama runtime binaries. A local GGUF may exist in a developer checkout but is excluded from Git; choose your own validated model in the app or use Ollama.
 
-## Verification
+## Repository Map
+
+```text
+MORICE/
+|-- morice/                 Desktop UI, agent pipeline, renderers, tools, and services
+|-- vnext/                  Strict TypeScript visualization contracts and tests
+|-- tests/                  Python unit, integration, renderer, UI, and safety tests
+|-- docs/                   User, architecture, renderer, plugin, and release guides
+|-- scripts/                Build, lint, release, and verification automation
+|-- installer/              Inno Setup sources
+|-- desktop/                Desktop integration assets
+|-- third_party/            Redistributable notices and approved runtime material
+|-- morice_app_launcher.py  Source entry point
+|-- MORICE.spec             PyInstaller application specification
+`-- requirements.txt        Python runtime dependencies
+```
+
+`build/`, `dist/`, `release/`, caches, local models, and virtual environments are generated locally and are not source artifacts.
+
+## Build And Verify
 
 ```powershell
 python -m unittest discover -s tests
@@ -157,31 +170,36 @@ pnpm test
 pnpm run typecheck
 ```
 
-The release script runs those checks before building PyInstaller, the split portable Zip64 package,
-the Inno Setup installer, and SHA-256 metadata:
+Create verified Windows release assets with:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
 ```
 
+The release script builds the PyInstaller application, portable Zip64 package, split installer assets, and SHA-256 metadata only after its configured checks pass.
+
 ## Documentation
 
+- [Documentation index](docs/README.md)
 - [User manual](docs/user-manual.md)
-- [VNext rendering architecture](docs/vnext-science-workspace.md)
-- [Desktop and agent architecture](docs/architecture.md)
+- [Feature matrix](docs/feature-matrix.md)
+- [Models and performance](docs/model-guide.md)
+- [Project Mode](docs/project-mode.md)
+- [Advanced configuration](docs/advanced-configuration.md)
+- [VNext rendering](docs/vnext-science-workspace.md)
+- [Architecture](docs/architecture.md)
+- [Plugin SDK](docs/plugin-sdk.md)
+- [Developer guide](docs/developer-guide.md)
+- [Frequently asked questions](docs/faq.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Release notes](docs/release-notes-0.7.0-vnext.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security policy](SECURITY.md)
-- [Changelog](CHANGELOG.md)
 
-## Privacy And Safety
+## Contributing And Security
 
-Normal local chat, selected GGUF inference, notes search, project files, and deterministic
-renderers can remain on the machine. Online lookup is explicit. MORICE validates renderer data,
-confines folder-limited project operations, protects application paths, and asks for approval for
-sensitive desktop or Git mutations. Review every proposed change before applying it.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Use the issue templates for reproducible bug reports and feature proposals. Security problems should follow the private process in [SECURITY.md](SECURITY.md), not a public issue.
+
+MORICE is local-first, not permission-free. Folder boundaries, protected paths, artifact validation, plugin isolation, and sensitive-action confirmations remain active even when broader Project Mode access is selected.
 
 ## License
 
-MORICE is available under the [MIT License](LICENSE).
+Released under the [MIT License](LICENSE).
