@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "morice-ai"
+dynamic = ["version"]
+description = "Local-first Windows desktop AI workspace with project tools and deterministic scientific visualization"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "EONASH2722" }]
+maintainers = [{ name = "EONASH2722" }]
+keywords = ["ai", "desktop", "local-llm", "visualization", "pyside6"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Win32 (MS Windows)",
+  "Operating System :: Microsoft :: Windows :: Windows 10",
+  "Operating System :: Microsoft :: Windows :: Windows 11",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+  "PySide6>=6.7",
+  "numpy>=1.26",
+  "sounddevice>=0.4.6",
+  "vosk>=0.3.45",
+  "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+local-python = ["llama-cpp-python>=0.2.90"]
+dev = [
+  "build>=1.2",
+  "pyinstaller>=6.0",
+  "twine>=5.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/EONASH2722/MORICE"
+Documentation = "https://github.com/EONASH2722/MORICE/tree/main/docs"
+Issues = "https://github.com/EONASH2722/MORICE/issues"
+Repository = "https://github.com/EONASH2722/MORICE.git"
+
+[project.gui-scripts]
+morice = "morice.pyside_app:run_app"
+
+[project.scripts]
+morice-cli = "morice.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "morice.version.VERSION" }
+
+[tool.setuptools.packages.find]
+include = ["morice*"]
+
+[tool.setuptools.package-data]
+morice = [
+  "assets/*.ico",
+  "assets/*.png",
+  "assets/web/*.css",
+  "assets/web/*.js",
+  "assets/web/fonts/*.ttf",
+  "assets/web/fonts/*.woff",
+  "assets/web/fonts/*.woff2",
+]

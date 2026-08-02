@@ -1,3 +1,4 @@
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -5,6 +6,16 @@ from morice import llm_client
 
 
 class LlmCompletionTests(unittest.TestCase):
+    def test_ollama_modelfile_matches_long_reply_runtime_limits(self):
+        modelfile = (
+            Path(__file__).resolve().parents[1] / "Modelfile"
+        ).read_text(encoding="utf-8")
+        self.assertIn(f"PARAMETER num_ctx {llm_client.DEFAULT_CTX}", modelfile)
+        self.assertIn(
+            f"PARAMETER num_predict {llm_client.DEFAULT_MAX_TOKENS}",
+            modelfile,
+        )
+
     def test_openai_length_finish_is_continued_without_duplicate_overlap(self):
         responses = [
             {

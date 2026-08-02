@@ -1,3 +1,8 @@
+import argparse
+import os
+import sys
+
+from . import __version__
 from .core import (
     MORICE_NAME,
     compute_math,
@@ -40,15 +45,43 @@ from .core import (
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload
 from .llm_client import chat
 from .web_search import search_web
-import os
 from .knowledge import search_notes
 from .vision import describe_image
+from .capabilities import (
+    capability_answer,
+    detect_capability_topic,
+    emoji_preference_instruction,
+    maturity_preference_instruction,
+)
+from .settings import (
+    load_settings,
+    normalize_emoji_level,
+    normalize_maturity_level,
+)
 
 
 EXIT_WORDS = {"exit", "quit"}
 
 
-def run_cli():
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="morice-cli",
+        description="Run MORICE in an interactive local terminal.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
+    return parser
+
+
+def run_cli() -> None:
+    settings = load_settings()
+    emoji_level = normalize_emoji_level(settings.get("emoji_level", ""))
+    maturity_level = normalize_maturity_level(
+        settings.get("maturity_level", "")
+    )
     if should_preload():
         print(f"{MORICE_NAME} loading knowledge from {KB_DIR} ...")
         try:
@@ -159,6 +192,14 @@ def run_cli():
             print(f"{MORICE_NAME}: {enforce_father('Understood.')}")
             continue
 
+        capability_topic = detect_capability_topic(user_input)
+        if capability_topic:
+            print(
+                f"{MORICE_NAME}: "
+                f"{enforce_father(capability_answer(capability_topic, emoji_level))}"
+            )
+            continue
+
         if wants_help(user_input):
             print(f"{MORICE_NAME}: {enforce_father(help_text())}")
             continue
@@ -257,14 +298,20 @@ def run_cli():
                 web_context = search_web(web_query)
                 if not web_context:
                     web_context = "Web lookup returned no results."
-        extra_system = ""
+        extra_system = "\n".join(
+            (
+                emoji_preference_instruction(emoji_level),
+                maturity_preference_instruction(maturity_level),
+            )
+        )
         if pending_image_context:
             lowered = pending_image_context.lower()
             if any(key in lowered for key in {"not available", "not found", "could not open"}):
                 print(f"{MORICE_NAME}: {enforce_father(pending_image_context)}")
                 pending_image_context = ""
                 continue
-            extra_system = (
+            extra_system += (
+                "\n\n"
                 "Image context (best effort, may be incomplete):\n"
                 f"{pending_image_context}"
             )
@@ -297,5 +344,13 @@ def run_cli():
         history.append({"role": "assistant", "content": reply})
 
 
-if __name__ == "__main__":
+def main(arguments: list[str] | None = None) -> int:
+    build_parser().parse_args(
+        list(arguments) if arguments is not None else sys.argv[1:]
+    )
     run_cli()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

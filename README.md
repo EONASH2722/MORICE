@@ -1,466 +1,217 @@
 <p align="center">
-  <img src="morice/assets/morice-logo-rgb.png" alt="MORICE logo" width="150">
+  <img src="morice/assets/morice-logo-rgb.png" alt="MORICE logo" width="148">
 </p>
 
-# MORICE
-
-MORICE is a local desktop AI workspace for people who want an assistant that can talk, research, read notes, build files, render mathematics, and run deterministic science visualizations without losing the feel of a personal tool. It combines a PySide6 glass interface, offline GGUF/Ollama model support, trusted model browsing, notes lookup, optional web lookup, wake control, queued follow-up messages, a Project Mode file workspace, and the validated VNext rendering engine.
+<h1 align="center">MORICE</h1>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license">
-  <img src="https://img.shields.io/badge/python-3.12+-3776ab" alt="Python 3.12+">
+  <strong>A local-first Windows AI workspace for chat, reviewed project changes, and validated interactive rendering.</strong>
+</p>
+
+<p align="center">
+  <a href="docs/user-manual.md">User guide</a> &middot;
+  <a href="docs/feature-matrix.md">Feature matrix</a> &middot;
+  <a href="docs/project-mode.md">Project Mode</a> &middot;
+  <a href="docs/vnext-science-workspace.md">VNext rendering</a> &middot;
+  <a href="docs/developer-guide.md">Developer guide</a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/release-v0.7.0-4f46e5" alt="Release 0.7.0">
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4" alt="Windows 10 and 11">
+  <img src="https://img.shields.io/badge/Python-3.12%2B-3776ab" alt="Python 3.12+">
   <img src="https://img.shields.io/badge/UI-PySide6-41cd52" alt="PySide6">
-  <img src="https://img.shields.io/badge/offline-GGUF-purple" alt="Offline GGUF">
-  <img src="https://img.shields.io/badge/base%20AI-Qwen2.5%20Coder%207B-0f766e" alt="Qwen2.5 Coder 7B">
-  <img src="https://img.shields.io/badge/mode-Project%20Builder-111827" alt="Project Builder">
-  <img src="https://img.shields.io/badge/VNext-Science%20Workspace-0891b2" alt="Science Workspace">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="MIT license"></a>
 </p>
 
-<p align="center">
-  <img src="docs/screenshots/morice-2026-queue.png" alt="MORICE message queue panel" width="52%">
-</p>
+MORICE is a desktop assistant built around a strict boundary: language models propose, while the host application validates and performs. The selected model can write an answer or produce typed instructions, but MORICE owns file access, renderer execution, desktop permissions, and visible success or failure states. It never treats text such as `[a graph appears]` as proof that an artifact exists.
 
-## Workflow Map
+![MORICE normal chat home](docs/screenshots/morice-home.png)
 
-The main MORICE modes all pass through the same intent layer, then branch into the right context source before the local model replies or applies files.
+## Why MORICE
 
-<p align="center">
-  <img src="docs/morice-workflow-chain.svg" alt="MORICE Project mode, web lookup, notes lookup, and model browser workflow chain" width="100%">
-</p>
+- **Local-first inference:** use a validated GGUF through the local llama runtime or a model served by local Ollama.
+- **Normal Chat with real artifacts:** graphs, simulations, molecular views, diagrams, charts, biology models, data structures, schematics, and local file previews appear in the conversation only after host validation.
+- **Reviewed project building:** prompts become proposed files and diffs inside a selected work folder, with protected paths and explicit apply controls.
+- **Model-independent rendering:** changing the language model does not change the deterministic renderer contract.
+- **Desktop workspace:** files, activity, tasks, logs, notes, browser context, media controls, system status, desktop actions, memory, automations, diagnostics, and plugins live behind permission-aware host services.
+- **Personal desktop experience:** configurable name, wake phrase, theme, opacity, fonts, emoji amount, response maturity, motion, contrast, text size, and workspace layout.
 
-## VNext Rendering Engine
+## Current Application
 
-MORICE renders supported visual requests directly inside Normal Chat. Background workers prepare typed artifacts, validators check the result, and the loading card is replaced by a real interactive workspace. The optional `Lab` dock archives generated artifacts; it is not required to view them.
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/morice-live-graph.png" alt="Validated interactive graph in MORICE"></td>
+    <td width="50%"><img src="docs/screenshots/morice-particle-simulation.png" alt="Validated particle simulation in MORICE"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Interactive graph</strong><br>Inspection, pan, zoom, reset, and export</td>
+    <td align="center"><strong>Live simulation</strong><br>Playback, time control, replay, and state export</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/morice-model-manager.png" alt="MORICE model manager"></td>
+    <td width="50%"><img src="docs/screenshots/morice-settings.png" alt="MORICE appearance settings"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>Model manager</strong><br>GPU-aware run planning and validated model switching</td>
+    <td align="center"><strong>Appearance settings</strong><br>Theme, accent, opacity, motion, accessibility, and profiles</td>
+  </tr>
+</table>
 
-Current VNext desktop runtime:
+Screenshots were checked against the packaged Windows build at commit `1d464af`. See the [screenshot inventory](docs/screenshots/README.md) for provenance.
 
-- Function graphs: multiple equations, piecewise, polar, parametric, implicit, roots, intercepts, extrema, and inflection points.
-- Surface graphs: validated `z=f(x,y)` data with linked 2D height-map and 3D mesh views.
-- Physics: particles, projectile, pendulum, spring, wave, circular motion, and orbital scenes with real simulation state.
-- Chemistry: curated VSEPR molecular structures with 2D/3D views, reference angles, rotation, and atom inspection.
-- Structured diagrams: networking, compiler, process-state, and explicit flow pipelines.
-- Rich answers: local Markdown, highlighted code, tables, and KaTeX equations.
-- Model-agnostic instruction shape: `simulationType`, `equations`, and `parameters`.
-- Renderer registry, capability detection, bounded scheduler, artifact cache, resource cleanup, and honest failure states.
-- Reusable in-chat generation card with real analysis, selection, preparation, validation, and rendering stages.
-- Graph, surface, molecule, and diagram export to PNG/SVG/PDF; physics export to PNG/JSON.
-- 2D/3D selectors reuse one validated dataset or physical state instead of regenerating model output.
-- Pause, resume, step, step back, reset, time scale, vectors, trails, inspectors, and live statistics where applicable.
-- Lab workspace dock with `Graphs`, `Simulations`, and `Notebook` tabs.
-- Model-output guard that removes fake claims such as `[A graph is shown]` when no renderer validated an artifact.
-- Fail-closed behavior for unsupported renderers: no fake graph, screenshot, window, or simulation description.
+## Verified Capabilities
 
-See `docs/vnext-science-workspace.md` for the architecture, accuracy contract, capability limits, and extension rules. The strict TypeScript engine in `vnext/` includes the coordinator, renderer manager, Plotly adapter, cache, and deterministic 2D/3D particle-state core.
+### Conversation
 
-## Highlights
+- Full-width user and MORICE messages with long-response continuation safeguards.
+- Conversation-aware model prompts, saved response style, optional notes context, and queued follow-up messages.
+- Normal Chat starts with a clean visible conversation; persistent memory is separately scoped and managed through Tools.
+- Adaptive wake-listener diagnostics and configurable address/wake phrase when microphone dependencies are available.
 
-- Glass desktop interface with a centered launch composer, animated galaxy/wave surfaces, and a Send button that stays calm instead of using a liquid-fill animation.
-- Local-first model routing through a bundled GGUF, a selected GGUF file, or an installed Ollama model.
-- Trusted model browser with automatic GPU/VRAM detection, one-click trusted model lanes, compatibility scoring, worth scoring, official-source links, licenses, task metadata, and model-speciality summaries.
-- Project Mode with a readable right-side Files/Changes/Output workspace, project tree, source preview, green/red diffs, source validation, run actions, and an allowlisted direct-command terminal.
-- Project prompts become validated editable files in the selected folder; filename-labeled code blocks and the local fallback builder remain recovery paths.
-- VNext inline workspaces for real graphs, surfaces, physics, molecules, diagrams, and rich mathematics directly in Normal Chat.
-- `@web` lookup for fresh information when needed, with results passed into the local reply pipeline instead of leaving the whole chat online by default.
-- `@notes` lookup for local knowledge files, so MORICE can answer from personal documents without uploading them.
-- Wake listener that can launch or wake MORICE by saved phrase or clap pattern.
-- Message queue for follow-up steering while a long local reply is still generating.
-- Personalization panel for the user title, wake phrase, and preferred response style.
-- Typo-aware and short-form-aware intent handling, so rough wording can still land in the right workflow.
-- MIT licensed, so the project can be studied, forked, customized, and improved.
+### VNext Visualization
 
-## Quick Install
+| Renderer | Verified deterministic scope |
+| --- | --- |
+| Graph | Multiple Cartesian functions, piecewise, polar, parametric, implicit, Mandelbrot, and linked 2D/3D surfaces |
+| Physics | Particles, projectile motion, pendulum and double pendulum, springs, waves, circular/orbital motion, and Lorenz attractor |
+| Chemistry | Curated molecular structures and supported VSEPR geometries with shared 2D/3D atom/bond state |
+| Biology | DNA, neuron, and cell educational models with labels and 2D/3D views |
+| Data structures | BST, AVL, graph, linked list, queue, stack, and hash-table operations with highlights and complexity |
+| Charts | Bar, line, pie, scatter, and histogram charts from explicit numeric prompt data |
+| Diagrams | Structured domain templates for flows, timelines, networking, OS, databases, AI, security, circuits, biology, and engineering |
+| Schematics | Educational component layouts using validated box, sphere, and cylinder primitives; not manufacturing CAD |
+| Documents | Local text, source, Markdown, JSON, CSV, image, and PDF previews for valid local paths up to 32 MB |
 
-Ready PC app:
+Unsupported or unparseable inputs produce a visible **Visualization unavailable** card. MORICE does not substitute a fake image or a prose claim. Exact coverage and limits are maintained in the [feature matrix](docs/feature-matrix.md).
+
+### Project Mode
+
+1. Select or create a work folder.
+2. Choose **Limited to folder** or **Full access**.
+3. Choose local or **Online+local** context.
+4. Describe the project, language, framework, and constraints.
+5. Review proposed files, red/green diffs, build output, tests, and Git status.
+6. Apply or reject the validated change set.
+
+Project Mode accepts arbitrary text-based languages and frameworks; quality still depends on the selected model, available toolchain, and prompt. Its local fallback builder covers a smaller set of web-project patterns when the model does not return valid project JSON. Read the [Project Mode guide](docs/project-mode.md) before enabling broader access.
+
+## Model Support
+
+| Source | Status | Notes |
+| --- | --- | --- |
+| Local GGUF | Supported | Selected in-app, format-checked, and served through the local llama runtime |
+| Local Ollama | Supported | Uses an installed local Ollama service and available local model tags |
+| OpenAI-compatible local llama endpoint | Internal runtime | Used by MORICE's bundled local server path |
+| Hosted OpenAI, Anthropic, or other cloud APIs | Not integrated in this release | Do not enter provider API keys; use local GGUF/Ollama |
+
+The release lane targets a Qwen2.5 Coder 7B Q4 GGUF. Actual fit depends on context length, GPU layers, driver overhead, and competing GPU workloads.
+
+| Dedicated VRAM | Practical starting point |
+| ---: | --- |
+| 0-3 GB | CPU-first or small partial offload; expect slow generation and use adequate system RAM |
+| 4 GB | Conservative context and partial offload |
+| 6 GB | Recommended balanced lane for the release model |
+| 8 GB | Comfortable full-offload target with more context headroom |
+| 12 GB+ | Headroom for longer contexts or a larger replacement model |
+
+Use **Panel > Change model** to select a model suited to your hardware. See [Models and performance](docs/model-guide.md).
+
+## Download And Installation
+
+### Option 1 - Recommended Windows installer
+
+Download `MORICE-Setup-v0.7.0-Windows-x64.exe` and every adjacent numbered `.bin` slice from the same GitHub release into one folder, then run the setup executable. Installation is per-user, creates a Start menu shortcut, and offers an optional desktop shortcut without requiring administrator access.
+
+### Option 2 - Portable clean ZIP
+
+Download every `MORICE-Portable-v0.7.0-Windows-x64.zip.part*` file, its `.parts.json` manifest, and `MORICE-Portable-v0.7.0-Windows-x64-reassemble.ps1` into one folder. Open PowerShell in that folder and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\MORICE-Portable-v0.7.0-Windows-x64-reassemble.ps1`, then extract the verified ZIP and launch `MORICE.exe`. The portable package is self-contained and includes the release model; keep `MORICE.exe`, `_internal`, and all bundled files together.
+
+### Option 3 - Python package
+
+The release includes a model-free wheel and source distribution for advanced users. Install the downloaded wheel in a clean Python 3.12+ environment:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest https://raw.githubusercontent.com/EONASH2722/MORICE/main/scripts/install-pc-app.ps1 -OutFile install-pc-app.ps1; .\install-pc-app.ps1"
+python -m pip install .\morice_ai-0.7.0-py3-none-any.whl
+morice
 ```
 
-This downloads the MORICE PC release package, verifies it, and extracts it to your user folder.
+Upgrade with `python -m pip install --upgrade <wheel-path>` and remove with `python -m pip uninstall morice-ai`. Select a local GGUF or Ollama model after launch. The package has been prepared locally but is not advertised as published on PyPI, GitHub Packages, WinGet, Chocolatey, or Scoop until those channels accept it.
 
-Requirements:
+Always verify downloads against `SHA256SUMS.txt` or `checksums.json`. Full instructions are in the [user manual](docs/user-manual.md).
 
-- Windows 10/11
-- Python 3.12
-- Git
-- A GGUF model file, or any Ollama model name installed on your machine
-- Optional: a Vosk English model for wake-word recognition
+### Run from source
 
-Clone the repo:
-
-```bat
+```powershell
 git clone https://github.com/EONASH2722/MORICE.git
 cd MORICE
-```
-
-Create a virtual environment:
-
-```bat
 py -3.12 -m venv .venv
-.venv\Scripts\activate
-python -m pip install --upgrade pip
+.\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
+python morice_app_launcher.py
 ```
 
-Install the local model:
+The repository does not track llama runtime binaries. A local GGUF may exist in a developer checkout but is excluded from Git; choose your own validated model in the app or use Ollama.
+
+## Repository Map
+
+```text
+MORICE/
+|-- morice/                 Desktop UI, agent pipeline, renderers, tools, and services
+|-- vnext/                  Strict TypeScript visualization contracts and tests
+|-- tests/                  Python unit, integration, renderer, UI, and safety tests
+|-- docs/                   User, architecture, renderer, plugin, and release guides
+|-- scripts/                Build, lint, release, and verification automation
+|-- installer/              Inno Setup sources
+|-- desktop/                Desktop integration assets
+|-- third_party/            Redistributable notices and approved runtime material
+|-- morice_app_launcher.py  Source entry point
+|-- MORICE.spec             PyInstaller application specification
+|-- pyproject.toml          Python package metadata and entry points
+`-- requirements.txt        Python runtime dependencies
+```
+
+`build/`, `dist/`, `release/`, caches, local models, and virtual environments are generated locally and are not source artifacts.
+
+## Build And Verify
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install-model.ps1
+python -m unittest discover -s tests
+cd vnext
+pnpm test
+pnpm run typecheck
 ```
 
-The installer places this file in the repo root:
-
-```text
-qwen2.5-coder-7b-instruct-q4_k_m.gguf
-```
-
-The script tries the MORICE GitHub model release first, then falls back to the public Hugging Face GGUF if the release asset is not available yet. You can also set:
-
-```bat
-set MORICE_GGUF_PATH=D:\Models\your-model.gguf
-```
-
-Run MORICE:
-
-```bat
-python -m morice.pyside_app
-```
-
-## Packaged App
-
-Build the Windows app:
-
-```bat
-py -3.12 -m PyInstaller -y MORICE.spec
-```
-
-Run the packaged build:
-
-```bat
-dist\MORICE\MORICE.exe
-```
-
-## Model Distribution
-
-The packaged build prefers the local Qwen model you selected. This workspace package uses:
-
-```text
-Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf
-```
-
-The normal open-source installer downloads the official compatible Qwen file named `qwen2.5-coder-7b-instruct-q4_k_m.gguf`; MORICE will use either file. Models are not committed into normal Git history because GitHub blocks normal files above 100 MiB. Use:
+Create verified Windows release assets with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install-model.ps1
+powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
 ```
 
-Maintainers can prepare split GitHub Release assets with:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\prepare-model-release.ps1
-```
-
-Upload every generated file from `release\model-qwen2.5-coder-7b-instruct-q4-k-m` to this release tag:
-
-```text
-model-qwen2.5-coder-7b-instruct-q4-k-m
-```
-
-The model release is available here:
-
-```text
-https://github.com/EONASH2722/MORICE/releases/tag/model-qwen2.5-coder-7b-instruct-q4-k-m
-```
-
-`install-model.ps1` installs the model directly from that MORICE GitHub release.
-
-## Qwen2.5 Coder 7B VRAM Guide
-
-These are practical targets for the base Qwen2.5 Coder 7B Q4_K_M model. The packaged desktop build uses the selected local Qwen GGUF; the installer downloads the official Qwen Q4_K_M file. Exact speed depends on your CPU, GPU, driver, context length, and how many layers you offload.
-
-| VRAM level | Recommended setup | What to expect |
-| --- | --- | --- |
-| 0-4 GB | CPU mode or very low GPU layers | Runs offline, but slower replies are normal. |
-| 6 GB | Q4_K_M with a small/medium context | Usable for chat and light project mode if other apps are not eating VRAM. |
-| 8 GB | Q4_K_M with more GPU offload | Good default level for MORICE's base AI. |
-| 10-12 GB | Q4_K_M/Q5 with larger context | Smoother project work, longer files, and better multitasking. |
-| 16 GB | Higher context and heavier offload | Comfortable for larger code snapshots and longer replies. |
-| 24 GB+ | Larger models or multiple local tools | Room to experiment with stronger models while keeping MORICE responsive. |
-
-Tip: if your PC struggles, lower `MORICE_GPU_LAYERS`, lower `MORICE_CTX`, or use the in-app `Change model` feature to pick a lighter GGUF/Ollama model that fits your VRAM limit.
-
-## Model Control
-
-Open the mode panel with the RGB three-line button, then use the `AI model` section.
-
-MORICE supports four practical model routes:
-
-- Type an Ollama model name, for example `qwen2.5-coder:7b`, `deepseek-r1:1.5b`, or your own custom Ollama model.
-- Use `Change model` -> `Files` to pick a file from your PC. The picker accepts any file, then MORICE verifies whether it is an AI model. GGUF files can be used directly by this desktop app.
-- Use `Detect GPU` to save your GPU and VRAM profile for model-fit checks.
-- Use `Change model` -> `Web` to open MORICE's custom liquid-galaxy model browser. It searches trusted Hugging Face GGUF sources and official model pages, auto-detects GPU/VRAM, preloads a best-fit lane, skips split GGUF shards that cannot install as one file, sorts results by detected GPU fit plus model worth, shows each model's speciality/source/license/task details, and displays compatibility, worth, and a run plan before install.
-- The run plan tells the user whether the model is recommended, balanced, usable, CPU-assisted, or not recommended on the detected GPU, plus context and GPU-offload guidance.
-
-MORICE validates selected files before saving them. Random files are rejected with a clear error. This desktop build can run GGUF models directly through the bundled llama runner. If a GGUF file is selected, it takes priority. Use `Clear file` to let the typed Ollama model name answer instead.
-
-After a model change, MORICE resets the local GGUF runtime/cache so the next reply loads the newly selected model cleanly. The selected GGUF path, typed Ollama model name, and detected GPU profile are saved in MORICE settings and used on the next reply/model search.
-
-## PC App Release
-
-The packaged Windows app lives in:
-
-```text
-dist\MORICE\MORICE.exe
-```
-
-For GitHub releases, the app can be uploaded as a split ZIP package, like a PC app bundle:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\prepare-pc-release.ps1
-```
-
-Upload every generated file from `release\morice-pc-app` to a GitHub release. Users who want the ready app can download the release package; developers can still clone the repo and install manually.
-
-Once the release assets are uploaded, users can install the ready PC app with:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install-pc-app.ps1
-```
-
-The PC app release is available here:
-
-```text
-https://github.com/EONASH2722/MORICE/releases/tag/morice-pc-app
-```
-
-Manual users can download `pc-app-manifest.json` and all `MORICE-PC.zip.part*` files from that release, join the parts in order into `MORICE-PC.zip`, then extract it.
-
-## Wake Listener
-
-Start the always-listening wake process:
-
-```bat
-start-wake-listener.bat
-```
-
-Wake behavior:
-
-- Say the saved wake line, for example `wake up son`.
-- Or clap twice inside the wake window.
-- Either path launches the app if needed and sets MORICE awake automatically.
-- The listener has a wake cooldown so repeated partial voice matches or extra claps do not spam MORICE.
-- It detects both the packaged `MORICE.exe` app and manual Python runs, so it avoids launching duplicates during development.
-
-The wake line can be changed in the MORICE panel.
-
-Wake diagnostics:
-
-```bat
-python morice_wake_listener.py --self-test
-python morice_wake_listener.py --list-devices
-```
-
-To force a specific microphone, set `MORICE_AUDIO_DEVICE` to the device index or device name before starting the listener.
-
-Optional startup install:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File install-wake-listener-startup.ps1
-```
-
-## Response Style
-
-MORICE is tuned for answers that feel useful without becoming robotic:
-
-- Start with the direct answer.
-- Use short headings when structure helps.
-- Explain the reason, tradeoff, or next step in plain language.
-- Include examples, checks, or commands when they move the task forward.
-- Keep personality present, but keep the work clear.
-
-If you want shorter answers, add a style in the panel such as:
-
-```text
-short, direct, no extra explanation
-```
-
-## Personalization
-
-Open `Panel` to change:
-
-- What MORICE calls you. Default: `All Father`.
-- The wake line.
-- The reply style.
-
-The chosen name updates the launch prompt, input placeholder, start/wake messages, and how MORICE addresses you in replies.
-
-## Modes
-
-Use the RGB three-line button on the left side of the title bar to open the mode panel:
-
-- `Normal chat` for everyday questions and casual use.
-- `Project` for building apps, games, websites, tools, scripts, APIs, and mobile app plans.
-
-Project mode is designed for real workspace changes:
-
-- A Project-only setup area that appears after clicking `Project`.
-- A `+` button for choosing or creating a work folder outside the MORICE app folder.
-- `Limited to folder`, which keeps project paths and commands inside the chosen folder and asks permission for any specific job outside it.
-- `Full access`, which treats normal requested project work as pre-approved while staying private, safe, and non-destructive.
-- File building: describe the app, game, website, script, or tool you want, and MORICE writes the project files into the selected work folder.
-- If no folder is selected, MORICE prepares a safe default work folder outside the app at `~/MORICE Projects/Quick Build`.
-- Existing project awareness: MORICE reads a bounded snapshot of the work folder before editing, so it can update files instead of replacing blindly.
-- Local fallback building: if the selected model answers normally instead of returning a safe JSON file manifest, MORICE can still generate a practical starter project for common web, game, script, and tool requests.
-- A right-side `Project changes` panel that shows unified diffs with green additions and red removals after each file-building action.
-- `Local mode` uses the selected folder and local model only.
-- `Online+local` can add web context for current libraries, docs, patterns, and examples.
-- Stronger coding behavior for any requested language or framework.
-- Typo-aware intent handling, so rough wording is interpreted from chat context.
-- Safer build detection, so `chat:`, `ask:`, `question:`, and `explain:` prompts stay as conversation instead of being treated as file writes.
-- In Project mode, the composer replaces the `Personalised` button with the current access mode and adds the local/online toggle.
-- The Send button stays grey when empty or while MORICE is replying, then switches to a clean ready state when text can be sent.
-
-## Graphs And Simulations
-
-Use natural prompts:
-
-```text
-plot y=x^2-4x+3
-plot y=sin(x) and y=cos(x)
-simulate projectile motion
-simulate 300 particles with gravity and collisions
-```
-
-MORICE routes these to deterministic engines:
-
-```text
-chat prompt -> visualization decision -> renderer selection -> deterministic data -> validation -> inline workspace
-```
-
-The AI model may help reason about the problem, but it never draws directly. The renderer manager turns supported instructions into graph data or simulation state, validates that output, and only then inserts a live workspace into chat. Unsupported or failed renderers display an explicit error instead of an imaginary screenshot or placeholder.
-
-## Message Queue
-
-When MORICE is generating, the send button becomes `Steer`.
-
-Type a follow-up and press Enter or click `Steer`; it is added to the queue. Open `Panel` to:
-
-- Move queued messages up or down.
-- Remove one queued message.
-- Clear the whole queue.
-
-MORICE sends the next queued item automatically as soon as the current reply arrives.
-
-## Web Lookup Chain
-
-Use:
-
-```text
-@web your search query
-```
-
-`web:` also works. Normal chat stays offline unless a message starts with `@web` or `web:`.
-
-In Project mode, `Online+local` can search automatically for project context. Switch the composer toggle to `Local mode` when you want file/folder-only work.
-
-The chain is:
-
-```text
-@web prompt -> web search -> compact source context -> local model -> answer with source URLs
-```
-
-## Notes Chain
-
-Default notes folder:
-
-```text
-D:\FOOD FOR MORICE
-```
-
-Use `@notes` in a message to include local notes.
-
-The chain is:
-
-```text
-@notes prompt -> local notes search -> relevant snippets -> local model -> grounded answer
-```
-
-## Useful Commands
-
-- `wake up son`
-- `precision on` / `precision off`
-- `math steps on` / `math steps off`
-- `@web <query>`
-- `@notes <question>`
-
-## Customize MORICE
-
-Common places to edit:
-
-- UI and animations: `morice/pyside_app.py`
-- MORICE personality and reply rules: `morice/core.py`
-- Graph and physics instruction engine: `morice/science_engine.py`
-- Visualization registry, queue, validation, caching, and capability reporting: `morice/visualization.py`
-- Local model routing and token budget: `morice/llm_client.py`
-- Project fallback file builder: `morice/project_builder.py`
-- Model verification/search/VRAM scoring: `morice/model_catalog.py`
-- Wake listener sensitivity and magic words: `morice_wake_listener.py`
-- Saved personalization settings: `morice/settings.py`
-- Logo and queue screenshot: `morice/assets/` and `docs/screenshots/`
-- Build bundle: `MORICE.spec`
-- Strict TypeScript renderer core and tests: `vnext/`
-
-Useful environment variables:
-
-- `MORICE_GGUF_PATH` sets a specific GGUF path.
-- `MORICE_MODEL` sets an Ollama model name and bypasses the GGUF default.
-- `MORICE_MAX_TOKENS` controls each reply chunk. Default: `6144`. MORICE continues automatically when a compatible endpoint reports a length stop.
-- `MORICE_LLAMA_SERVER` set to `1` to use bundled llama-server.
-- `MORICE_CTX` sets context length.
-- `MORICE_GPU_LAYERS` sets GPU layers.
-- `MORICE_THREADS` sets CPU threads.
-- `MORICE_BATCH` sets batch size.
-- `MORICE_WEB` set to `0` to disable web lookup.
-
-## Project Layout
-
-```text
-morice/
-  pyside_app.py        Desktop UI
-  project_builder.py   Local Project mode fallback file generator
-  science_engine.py    Deterministic graph, surface, and physics artifacts
-  domain_engine.py     Curated molecule and structured-diagram artifacts
-  visualization.py     Renderer registry, async pipeline, cache, validation, and capabilities
-  core.py              Personality, commands, and helper replies
-  llm_client.py        Local/Ollama model routing
-  model_catalog.py     Trusted model search, GPU fit scoring, and file verification
-  settings.py          Personalization, model choice, wake-line, and GPU profile storage
-  web_search.py        Optional web lookup pipeline
-  assets/              Logo and bundled app assets
-docs/screenshots/      Queue-system README screenshot
-docs/vnext-science-workspace.md
-scripts/               Model install and release-prep scripts
-vnext/                 Strict TypeScript coordinator, cache, graph adapter, and physics core
-morice_wake_listener.py
-MORICE.spec
-Modelfile
-```
-
-## Contribute
-
-MORICE is open source under the MIT license. Fork it, change it, and make it yours. Small focused pull requests are easiest to review:
-
-- Describe what changed.
-- Mention how you tested it.
-- Keep large model files out of Git.
-- Do not commit `node_modules`, voice model folders, logs, or private memory files.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the development checklist.
-
-## Change The Model To Anything
-
-The base AI is Qwen2.5 Coder 7B, but MORICE is not locked to one brain. Open the mode panel, type any installed Ollama model name, pick a local GGUF with `Change model` -> `Files`, or install one through `Change model` -> `Web`. MORICE saves that choice and uses it on the next reply, so builders can change the model without editing code. Hermes is retained only as an optional comparison/test model.
+The release script builds the PyInstaller application, portable Zip64 package, split installer assets, Python wheel and source distribution, documentation/source bundles, package-content report, and SHA-256 metadata only after its configured checks pass.
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [User manual](docs/user-manual.md)
+- [Feature matrix](docs/feature-matrix.md)
+- [Models and performance](docs/model-guide.md)
+- [Project Mode](docs/project-mode.md)
+- [Advanced configuration](docs/advanced-configuration.md)
+- [VNext rendering](docs/vnext-science-workspace.md)
+- [Architecture](docs/architecture.md)
+- [Plugin SDK](docs/plugin-sdk.md)
+- [Developer guide](docs/developer-guide.md)
+- [Frequently asked questions](docs/faq.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Release notes](docs/release-notes-0.7.0.md)
+
+## Contributing And Security
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Use the issue templates for reproducible bug reports and feature proposals. Security problems should follow the private process in [SECURITY.md](SECURITY.md), not a public issue.
+
+MORICE is local-first, not permission-free. Folder boundaries, protected paths, artifact validation, plugin isolation, and sensitive-action confirmations remain active even when broader Project Mode access is selected.
 
 ## License
 
-Code: MIT. Models: follow the license for the GGUF model or Ollama model you use.
+Released under the [MIT License](LICENSE).

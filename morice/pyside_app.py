@@ -7,11 +7,13 @@ import html
 import json
 import math
 import re
+import shlex
 import difflib
 import time
 import subprocess
 import tempfile
 from ctypes import wintypes
+from datetime import datetime
 
 from PySide6.QtCore import (
     Qt,
@@ -31,15 +33,20 @@ from PySide6.QtGui import (
     QFontDatabase,
     QBrush,
     QColor,
+    QDesktopServices,
     QIcon,
     QCursor,
     QPainter,
+    QPixmap,
     QPen,
     QPainterPath,
     QPolygon,
     QLinearGradient,
     QRadialGradient,
     QPdfWriter,
+    QKeySequence,
+    QShortcut,
+    QTextCursor,
 )
 from PySide6.QtSvg import QSvgGenerator
 try:
@@ -72,8 +79,13 @@ from PySide6.QtWidgets import (
     QTreeWidget,
     QTreeWidgetItem,
     QStackedWidget,
+    QSplitter,
+    QMessageBox,
+    QColorDialog,
+    QStyle,
 )
 
+from . import __version__
 from .core import (
     MORICE_NAME,
     compute_math,
@@ -112,6 +124,8 @@ from .core import (
     riddle_response,
     emotional_checkin_response,
     current_datetime_response,
+    harmful_request_response,
+    ensure_visible_response,
 )
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload, search_notes
 from .llm_client import chat
@@ -131,7 +145,11 @@ from .model_catalog import (
     search_huggingface_gguf,
     verify_ai_model_file,
 )
-from .project_builder import build_project_fallback_manifest
+from .project_builder import (
+    build_project_fallback_manifest,
+    project_request_contract,
+    validate_project_manifest_intent,
+)
 from .project_runtime import (
     ProjectValidationError,
     build_launch_plan,
@@ -140,9 +158,69 @@ from .project_runtime import (
     launch_project,
     validate_project_file,
 )
+from .agent_types import ToolCall
 from .science_engine import GraphArtifact, GraphSurface, PhysicsArtifact, ScienceArtifact, is_science_request
 from .domain_engine import DiagramArtifact, MoleculeArtifact, atom_color
+from .educational_engine import BiologyArtifact, DataStructureArtifact
+from .universal_engine import ChartArtifact, DocumentArtifact, SceneArtifact, ScenePrimitive
 from .visualization import VisualizationManager, VisualizationResult
+from .capabilities import (
+    apply_emoji_presentation,
+    capability_answer,
+    detect_capability_topic,
+    emoji_preference_instruction,
+    maturity_preference_instruction,
+)
+from .conversation import (
+    conversation_reference_instruction,
+    previous_user_message,
+    saved_settings_instruction,
+    select_recent_history,
+    wants_previous_user_message,
+)
+from .desktop_assistant import (
+    DesktopAction,
+    close_application,
+    collect_system_snapshot,
+    execute_desktop_action,
+    parse_desktop_command,
+    search_files,
+)
+from .desktop_environment import SearchEverywhereResult, SessionState
+from .ui_system import (
+    THEMES,
+    AnimationEngine,
+    MicroInteractionFilter,
+    SmoothScrollController,
+    normalize_accent,
+    normalize_theme,
+    premium_theme_stylesheet,
+)
+from .ui_workspace import (
+    AssistantHub,
+    CommandItem,
+    CommandPalette,
+    DEFAULT_COMMANDS,
+    FilePreview,
+    NotificationToast,
+    install_command_shortcut,
+)
+from .diagnostics_ui import DiagnosticsDialog
+from .plugin_ui import PluginCenter
+from .premium_experience import (
+    ExperienceProfile,
+    ExperienceProfileStore,
+    MAX_VISIBLE_CHAT_WIDGETS,
+    workspace_layout,
+)
+from .premium_ui import PremiumSettingsDialog
+from .platform_ui import FirstRunWizard
+from .runtime_services import RecoveryInfo, RuntimeServices, get_runtime_services
+from .workspace_state import (
+    WorkspaceState,
+    load_workspace_state,
+    save_workspace_state,
+)
 from .settings import (
     DEFAULT_SETTINGS,
     load_settings,
@@ -154,6 +232,16 @@ from .settings import (
     normalize_project_lookup_mode,
     normalize_gpu_name,
     normalize_gpu_vram_mb,
+    normalize_emoji_level,
+    normalize_maturity_level,
+    normalize_font_family,
+    normalize_custom_font_path,
+    normalize_animation_speed,
+    normalize_boolean_setting,
+    normalize_settings_profile,
+    normalize_transparency,
+    normalize_ui_scale,
+    normalize_workspace_preset,
     normalize_user_title,
     normalize_wake_phrase,
     normalize_response_style,
@@ -162,6 +250,29 @@ from .settings import (
 )
 from .web_search import search_web
 from .vision import describe_image
+
+
+def _tokenize_for_ui_search(value: str) -> tuple[str, ...]:
+    return tuple(re.findall(r"[a-z0-9+#.-]{2,}", value.casefold()))
+
+
+def _start_background_task(name: str, target):
+    runtime = get_runtime_services()
+    if runtime.started:
+        return runtime.workers.submit(name, target)
+    try:
+        thread = threading.Thread(
+            target=target,
+            daemon=True,
+            name=f"morice-{name}",
+        )
+    except TypeError:
+        # Some test and embedding hosts provide a minimal Thread-compatible
+        # adapter without Python's optional naming argument.
+        thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    return thread
+
 
 PROJECT_TEXT_EXTENSIONS = {
     ".bat",
@@ -271,6 +382,8 @@ def _set_windows_app_id() -> None:
 
 
 _UI_FONTS_LOADED = False
+_ACTIVE_UI_FONT_FAMILY = "Segoe UI"
+_ACTIVE_UI_THEME = "dark"
 
 
 def _load_ui_fonts():
@@ -286,6 +399,8 @@ def _load_ui_fonts():
         os.path.join(font_dir, "segoeui.ttf"),
         os.path.join(font_dir, "segoeuib.ttf"),
         os.path.join(font_dir, "segoeuii.ttf"),
+        os.path.join(font_dir, "seguiemj.ttf"),
+        os.path.join(font_dir, "seguisym.ttf"),
     ]
     loaded_family = ""
     for font_path in font_paths:
@@ -301,6 +416,71 @@ def _load_ui_fonts():
     if loaded_family:
         app.setFont(QFont(loaded_family, 10))
     _UI_FONTS_LOADED = True
+
+
+def register_ui_font_file(path: str) -> str:
+    font_path = normalize_custom_font_path(path)
+    if not font_path or not os.path.isfile(font_path):
+        return ""
+    font_id = QFontDatabase.addApplicationFont(font_path)
+    if font_id < 0:
+        return ""
+    families = QFontDatabase.applicationFontFamilies(font_id)
+    return normalize_font_family(families[0]) if families else ""
+
+
+def _theme_outline_icon(theme: str) -> QIcon:
+    pixmap = QPixmap(24, 24)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setPen(QPen(QColor(255, 255, 255, 245), 1.7, Qt.SolidLine, Qt.RoundCap))
+    painter.setBrush(Qt.NoBrush)
+    if normalize_theme(theme) == "light":
+        painter.drawEllipse(QPoint(12, 12), 4, 4)
+        for index in range(8):
+            angle = index * math.tau / 8
+            painter.drawLine(
+                QPoint(int(12 + math.cos(angle) * 7), int(12 + math.sin(angle) * 7)),
+                QPoint(int(12 + math.cos(angle) * 10), int(12 + math.sin(angle) * 10)),
+            )
+    else:
+        path = QPainterPath()
+        path.moveTo(15.5, 3.5)
+        path.cubicTo(10.0, 5.0, 7.2, 9.0, 8.2, 13.2)
+        path.cubicTo(9.2, 17.4, 13.2, 19.7, 18.2, 18.2)
+        path.cubicTo(16.0, 20.4, 12.7, 21.2, 9.6, 19.9)
+        path.cubicTo(4.2, 17.7, 1.8, 11.5, 4.1, 6.6)
+        path.cubicTo(6.1, 2.5, 11.0, 1.1, 15.5, 3.5)
+        painter.drawPath(path)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def available_ui_font_families(selected_family: str = "") -> list[str]:
+    installed = {
+        normalize_font_family(family)
+        for family in QFontDatabase.families()
+        if normalize_font_family(family)
+    }
+    preferred = (
+        "Segoe UI",
+        "Inter",
+        "Arial",
+        "Calibri",
+        "Verdana",
+        "Georgia",
+        "Tahoma",
+        "Times New Roman",
+        "Cascadia Code",
+    )
+    families = [family for family in preferred if family in installed]
+    selected = normalize_font_family(selected_family)
+    if selected in installed and selected not in families:
+        families.append(selected)
+    if not families:
+        families.append(QApplication.font().family() or DEFAULT_SETTINGS["font_family"])
+    return families
 
 
 class ModelSourceDialog(QDialog):
@@ -339,7 +519,6 @@ class ModelSourceDialog(QDialog):
             QDialog {
                 background: #111018;
                 color: #f4f0ff;
-                font-family: "Segoe UI";
             }
             #ModelDialogTitle {
                 font-size: 18px;
@@ -441,8 +620,18 @@ class ModelWebBrowserDialog(QDialog):
     download_finished = Signal(str, str)
     gpu_detected = Signal(object)
 
+    def _emit_background(self, signal_name: str, *arguments) -> bool:
+        if getattr(self, "_is_closing", False):
+            return False
+        try:
+            getattr(self, signal_name).emit(*arguments)
+        except RuntimeError:
+            return False
+        return True
+
     def __init__(self, parent=None, gpu_profile: GpuProfile | None = None):
         super().__init__(parent)
+        self._is_closing = False
         self.selected_path = ""
         self.gpu_profile = gpu_profile or gpu_profile_from_values()
         self._busy = False
@@ -517,7 +706,6 @@ class ModelWebBrowserDialog(QDialog):
         self.quick_buttons = []
         for label, query in (
             ("Best fit", ""),
-            ("Hermes test", "hermes 3 8b"),
             ("Qwen coder", "qwen2.5 coder 7b"),
             ("Mistral", "mistral 7b instruct"),
             ("Gemma", "gemma 3 4b"),
@@ -688,7 +876,6 @@ class ModelWebBrowserDialog(QDialog):
             QDialog {
                 background: #050711;
                 color: #f6f1ff;
-                font-family: "Segoe UI";
             }
             #ModelGalaxySurface {
                 border-radius: 16px;
@@ -916,9 +1103,9 @@ class ModelWebBrowserDialog(QDialog):
 
         def worker():
             profile = detect_gpu_profile()
-            self.gpu_detected.emit(profile)
+            self._emit_background("gpu_detected", profile)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("model-gpu-detection", worker)
 
     def _on_gpu_detected(self, profile: GpuProfile):
         self._gpu_detection_busy = False
@@ -1026,9 +1213,9 @@ class ModelWebBrowserDialog(QDialog):
             except Exception as exc:  # noqa: BLE001
                 results = []
                 error = str(exc)
-            self.search_finished.emit(results, error)
+            self._emit_background("search_finished", results, error)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("model-search", worker)
 
     def _on_search_finished(self, results: list[dict], error: str):
         self._set_busy(False)
@@ -1089,7 +1276,7 @@ class ModelWebBrowserDialog(QDialog):
         self.status.setText("Installing selected model...")
 
         def progress(percent: int, message: str):
-            self.download_progress.emit(percent, message)
+            self._emit_background("download_progress", percent, message)
 
         def worker():
             try:
@@ -1098,9 +1285,9 @@ class ModelWebBrowserDialog(QDialog):
             except Exception as exc:  # noqa: BLE001
                 path = ""
                 error = str(exc)
-            self.download_finished.emit(path, error)
+            self._emit_background("download_finished", path, error)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("model-download", worker)
 
     def _on_download_progress(self, percent: int, message: str):
         if percent > 0:
@@ -1129,9 +1316,18 @@ class ModelWebBrowserDialog(QDialog):
         )
         QTimer.singleShot(650, self.accept)
 
+    def closeEvent(self, event):
+        self._is_closing = True
+        super().closeEvent(event)
+
 
 def _inline_markdown_to_rich_text(text: str) -> str:
     safe = html.escape(text, quote=False)
+    safe = re.sub(
+        r"([\u2600-\u27bf\U0001f300-\U0001faff]\ufe0f?)",
+        r'<span style="font-family: Segoe UI Emoji;">\1</span>',
+        safe,
+    )
     safe = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", safe)
     safe = re.sub(r"\*\*([^*\n][\s\S]*?[^*\n])\*\*", r"<b>\1</b>", safe)
     safe = re.sub(r"__([^_\n][\s\S]*?[^_\n])__", r"<b>\1</b>", safe)
@@ -1248,6 +1444,12 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
         self.page().setBackgroundColor(QColor(0, 0, 0, 0))
         self.loadFinished.connect(lambda _ok: QTimer.singleShot(0, self._measure_content))
         source = json.dumps(message or "", ensure_ascii=False).replace("</", "<\\/")
+        tokens = THEMES[normalize_theme(_ACTIVE_UI_THEME)]
+        font_family = normalize_font_family(_ACTIVE_UI_FONT_FAMILY)
+        font_css = font_family.replace("\\", "\\\\").replace('"', '\\"')
+        code_background = "rgba(5, 7, 12, .82)" if tokens.name == "dark" else "rgba(225, 231, 236, .92)"
+        quote_color = "#cbd5e5" if tokens.name == "dark" else "#526171"
+        table_border = "rgba(255,255,255,.16)" if tokens.name == "dark" else "rgba(22,27,34,.18)"
         document = f"""<!doctype html>
 <html>
 <head>
@@ -1255,8 +1457,10 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
   <link rel="stylesheet" href="katex.min.css">
   <link rel="stylesheet" href="github-dark.min.css">
   <style>
-    html, body {{ margin: 0; padding: 0; background: transparent; color: #edf1f8;
-      font: 15px/1.58 "Inter", "Segoe UI", sans-serif; letter-spacing: 0; }}
+    :root {{ --ui-font: "{font_css}"; --text: {tokens.text}; --muted: {quote_color};
+      --code-bg: {code_background}; --table-border: {table_border}; }}
+    html, body {{ margin: 0; padding: 0; background: transparent; color: var(--text);
+      font: 15px/1.58 var(--ui-font), "Segoe UI Emoji", "Segoe UI", sans-serif; letter-spacing: 0; }}
     body {{ overflow-x: hidden; overflow-y: auto; }}
     p {{ margin: 0 0 10px; }}
     h1, h2, h3, h4 {{ margin: 12px 0 7px; line-height: 1.25; }}
@@ -1266,12 +1470,12 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
     code {{ font-family: "Cascadia Code", Consolas, monospace; font-size: 0.94em; }}
     :not(pre) > code {{ background: rgba(119, 92, 190, .18); border: 1px solid
       rgba(153, 119, 229, .22); padding: 2px 5px; border-radius: 4px; }}
-    pre {{ overflow-x: auto; padding: 12px; background: rgba(5, 7, 12, .82);
+    pre {{ overflow-x: auto; padding: 12px; background: var(--code-bg);
       border: 1px solid rgba(153, 119, 229, .28); border-radius: 6px; }}
-    blockquote {{ margin: 8px 0; padding: 2px 12px; color: #cbd5e5;
+    blockquote {{ margin: 8px 0; padding: 2px 12px; color: var(--muted);
       border-left: 3px solid #8c64e8; }}
     table {{ width: 100%; border-collapse: collapse; margin: 9px 0; }}
-    th, td {{ border: 1px solid rgba(255,255,255,.16); padding: 7px 9px;
+    th, td {{ border: 1px solid var(--table-border); padding: 7px 9px;
       text-align: left; }}
     th {{ background: rgba(68, 91, 158, .28); }}
     .katex-display {{ overflow-x: auto; overflow-y: hidden; padding: 7px 0; }}
@@ -1303,6 +1507,37 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
 </html>"""
         self.setHtml(document, QUrl.fromLocalFile(_web_assets_path() + os.sep))
 
+    def apply_appearance(self, theme: str, font_family: str):
+        if QWebEngineView is None:
+            return
+        tokens = THEMES[normalize_theme(theme)]
+        family = normalize_font_family(font_family)
+        code_background = (
+            "rgba(5, 7, 12, .82)"
+            if tokens.name == "dark"
+            else "rgba(225, 231, 236, .92)"
+        )
+        quote_color = "#cbd5e5" if tokens.name == "dark" else "#526171"
+        table_border = (
+            "rgba(255,255,255,.16)"
+            if tokens.name == "dark"
+            else "rgba(22,27,34,.18)"
+        )
+        values = {
+            "--ui-font": family,
+            "--text": tokens.text,
+            "--muted": quote_color,
+            "--code-bg": code_background,
+            "--table-border": table_border,
+        }
+        payload = json.dumps(values, ensure_ascii=False)
+        self.page().runJavaScript(
+            "const values="
+            + payload
+            + "; for (const [key,value] of Object.entries(values)) "
+            + "document.documentElement.style.setProperty(key,value);"
+        )
+
     def _measure_content(self):
         if QWebEngineView is None:
             return
@@ -1324,10 +1559,15 @@ class ComposerStageFrame(QFrame):
     def __init__(self):
         super().__init__()
         self.setObjectName("ComposerStage")
+        self.theme_name = "dark"
         self._wave_phase = 0.0
         self._wave_timer = QTimer(self)
         self._wave_timer.timeout.connect(self._advance_wave)
         self._wave_timer.start(45)
+
+    def set_theme(self, theme: str):
+        self.theme_name = "light" if theme == "light" else "dark"
+        self.update()
 
     def _advance_wave(self):
         if not self.isVisible() or self.window().isMinimized():
@@ -1342,7 +1582,12 @@ class ComposerStageFrame(QFrame):
         width = max(1, rect.width())
         height = max(1, rect.height())
 
-        painter.fillRect(rect, QColor(7, 7, 12, 232))
+        painter.fillRect(
+            rect,
+            QColor(238, 242, 245, 246)
+            if self.theme_name == "light"
+            else QColor(7, 7, 12, 232),
+        )
         painter.setPen(Qt.NoPen)
 
         start_y = int(height * 0.34)
@@ -1376,26 +1621,66 @@ class ComposerStageFrame(QFrame):
 
 
 class ChatBubble(QFrame):
+    edit_requested = Signal(str)
+    reaction_changed = Signal(str)
+
     def __init__(self, author: str, message: str, is_user: bool = False):
         super().__init__()
+        self.author = str(author or "")
+        self.message = str(message or "")
+        self.is_user = bool(is_user)
+        self._reaction = ""
         self.setObjectName("ChatBubble")
+        self.setMaximumWidth(16777215)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
         layout.setSpacing(6)
 
-        author_label = QLabel(author)
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(5)
+        author_label = QLabel(self.author)
         author_label.setObjectName("AuthorLabel")
         author_label.setTextFormat(Qt.PlainText)
         author_label.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         author_label.setFocusPolicy(Qt.StrongFocus)
-        layout.addWidget(author_label)
-        if QWebEngineView is not None and _needs_web_rich_text(message):
-            layout.addWidget(RichContentView(message, self))
+        timestamp = QLabel(datetime.now().strftime("%H:%M"))
+        timestamp.setObjectName("MessageMeta")
+        timestamp.setToolTip(datetime.now().strftime("%A, %d %B %Y at %H:%M"))
+        timestamp.setAccessibleName("Message timestamp")
+        copy_button = self._action_button(
+            QApplication.style().standardIcon(QStyle.SP_DialogSaveButton),
+            "Copy message",
+            self._copy_message,
+        )
+        header.addWidget(author_label)
+        header.addStretch(1)
+        header.addWidget(timestamp)
+        header.addWidget(copy_button)
+        if is_user:
+            edit_button = self._action_button(
+                QApplication.style().standardIcon(QStyle.SP_FileDialogDetailedView),
+                "Edit this message in the composer",
+                lambda: self.edit_requested.emit(self.message),
+            )
+            header.addWidget(edit_button)
+        reaction_button = QPushButton("M+")
+        reaction_button.setObjectName("MessageAction")
+        reaction_button.setFixedSize(26, 26)
+        reaction_button.setToolTip("React to this message")
+        reaction_button.setAccessibleName("React to message")
+        reaction_button.clicked.connect(self._cycle_reaction)
+        self.reaction_button = reaction_button
+        header.addWidget(reaction_button)
+        layout.addLayout(header)
+        if QWebEngineView is not None and _needs_web_rich_text(self.message):
+            layout.addWidget(RichContentView(self.message, self))
         else:
-            message_label = QLabel(message)
+            message_label = QLabel(self.message)
             message_label.setWordWrap(True)
             message_label.setObjectName("MessageLabel")
-            message_label.setText(_message_to_rich_text(message))
+            message_label.setText(_message_to_rich_text(self.message))
             message_label.setTextFormat(Qt.RichText)
             message_label.setTextInteractionFlags(
                 Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
@@ -1404,6 +1689,75 @@ class ChatBubble(QFrame):
             layout.addWidget(message_label)
 
         self.setProperty("user", "true" if is_user else "false")
+        self.setAccessibleName(f"{self.author} message")
+
+    @staticmethod
+    def _action_button(icon: QIcon, tooltip: str, callback) -> QPushButton:
+        button = QPushButton()
+        button.setObjectName("MessageAction")
+        button.setIcon(icon)
+        button.setFixedSize(26, 26)
+        button.setToolTip(tooltip)
+        button.setAccessibleName(tooltip)
+        button.clicked.connect(callback)
+        return button
+
+    def _copy_message(self) -> None:
+        clipboard = QApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(self.message)
+
+    def _cycle_reaction(self) -> None:
+        choices = ("", "M^", "Mv")
+        self._reaction = choices[(choices.index(self._reaction) + 1) % len(choices)]
+        self.reaction_button.setText(self._reaction or "M+")
+        self.reaction_changed.emit(self._reaction)
+
+
+class AdaptivePromptEdit(QTextEdit):
+    returnPressed = Signal()
+    historyRequested = Signal(int)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setAcceptRichText(False)
+        self.setTabChangesFocus(True)
+        self.setMinimumHeight(44)
+        self.setMaximumHeight(132)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.textChanged.connect(self._resize_to_document)
+        self._resize_to_document()
+
+    def text(self) -> str:
+        return self.toPlainText()
+
+    def setText(self, text: str) -> None:
+        self.setPlainText(str(text or ""))
+
+    def keyPressEvent(self, event):
+        if event.key() in {Qt.Key_Return, Qt.Key_Enter} and not (
+            event.modifiers() & Qt.ShiftModifier
+        ):
+            self.returnPressed.emit()
+            event.accept()
+            return
+        if (
+            event.key() in {Qt.Key_Up, Qt.Key_Down}
+            and "\n" not in self.toPlainText()
+            and not (event.modifiers() & Qt.ShiftModifier)
+        ):
+            self.historyRequested.emit(-1 if event.key() == Qt.Key_Up else 1)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _resize_to_document(self) -> None:
+        document_height = int(self.document().size().height()) + 20
+        target = max(44, min(132, document_height))
+        self.setFixedHeight(target)
+        self.setVerticalScrollBarPolicy(
+            Qt.ScrollBarAsNeeded if document_height > 132 else Qt.ScrollBarAlwaysOff
+        )
 
 
 class ThinkingBubble(QFrame):
@@ -1411,7 +1765,7 @@ class ThinkingBubble(QFrame):
         super().__init__()
         self.setObjectName("ThinkingBubble")
         self._visible = True
-        self._lines: list[str] = []
+        self._stages: list[tuple[str, str]] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 10, 12, 10)
@@ -1453,13 +1807,45 @@ class ThinkingBubble(QFrame):
         detail = (detail or "").strip()
         if not detail:
             return
-        if self._lines and self._lines[-1] == detail:
+        stage = self._stage_for_detail(detail)
+        if self._stages and self._stages[-1] == (stage, detail):
             return
-        self._lines.append(detail)
-        self.detail_label.setText("\n".join(f"{index + 1}. {line}" for index, line in enumerate(self._lines)))
+        if self._stages and self._stages[-1][0] == stage:
+            self._stages[-1] = (stage, detail)
+        else:
+            self._stages.append((stage, detail))
+        self._stages = self._stages[-7:]
+        lines: list[str] = []
+        for index, (label, text) in enumerate(self._stages):
+            state = "[active]" if index == len(self._stages) - 1 else "[done]"
+            lines.append(f"{state} {label}")
+            lines.append(f"         {text}")
+        self.detail_label.setText("\n".join(lines))
+
+    @staticmethod
+    def _stage_for_detail(detail: str) -> str:
+        lowered = detail.lower()
+        if any(word in lowered for word in ("received", "request", "message")):
+            return "Understanding request"
+        if any(word in lowered for word in ("context", "notes", "reading", "search")):
+            return "Gathering context"
+        if any(word in lowered for word in ("mode", "rules", "folder", "plan")):
+            return "Planning"
+        if any(word in lowered for word in ("applying", "files", "execut", "command")):
+            return "Executing"
+        if any(word in lowered for word in ("render", "visual", "prepare")):
+            return "Preparing output"
+        if any(word in lowered for word in ("asking", "generating", "compose", "qwen")):
+            return "Generating response"
+        return "Finalizing"
 
     def finish(self):
-        self.set_detail("Done. Reply is shown below.")
+        self._stages.append(("Complete", "The result is ready below."))
+        lines: list[str] = []
+        for label, text in self._stages[-7:]:
+            lines.append(f"[done] {label}")
+            lines.append(f"         {text}")
+        self.detail_label.setText("\n".join(lines))
         self.toggle.setText("Processing done")
         self.dot.setProperty("done", "true")
         self.dot.style().unpolish(self.dot)
@@ -2560,6 +2946,768 @@ class DiagramCanvas(QWidget):
         )
 
 
+class ChartCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("ChartCanvas")
+        self.setMinimumHeight(340)
+        self.setMouseTracking(True)
+        self.artifact: ChartArtifact | None = None
+        self._regions: list[tuple[QRect, str]] = []
+
+    def set_artifact(self, artifact: ChartArtifact | None):
+        self.artifact = artifact
+        self.update()
+
+    def reset_view(self):
+        self.update()
+
+    def export_png(self, path: str) -> bool:
+        return bool(path and self.grab().save(path, "PNG"))
+
+    def export_svg(self, path: str) -> bool:
+        if not path:
+            return False
+        generator = QSvgGenerator()
+        generator.setFileName(path)
+        generator.setSize(self.size())
+        generator.setViewBox(self.rect())
+        generator.setTitle(self.artifact.title if self.artifact else "MORICE chart")
+        generator.setDescription("Validated chart exported from MORICE")
+        painter = QPainter(generator)
+        try:
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    def export_pdf(self, path: str) -> bool:
+        if not path:
+            return False
+        writer = QPdfWriter(path)
+        writer.setTitle(self.artifact.title if self.artifact else "MORICE chart")
+        writer.setCreator("MORICE")
+        writer.setResolution(144)
+        painter = QPainter(writer)
+        try:
+            viewport = painter.viewport()
+            target = self.size()
+            target.scale(viewport.size(), Qt.KeepAspectRatio)
+            painter.setViewport(
+                viewport.x() + (viewport.width() - target.width()) // 2,
+                viewport.y() + (viewport.height() - target.height()) // 2,
+                target.width(),
+                target.height(),
+            )
+            painter.setWindow(self.rect())
+            self.render(painter, QPoint())
+        finally:
+            painter.end()
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+
+    def mouseMoveEvent(self, event):
+        position = event.position().toPoint()
+        for region, detail in self._regions:
+            if region.contains(position):
+                self.inspected.emit(detail)
+                break
+        event.accept()
+
+    @staticmethod
+    def _palette(index: int) -> QColor:
+        colors = ("#52b7ff", "#62d6ad", "#a985ff", "#f2c45c", "#ef7080", "#48c3cf")
+        return QColor(colors[index % len(colors)])
+
+    def _draw_pie(self, painter: QPainter, plot: QRect):
+        values = [max(0.0, point.y) for point in self.artifact.points]
+        total = sum(values)
+        if total <= 0:
+            painter.setPen(QColor(255, 255, 255, 180))
+            painter.drawText(plot, Qt.AlignCenter, "Pie charts require positive values")
+            return
+        diameter = min(plot.width() * 0.58, plot.height() * 0.88)
+        pie_rect = QRect(
+            int(plot.left() + plot.width() * 0.04),
+            int(plot.center().y() - diameter / 2),
+            int(diameter),
+            int(diameter),
+        )
+        start = 90 * 16
+        self._regions = []
+        for index, (point, value) in enumerate(zip(self.artifact.points, values)):
+            span = int(round(value / total * 360 * 16))
+            painter.setBrush(self._palette(index))
+            painter.setPen(QPen(QColor(5, 8, 14, 220), 2))
+            painter.drawPie(pie_rect, start, -span)
+            start -= span
+        legend_x = int(plot.left() + plot.width() * 0.68)
+        for index, (point, value) in enumerate(zip(self.artifact.points, values)):
+            row = QRect(legend_x, plot.top() + 10 + index * 29, plot.right() - legend_x, 24)
+            painter.fillRect(QRect(row.left(), row.top() + 5, 14, 14), self._palette(index))
+            painter.setPen(QColor(235, 241, 250, 225))
+            percent = value / total * 100
+            painter.drawText(row.adjusted(22, 0, 0, 0), Qt.AlignVCenter, f"{point.label}: {value:g} ({percent:.1f}%)")
+            self._regions.append((row, f"{point.label} = {value:g} | {percent:.2f}%"))
+
+    def _draw_cartesian(self, painter: QPainter, plot: QRect):
+        points = self.artifact.points
+        values = [point.y for point in points]
+        min_y = min(0.0, min(values))
+        max_y = max(0.0, max(values))
+        if abs(max_y - min_y) < 1e-12:
+            max_y = min_y + 1.0
+        painter.setPen(QPen(QColor(255, 255, 255, 35), 1))
+        for index in range(6):
+            y = plot.top() + index * plot.height() / 5
+            painter.drawLine(plot.left(), int(y), plot.right(), int(y))
+            value = max_y - index * (max_y - min_y) / 5
+            painter.setPen(QColor(190, 205, 230, 170))
+            painter.drawText(plot.left() - 64, int(y) - 10, 58, 20, Qt.AlignRight | Qt.AlignVCenter, f"{value:g}")
+            painter.setPen(QPen(QColor(255, 255, 255, 35), 1))
+        zero_y = int(plot.bottom() - (0.0 - min_y) / (max_y - min_y) * plot.height())
+        painter.setPen(QPen(QColor(230, 238, 250, 110), 2))
+        painter.drawLine(plot.left(), zero_y, plot.right(), zero_y)
+        self._regions = []
+
+        if self.artifact.chart_type in {"bar", "histogram"}:
+            slot = plot.width() / max(1, len(points))
+            width = max(8, int(slot * 0.68))
+            for index, point in enumerate(points):
+                value_y = int(plot.bottom() - (point.y - min_y) / (max_y - min_y) * plot.height())
+                top = min(zero_y, value_y)
+                height = max(2, abs(value_y - zero_y))
+                bar = QRect(int(plot.left() + index * slot + (slot - width) / 2), top, width, height)
+                painter.setBrush(self._palette(index))
+                painter.setPen(QPen(QColor(180, 225, 255, 150), 1))
+                painter.drawRoundedRect(bar, 4, 4)
+                label_rect = QRect(int(plot.left() + index * slot), plot.bottom() + 7, int(slot), 36)
+                painter.setPen(QColor(220, 230, 244, 205))
+                painter.drawText(label_rect, Qt.AlignHCenter | Qt.AlignTop | Qt.TextWordWrap, point.label[:18])
+                self._regions.append((bar.adjusted(-4, -4, 4, 4), f"{point.label} = {point.y:g}"))
+            return
+
+        x_values = [point.x for point in points]
+        min_x, max_x = min(x_values), max(x_values)
+        if abs(max_x - min_x) < 1e-12:
+            max_x = min_x + 1.0
+
+        def projected(point):
+            x = plot.left() + (point.x - min_x) / (max_x - min_x) * plot.width()
+            y = plot.bottom() - (point.y - min_y) / (max_y - min_y) * plot.height()
+            return QPoint(int(x), int(y))
+
+        projected_points = [projected(point) for point in points]
+        if self.artifact.chart_type == "line":
+            path = QPainterPath()
+            path.moveTo(projected_points[0])
+            for point in projected_points[1:]:
+                path.lineTo(point)
+            painter.setPen(QPen(QColor("#52b7ff"), 3))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPath(path)
+        for index, (point, screen_point) in enumerate(zip(points, projected_points)):
+            painter.setBrush(self._palette(index))
+            painter.setPen(QPen(QColor(5, 8, 14, 220), 2))
+            painter.drawEllipse(screen_point, 6, 6)
+            region = QRect(screen_point.x() - 10, screen_point.y() - 10, 20, 20)
+            self._regions.append((region, f"{point.label}: x={point.x:g}, y={point.y:g}"))
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(82, 48, -30, -58)
+        painter.fillRect(rect, QColor(5, 8, 14, 244))
+        painter.setPen(QPen(QColor(80, 190, 225, 80), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+        if not self.artifact:
+            painter.setPen(QColor(255, 255, 255, 160))
+            painter.drawText(rect, Qt.AlignCenter, "No validated chart data")
+            return
+        if self.artifact.chart_type == "pie":
+            self._draw_pie(painter, plot.adjusted(-45, 0, 0, 20))
+        else:
+            self._draw_cartesian(painter, plot)
+        painter.setPen(QColor(255, 255, 255, 235))
+        font = painter.font()
+        font.setBold(True)
+        font.setPointSize(11)
+        painter.setFont(font)
+        painter.drawText(rect.adjusted(14, 8, -14, -8), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+        painter.setPen(QColor(190, 205, 230, 180))
+        painter.drawText(
+            rect.adjusted(14, 0, -14, -9),
+            Qt.AlignBottom | Qt.AlignLeft,
+            f"{self.artifact.chart_type} | hover marks for exact values",
+        )
+
+
+class SceneCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("SceneCanvas")
+        self.setMinimumHeight(380)
+        self.setMouseTracking(True)
+        self.artifact: SceneArtifact | None = None
+        self.view_mode = "3d"
+        self.running = True
+        self.yaw = math.radians(28)
+        self.pitch = math.radians(18)
+        self.zoom = 1.0
+        self._dragging = False
+        self._last_mouse = QPoint()
+        self._hit_regions: list[tuple[QRect, str]] = []
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(32)
+
+    def set_artifact(self, artifact: SceneArtifact | None):
+        self.artifact = artifact
+        self.reset_view()
+
+    def set_view_mode(self, mode: str):
+        self.view_mode = "2d" if str(mode).lower().startswith("2") else "3d"
+        self.update()
+
+    def set_running(self, running: bool):
+        self.running = bool(running)
+
+    def reset_view(self):
+        self.yaw = math.radians(28)
+        self.pitch = math.radians(18)
+        self.zoom = 1.0
+        self.update()
+
+    def export_png(self, path: str) -> bool:
+        return bool(path and self.grab().save(path, "PNG"))
+
+    def _tick(self):
+        if self.running and self.isVisible() and self.view_mode == "3d":
+            self.yaw = (self.yaw + 0.006) % math.tau
+            self.update()
+
+    def wheelEvent(self, event):
+        if event.angleDelta().y():
+            self.zoom = max(0.45, min(2.8, self.zoom * (1.1 if event.angleDelta().y() > 0 else 0.9)))
+            self.update()
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._last_mouse = event.position().toPoint()
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        position = event.position().toPoint()
+        if self._dragging and self.view_mode == "3d":
+            delta = position - self._last_mouse
+            self._last_mouse = position
+            self.yaw += delta.x() * 0.009
+            self.pitch = max(-1.2, min(1.2, self.pitch + delta.y() * 0.009))
+            self.update()
+        else:
+            for region, label in self._hit_regions:
+                if region.contains(position):
+                    self.inspected.emit(label)
+                    break
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = False
+        event.accept()
+
+    def _rotate(self, point: tuple[float, float, float]) -> tuple[float, float, float]:
+        x, y, z = point
+        if self.view_mode == "2d":
+            return x, y, z
+        cos_yaw, sin_yaw = math.cos(self.yaw), math.sin(self.yaw)
+        x_rotated = x * cos_yaw - z * sin_yaw
+        z_rotated = x * sin_yaw + z * cos_yaw
+        cos_pitch, sin_pitch = math.cos(self.pitch), math.sin(self.pitch)
+        y_rotated = y * cos_pitch - z_rotated * sin_pitch
+        depth = y * sin_pitch + z_rotated * cos_pitch
+        return x_rotated, y_rotated, depth
+
+    def _project(self, point: tuple[float, float, float], plot: QRect) -> tuple[QPoint, float]:
+        x, y, depth = self._rotate(point)
+        scale = min(plot.width(), plot.height()) * 0.19 * self.zoom
+        return QPoint(
+            int(plot.center().x() + x * scale),
+            int(plot.center().y() - y * scale),
+        ), depth
+
+    @staticmethod
+    def _corners(primitive: ScenePrimitive) -> list[tuple[float, float, float]]:
+        cx, cy, cz = primitive.center
+        sx, sy, sz = (value / 2.0 for value in primitive.size)
+        return [
+            (cx + dx * sx, cy + dy * sy, cz + dz * sz)
+            for dx, dy, dz in (
+                (-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+                (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1),
+            )
+        ]
+
+    def _draw_primitive(self, painter: QPainter, primitive: ScenePrimitive, plot: QRect) -> tuple[QRect, float]:
+        center, depth = self._project(primitive.center, plot)
+        color = QColor(primitive.color)
+        color.setAlpha(175)
+        outline = QColor(primitive.color)
+        outline.setAlpha(235)
+        scale = min(plot.width(), plot.height()) * 0.19 * self.zoom
+        if primitive.shape == "box":
+            projected = [self._project(point, plot)[0] for point in self._corners(primitive)]
+            painter.setBrush(color)
+            painter.setPen(QPen(outline, 1.7))
+            face = QPolygon([projected[index] for index in (4, 5, 6, 7)])
+            painter.drawPolygon(face)
+            for first, second in (
+                (0, 1), (1, 2), (2, 3), (3, 0),
+                (4, 5), (5, 6), (6, 7), (7, 4),
+                (0, 4), (1, 5), (2, 6), (3, 7),
+            ):
+                painter.drawLine(projected[first], projected[second])
+            xs = [point.x() for point in projected]
+            ys = [point.y() for point in projected]
+            region = QRect(min(xs), min(ys), max(8, max(xs) - min(xs)), max(8, max(ys) - min(ys)))
+        else:
+            width = max(10, int(primitive.size[0] * scale))
+            height = max(10, int(primitive.size[1] * scale))
+            if primitive.shape == "cylinder":
+                height = max(height, int(primitive.size[2] * scale * 0.55))
+            region = QRect(center.x() - width // 2, center.y() - height // 2, width, height)
+            painter.setBrush(color)
+            painter.setPen(QPen(outline, 1.8))
+            painter.drawEllipse(region)
+            if primitive.shape == "cylinder":
+                painter.drawLine(region.left(), region.center().y(), region.right(), region.center().y())
+        return region, depth
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(36, 48, -36, -62)
+        painter.fillRect(rect, QColor(5, 8, 14, 244))
+        painter.setPen(QPen(QColor(130, 165, 255, 75), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+        if not self.artifact:
+            painter.setPen(QColor(255, 255, 255, 160))
+            painter.drawText(rect, Qt.AlignCenter, "No validated scene data")
+            return
+
+        centers = [self._project(item.center, plot) for item in self.artifact.primitives]
+        painter.setPen(QPen(QColor(119, 202, 255, 170), 2))
+        for connection in self.artifact.connections:
+            painter.drawLine(centers[connection.first][0], centers[connection.second][0])
+
+        ordered = sorted(
+            enumerate(self.artifact.primitives),
+            key=lambda item: self._rotate(item[1].center)[2],
+        )
+        self._hit_regions = []
+        for index, primitive in ordered:
+            region, _depth = self._draw_primitive(painter, primitive, plot)
+            painter.setPen(QColor(245, 248, 255, 235))
+            label_rect = QRect(region.left() - 35, region.bottom() + 3, region.width() + 70, 22)
+            painter.drawText(label_rect, Qt.AlignHCenter | Qt.AlignTop, primitive.label)
+            self._hit_regions.append(
+                (
+                    region.adjusted(-5, -5, 5, 24),
+                    f"{primitive.label} | shape {primitive.shape} | schematic size "
+                    f"{primitive.size[0]:g} x {primitive.size[1]:g} x {primitive.size[2]:g}",
+                )
+            )
+
+        painter.setPen(QColor(255, 255, 255, 235))
+        font = painter.font()
+        font.setBold(True)
+        font.setPointSize(11)
+        painter.setFont(font)
+        painter.drawText(rect.adjusted(14, 8, -14, -8), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+        painter.setPen(QColor(190, 205, 230, 185))
+        mode = "3D rotatable schematic" if self.view_mode == "3d" else "2D orthographic schematic"
+        painter.drawText(
+            rect.adjusted(14, 0, -14, -9),
+            Qt.AlignBottom | Qt.AlignLeft,
+            f"{mode} | wheel zoom | drag rotate | hover labeled components",
+        )
+
+
+class BiologyCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("BiologyCanvas")
+        self.setMinimumHeight(360)
+        self.setMouseTracking(True)
+        self.artifact: BiologyArtifact | None = None
+        self.view_mode = "3d"
+        self.running = True
+        self.yaw = math.radians(28)
+        self.pitch = math.radians(18)
+        self.zoom = 1.0
+        self.phase = 0.0
+        self._dragging = False
+        self._last_mouse = QPoint()
+        self._hit_regions: list[tuple[QPoint, str]] = []
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(16)
+
+    def set_artifact(self, artifact: BiologyArtifact | None):
+        self.artifact = artifact
+        self.reset_view()
+
+    def set_view_mode(self, mode: str):
+        self.view_mode = "2d" if str(mode).lower().startswith("2") else "3d"
+        self.update()
+
+    def set_running(self, running: bool):
+        self.running = bool(running)
+
+    def reset_view(self):
+        self.yaw = math.radians(28)
+        self.pitch = math.radians(18)
+        self.zoom = 1.0
+        self.phase = 0.0
+        self.update()
+
+    def export_png(self, path: str) -> bool:
+        return bool(path and self.grab().save(path, "PNG"))
+
+    def _tick(self):
+        if self.running and self.artifact and self.artifact.model_type == "dna":
+            self.phase = (self.phase + 0.012) % math.tau
+            self.update()
+
+    def _project(self, point: tuple[float, float, float], plot: QRect) -> tuple[QPoint, float]:
+        x, y, z = point
+        yaw = self.yaw + (self.phase if self.artifact and self.artifact.model_type == "dna" else 0.0)
+        if self.view_mode == "2d":
+            if self.artifact and self.artifact.model_type == "dna":
+                scale_x = plot.width() * 0.28 * self.zoom
+                scale_y = plot.height() * 0.105 * self.zoom
+                return QPoint(
+                    int(plot.center().x() + z * scale_x),
+                    int(plot.center().y() - x * scale_y),
+                ), y
+            return QPoint(
+                int(plot.center().x() + x * plot.width() * 0.20 * self.zoom),
+                int(plot.center().y() - y * plot.height() * 0.22 * self.zoom),
+            ), z
+        cos_yaw, sin_yaw = math.cos(yaw), math.sin(yaw)
+        x_rotated = x * cos_yaw - y * sin_yaw
+        y_rotated = x * sin_yaw + y * cos_yaw
+        vertical = z * math.cos(self.pitch) - y_rotated * math.sin(self.pitch)
+        depth = z * math.sin(self.pitch) + y_rotated * math.cos(self.pitch)
+        scale = min(plot.width(), plot.height()) * 0.25 * self.zoom
+        return QPoint(
+            int(plot.center().x() + x_rotated * scale),
+            int(plot.center().y() - vertical * scale),
+        ), depth
+
+    def wheelEvent(self, event):
+        if event.angleDelta().y():
+            self.zoom = max(0.5, min(2.8, self.zoom * (1.1 if event.angleDelta().y() > 0 else 0.9)))
+            self.update()
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._dragging = True
+            self._last_mouse = event.position().toPoint()
+        event.accept()
+
+    def mouseMoveEvent(self, event):
+        position = event.position().toPoint()
+        if self._dragging and self.view_mode == "3d":
+            delta = position - self._last_mouse
+            self._last_mouse = position
+            self.yaw += delta.x() * 0.009
+            self.pitch = max(-1.2, min(1.2, self.pitch + delta.y() * 0.009))
+            self.update()
+        elif self._hit_regions:
+            point, label = min(
+                self._hit_regions,
+                key=lambda item: math.hypot(item[0].x() - position.x(), item[0].y() - position.y()),
+            )
+            if math.hypot(point.x() - position.x(), point.y() - position.y()) < 18:
+                self.inspected.emit(label)
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._dragging = False
+        event.accept()
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(30, 44, -30, -56)
+        painter.fillRect(rect, QColor(5, 9, 14, 244))
+        painter.setPen(QPen(QColor(91, 214, 178, 95), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+        if not self.artifact:
+            painter.setPen(QColor(255, 255, 255, 160))
+            painter.drawText(rect, Qt.AlignCenter, "No validated biology model")
+            return
+
+        projected = [self._project(point, plot) for point in self.artifact.points]
+        connection_colors = {
+            "backbone": QColor(72, 185, 255, 220),
+            "base pair": QColor(242, 115, 172, 215),
+            "signal": QColor(255, 204, 92, 220),
+            "input": QColor(91, 214, 178, 220),
+            "output": QColor(190, 130, 255, 220),
+            "contains": QColor(125, 190, 235, 170),
+        }
+        for first, second, connection_type in self.artifact.connections:
+            if first >= len(projected) or second >= len(projected):
+                continue
+            painter.setPen(QPen(connection_colors.get(connection_type, QColor(175, 205, 235, 190)), 3))
+            painter.drawLine(projected[first][0], projected[second][0])
+
+        self._hit_regions = []
+        for index in sorted(range(len(projected)), key=lambda item: projected[item][1], reverse=True):
+            point, depth = projected[index]
+            if self.artifact.model_type == "dna":
+                color = QColor(72, 185, 255) if index % 2 == 0 else QColor(242, 115, 172)
+                label = ("Sugar-phosphate backbone A" if index % 2 == 0 else "Sugar-phosphate backbone B")
+                radius = 6
+            else:
+                color = (QColor("#5bd6b2"), QColor("#67b7ff"), QColor("#f0a6ca"))[index % 3]
+                label = self.artifact.labels[min(index, len(self.artifact.labels) - 1)]
+                radius = 13 if index else 18
+            if self.view_mode == "3d":
+                radius = max(5, int(radius * max(0.75, min(1.2, 1.0 - depth * 0.06))))
+            painter.setBrush(color)
+            painter.setPen(QPen(color.lighter(145), 2))
+            painter.drawEllipse(point, radius, radius)
+            if self.artifact.model_type != "dna":
+                painter.setPen(QColor(236, 245, 252, 225))
+                painter.drawText(QRect(point.x() + 15, point.y() - 11, 145, 24), Qt.AlignLeft | Qt.AlignVCenter, label)
+            self._hit_regions.append((point, label))
+
+        painter.setPen(QColor(255, 255, 255, 235))
+        title_font = painter.font()
+        title_font.setBold(True)
+        title_font.setPointSize(11)
+        painter.setFont(title_font)
+        painter.drawText(rect.adjusted(14, 8, -14, -8), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
+        painter.setPen(QColor(190, 210, 228, 195))
+        mode = "2D schematic" if self.view_mode == "2d" else "3D perspective"
+        painter.drawText(
+            rect.adjusted(14, 0, -14, -10),
+            Qt.AlignBottom | Qt.AlignLeft,
+            f"{mode} | wheel zoom | drag rotate | hover to inspect",
+        )
+
+
+class DataStructureCanvas(QWidget):
+    inspected = Signal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("DataStructureCanvas")
+        self.setMinimumHeight(350)
+        self.structure = "Binary Search Tree"
+        self.values: list[int] = []
+        self.highlighted: set[int] = set()
+        self.status = "Choose an operation."
+        self._pulse = 0.0
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._tick)
+        self._timer.start(28)
+
+    def set_state(self, structure: str, values: list[int], highlighted=None, status: str = ""):
+        self.structure = structure
+        self.values = list(values)
+        self.highlighted = set(highlighted or [])
+        self.status = status or "Choose an operation."
+        self._pulse = 0.0
+        self.update()
+
+    def _tick(self):
+        if self.highlighted:
+            self._pulse = (self._pulse + 0.12) % math.tau
+            self.update()
+
+    @staticmethod
+    def _bst(values: list[int]):
+        root = None
+        for value in values:
+            if root is None:
+                root = [value, None, None]
+                continue
+            node = root
+            while True:
+                branch = 1 if value < node[0] else 2
+                if value == node[0]:
+                    break
+                if node[branch] is None:
+                    node[branch] = [value, None, None]
+                    break
+                node = node[branch]
+        return root
+
+    @staticmethod
+    def _balanced_tree(values: list[int]):
+        items = sorted(set(values))
+
+        def build(subset):
+            if not subset:
+                return None
+            middle = len(subset) // 2
+            return [
+                subset[middle],
+                build(subset[:middle]),
+                build(subset[middle + 1:]),
+            ]
+
+        return build(items)
+
+    def _tree_positions(self, tree, plot: QRect):
+        positions: dict[int, QPoint] = {}
+
+        def walk(node, low: float, high: float, depth: int):
+            if not node:
+                return
+            x = plot.left() + int((low + high) * 0.5 * plot.width())
+            y = plot.top() + 35 + depth * max(58, plot.height() // 5)
+            positions[node[0]] = QPoint(x, y)
+            walk(node[1], low, (low + high) * 0.5, depth + 1)
+            walk(node[2], (low + high) * 0.5, high, depth + 1)
+
+        walk(tree, 0.0, 1.0, 0)
+        return positions
+
+    def _draw_node(self, painter: QPainter, point: QPoint, value: int, radius: int = 22):
+        active = value in self.highlighted
+        if active:
+            radius += int(3 + 2 * math.sin(self._pulse))
+        color = QColor("#38d9a9") if active else QColor("#315d91")
+        painter.setBrush(color)
+        painter.setPen(QPen(color.lighter(150), 2))
+        painter.drawEllipse(point, radius, radius)
+        painter.setPen(QColor(255, 255, 255, 245))
+        painter.drawText(QRect(point.x() - radius, point.y() - radius, radius * 2, radius * 2), Qt.AlignCenter, str(value))
+
+    def _draw_tree(self, painter: QPainter, plot: QRect, avl: bool):
+        tree = self._balanced_tree(self.values) if avl else self._bst(self.values)
+        positions = self._tree_positions(tree, plot)
+
+        def edges(node):
+            if not node:
+                return
+            for child in node[1:]:
+                if child:
+                    painter.drawLine(positions[node[0]], positions[child[0]])
+                    edges(child)
+
+        painter.setPen(QPen(QColor(105, 190, 245, 185), 2))
+        edges(tree)
+        for value, point in positions.items():
+            self._draw_node(painter, point, value)
+
+    def _draw_sequence(self, painter: QPainter, plot: QRect, mode: str):
+        if mode == "Stack":
+            width, height = min(180, plot.width() // 2), 42
+            left = plot.center().x() - width // 2
+            bottom = plot.bottom() - 25
+            for index, value in enumerate(self.values[-7:]):
+                box = QRect(left, bottom - (index + 1) * height, width, height - 4)
+                self._draw_box(painter, box, value)
+            return
+        shown = self.values[:9]
+        width = max(52, min(96, (plot.width() - 40) // max(1, len(shown))))
+        left = plot.center().x() - len(shown) * width // 2
+        for index, value in enumerate(shown):
+            box = QRect(left + index * width, plot.center().y() - 26, width - 8, 52)
+            self._draw_box(painter, box, value)
+            if mode in {"Linked List", "Queue"} and index < len(shown) - 1:
+                painter.setPen(QPen(QColor(115, 204, 255, 210), 2))
+                painter.drawLine(box.right(), box.center().y(), box.right() + 8, box.center().y())
+
+    def _draw_box(self, painter: QPainter, box: QRect, value: int):
+        active = value in self.highlighted
+        color = QColor("#38d9a9") if active else QColor("#315d91")
+        painter.setBrush(color)
+        painter.setPen(QPen(color.lighter(150), 2))
+        painter.drawRoundedRect(box, 5, 5)
+        painter.setPen(QColor(255, 255, 255, 245))
+        painter.drawText(box, Qt.AlignCenter, str(value))
+
+    def _draw_hash(self, painter: QPainter, plot: QRect):
+        buckets = {index: [] for index in range(8)}
+        for value in self.values:
+            buckets[value % 8].append(value)
+        row_height = max(30, min(42, plot.height() // 9))
+        top = plot.top() + 8
+        for index, values in buckets.items():
+            label = QRect(plot.left() + 30, top + index * row_height, 58, row_height - 5)
+            painter.setBrush(QColor("#243c58"))
+            painter.setPen(QPen(QColor("#5bd6b2"), 1))
+            painter.drawRoundedRect(label, 4, 4)
+            painter.setPen(QColor(255, 255, 255, 230))
+            painter.drawText(label, Qt.AlignCenter, str(index))
+            for offset, value in enumerate(values[:6]):
+                box = QRect(label.right() + 14 + offset * 64, label.top(), 58, label.height())
+                self._draw_box(painter, box, value)
+
+    def _draw_graph(self, painter: QPainter, plot: QRect):
+        shown = self.values[:9]
+        radius = min(plot.width(), plot.height()) * 0.32
+        points = [
+            QPoint(
+                int(plot.center().x() + math.cos(-math.pi / 2 + math.tau * index / max(1, len(shown))) * radius),
+                int(plot.center().y() + math.sin(-math.pi / 2 + math.tau * index / max(1, len(shown))) * radius),
+            )
+            for index in range(len(shown))
+        ]
+        painter.setPen(QPen(QColor(105, 190, 245, 175), 2))
+        for index in range(len(points)):
+            if len(points) > 1:
+                painter.drawLine(points[index], points[(index + 1) % len(points)])
+            if index + 2 < len(points) and index % 2 == 0:
+                painter.drawLine(points[index], points[index + 2])
+        for value, point in zip(shown, points):
+            self._draw_node(painter, point, value)
+
+    def paintEvent(self, event):  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.rect()
+        plot = rect.adjusted(24, 46, -24, -55)
+        painter.fillRect(rect, QColor(5, 9, 14, 244))
+        painter.setPen(QPen(QColor(91, 214, 178, 95), 1))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 8, 8)
+        painter.setPen(QColor(255, 255, 255, 235))
+        title_font = painter.font()
+        title_font.setBold(True)
+        title_font.setPointSize(11)
+        painter.setFont(title_font)
+        painter.drawText(rect.adjusted(14, 8, -14, -8), Qt.AlignTop | Qt.AlignLeft, self.structure)
+        if self.structure == "Binary Search Tree":
+            self._draw_tree(painter, plot, False)
+        elif self.structure == "AVL Tree":
+            self._draw_tree(painter, plot, True)
+        elif self.structure == "Graph":
+            self._draw_graph(painter, plot)
+        elif self.structure == "Hash Table":
+            self._draw_hash(painter, plot)
+        else:
+            self._draw_sequence(painter, plot, self.structure)
+        painter.setPen(QColor(190, 210, 228, 205))
+        painter.drawText(rect.adjusted(14, 0, -14, -10), Qt.AlignBottom | Qt.AlignLeft, self.status)
+
+
 class PhysicsCanvas(QWidget):
     stats_changed = Signal(str)
 
@@ -2596,6 +3744,10 @@ class PhysicsCanvas(QWidget):
         self._trails.clear()
         self._replay.clear()
         self.running = True
+        self.show_trails = bool(
+            artifact
+            and artifact.instruction.get("parameters", {}).get("showTrails", False)
+        )
         self.render_mode = "3d" if self._supports_3d_view(artifact) else "2d"
         self.view_yaw = math.radians(38.0)
         self.view_pitch = math.radians(24.0)
@@ -2782,13 +3934,93 @@ class PhysicsCanvas(QWidget):
         if len(self._replay) > replay_limit:
             del self._replay[: len(self._replay) - replay_limit]
         width, height = self.artifact.bounds
-        is_3d = self.artifact.simulation_type == "particle-3d"
+        is_3d = self.artifact.simulation_type in {"particle-3d", "lorenz-3d"}
         depth = float(self.artifact.instruction.get("parameters", {}).get("depth") or height)
         dt = 1 / 60 * self.speed
         particles = self.artifact.particles
         frame_collisions = 0
         parameters = self.artifact.instruction.setdefault("parameters", {})
-        if self.artifact.simulation_type == "pendulum-2d" and particles:
+        if self.artifact.simulation_type == "lorenz-3d" and particles:
+            sigma = float(parameters.get("sigma", 10.0))
+            rho = float(parameters.get("rho", 28.0))
+            beta = float(parameters.get("beta", 8.0 / 3.0))
+            state = [float(value) for value in parameters.get("state", [0.1, 0.0, 0.0])]
+            integration_step = max(0.0005, min(0.02, float(parameters.get("integrationStep", 0.005))))
+
+            def derivative(current):
+                x_value, y_value, z_value = current
+                return (
+                    sigma * (y_value - x_value),
+                    x_value * (rho - z_value) - y_value,
+                    x_value * y_value - beta * z_value,
+                )
+
+            remaining = dt
+            while remaining > 1e-12:
+                step_size = min(integration_step, remaining)
+                k1 = derivative(state)
+                k2 = derivative([state[index] + k1[index] * step_size * 0.5 for index in range(3)])
+                k3 = derivative([state[index] + k2[index] * step_size * 0.5 for index in range(3)])
+                k4 = derivative([state[index] + k3[index] * step_size for index in range(3)])
+                state = [
+                    state[index]
+                    + step_size * (k1[index] + 2 * k2[index] + 2 * k3[index] + k4[index]) / 6.0
+                    for index in range(3)
+                ]
+                remaining -= step_size
+            parameters["state"] = state
+            particle = particles[0]
+            previous = (particle.x, particle.y, particle.z)
+            particle.x = width * 0.5 + state[0] * 7.0
+            particle.y = height * 0.5 + (state[2] - 25.0) * 5.2
+            particle.z = height * 0.5 + state[1] * 7.0
+            particle.vx = (particle.x - previous[0]) / max(1e-9, dt)
+            particle.vy = (particle.y - previous[1]) / max(1e-9, dt)
+            particle.vz = (particle.z - previous[2]) / max(1e-9, dt)
+        elif self.artifact.simulation_type == "double-pendulum-2d" and len(particles) >= 2:
+            anchor_x, anchor_y = [float(value) for value in parameters["anchor"]]
+            length_1, length_2 = [float(value) for value in parameters["lengths"]]
+            angle_1, angle_2 = [float(value) for value in parameters["angles"]]
+            velocity_1, velocity_2 = [float(value) for value in parameters["angularVelocities"]]
+            mass_1, mass_2 = [float(value) for value in parameters.get("masses", [1.0, 1.0])]
+            physical_gravity = float(parameters.get("physicalGravity", 9.81))
+            difference = angle_1 - angle_2
+            common = 2 * mass_1 + mass_2 - mass_2 * math.cos(2 * difference)
+            acceleration_1 = (
+                -physical_gravity * (2 * mass_1 + mass_2) * math.sin(angle_1)
+                - mass_2 * physical_gravity * math.sin(angle_1 - 2 * angle_2)
+                - 2
+                * math.sin(difference)
+                * mass_2
+                * (velocity_2 * velocity_2 * length_2 + velocity_1 * velocity_1 * length_1 * math.cos(difference))
+            ) / max(1e-9, length_1 * common)
+            acceleration_2 = (
+                2
+                * math.sin(difference)
+                * (
+                    velocity_1 * velocity_1 * length_1 * (mass_1 + mass_2)
+                    + physical_gravity * (mass_1 + mass_2) * math.cos(angle_1)
+                    + velocity_2 * velocity_2 * length_2 * mass_2 * math.cos(difference)
+                )
+            ) / max(1e-9, length_2 * common)
+            velocity_1 += acceleration_1 * dt
+            velocity_2 += acceleration_2 * dt
+            angle_1 += velocity_1 * dt
+            angle_2 += velocity_2 * dt
+            parameters["angles"] = [angle_1, angle_2]
+            parameters["angularVelocities"] = [velocity_1, velocity_2]
+            first, second = particles[:2]
+            previous_first = (first.x, first.y)
+            previous_second = (second.x, second.y)
+            first.x = anchor_x + math.sin(angle_1) * length_1
+            first.y = anchor_y + math.cos(angle_1) * length_1
+            second.x = first.x + math.sin(angle_2) * length_2
+            second.y = first.y + math.cos(angle_2) * length_2
+            first.vx = (first.x - previous_first[0]) / max(1e-9, dt)
+            first.vy = (first.y - previous_first[1]) / max(1e-9, dt)
+            second.vx = (second.x - previous_second[0]) / max(1e-9, dt)
+            second.vy = (second.y - previous_second[1]) / max(1e-9, dt)
+        elif self.artifact.simulation_type == "pendulum-2d" and particles:
             anchor_x, anchor_y = [float(value) for value in parameters["anchor"]]
             length = float(parameters["length"])
             angle = float(parameters.get("angleRadians", 0.0))
@@ -2835,6 +4067,8 @@ class PhysicsCanvas(QWidget):
         for particle in particles:
             if self.artifact.simulation_type in {
                 "pendulum-2d",
+                "double-pendulum-2d",
+                "lorenz-3d",
                 "wave-2d",
                 "circular-motion-2d",
             }:
@@ -2893,6 +4127,8 @@ class PhysicsCanvas(QWidget):
             "spring-2d",
             "orbit-2d",
             "pendulum-2d",
+            "double-pendulum-2d",
+            "lorenz-3d",
             "wave-2d",
             "circular-motion-2d",
         }:
@@ -2988,6 +4224,9 @@ class PhysicsCanvas(QWidget):
         if self._frames % 20 == 0:
             elapsed = max(1e-6, time.perf_counter() - self._stats_started)
             measured_fps = self._frames / elapsed
+            runtime = get_runtime_services()
+            if runtime.started and measured_fps > 0:
+                runtime.profiler.set_frame_time(1000.0 / measured_fps)
             kinetic_energy = sum(
                 0.5
                 * particle.mass
@@ -3043,7 +4282,7 @@ class PhysicsCanvas(QWidget):
             painter.drawText(rect, Qt.AlignCenter, "No simulation generated yet")
             return
         sim_w, sim_h = self.artifact.bounds
-        is_3d = self.artifact.simulation_type == "particle-3d"
+        is_3d = self.artifact.simulation_type in {"particle-3d", "lorenz-3d"}
         supports_3d_view = self._supports_3d_view(self.artifact)
         depth = float(self.artifact.instruction.get("parameters", {}).get("depth") or sim_h)
         if supports_3d_view and self.render_mode == "3d":
@@ -3070,6 +4309,40 @@ class PhysicsCanvas(QWidget):
                     adjacent_key = tuple(adjacent)
                     if corner[axis] == 0:
                         painter.drawLine(point, corners[adjacent_key])
+
+            if self.artifact.simulation_type == "double-pendulum-2d" and len(self.artifact.particles) >= 2:
+                parameters = self.artifact.instruction.get("parameters", {})
+                anchor_values = parameters.get("anchor", [sim_w * 0.5, 55.0])
+                anchor = self._project_particle_3d(
+                    float(anchor_values[0]),
+                    float(anchor_values[1]),
+                    depth * 0.5,
+                    sim_w,
+                    sim_h,
+                    depth,
+                    field,
+                )[0]
+                first = self._project_particle_3d(
+                    self.artifact.particles[0].x,
+                    self.artifact.particles[0].y,
+                    self.artifact.particles[0].z,
+                    sim_w,
+                    sim_h,
+                    depth,
+                    field,
+                )[0]
+                second = self._project_particle_3d(
+                    self.artifact.particles[1].x,
+                    self.artifact.particles[1].y,
+                    self.artifact.particles[1].z,
+                    sim_w,
+                    sim_h,
+                    depth,
+                    field,
+                )[0]
+                painter.setPen(QPen(QColor(215, 226, 240, 225), 3))
+                painter.drawLine(anchor, first)
+                painter.drawLine(first, second)
 
             if self.show_trails:
                 for index, trail in self._trails.items():
@@ -3152,6 +4425,24 @@ class PhysicsCanvas(QWidget):
             painter.setPen(QPen(QColor(170, 130, 255, 210), 2))
             painter.drawLine(anchor, end)
             painter.setBrush(QColor(255, 255, 255, 230))
+            painter.setPen(Qt.NoPen)
+            painter.drawEllipse(anchor, 5, 5)
+        elif self.artifact.simulation_type == "double-pendulum-2d" and len(self.artifact.particles) >= 2:
+            anchor_values = self.artifact.instruction.get("parameters", {}).get(
+                "anchor", [sim_w * 0.5, 55.0]
+            )
+            anchor = QPoint(
+                int(left + float(anchor_values[0]) * scale),
+                int(top + float(anchor_values[1]) * scale),
+            )
+            first = self.artifact.particles[0]
+            second = self.artifact.particles[1]
+            first_point = QPoint(int(left + first.x * scale), int(top + first.y * scale))
+            second_point = QPoint(int(left + second.x * scale), int(top + second.y * scale))
+            painter.setPen(QPen(QColor(205, 218, 238, 220), 3))
+            painter.drawLine(anchor, first_point)
+            painter.drawLine(first_point, second_point)
+            painter.setBrush(QColor(255, 255, 255, 235))
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(anchor, 5, 5)
         elif self.artifact.simulation_type == "pendulum-2d" and self.artifact.particles:
@@ -3370,7 +4661,9 @@ class InlineGraphWorkspace(QFrame):
         if self.artifact.surface and self.dimension_select:
             canvas.set_view_mode(str(self.dimension_select.currentData()))
         layout.addWidget(canvas)
-        dialog.exec()
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
 
     def _export(self, export_format: str):
         filters = {
@@ -3430,6 +4723,9 @@ class InlinePhysicsWorkspace(QFrame):
         reset_button = QPushButton("Reset")
         reset_button.setObjectName("InlineVisualizationControl")
         reset_button.clicked.connect(self._reset)
+        large_button = QPushButton("Open large")
+        large_button.setObjectName("InlineVisualizationControl")
+        large_button.clicked.connect(self._open_large)
         screenshot_button = QPushButton("PNG")
         screenshot_button.setObjectName("InlineVisualizationControl")
         screenshot_button.clicked.connect(self._export_png)
@@ -3441,6 +4737,7 @@ class InlinePhysicsWorkspace(QFrame):
         controls.addWidget(step_button)
         controls.addWidget(back_button)
         controls.addWidget(reset_button)
+        controls.addWidget(large_button)
         controls.addStretch(1)
         controls.addWidget(json_button)
         controls.addWidget(screenshot_button)
@@ -3541,6 +4838,22 @@ class InlinePhysicsWorkspace(QFrame):
         if self.dimension_select:
             self.dimension_select.setCurrentText("3D")
         self.stats.setText("Simulation reset to its validated initial state.")
+
+    def _open_large(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.artifact.title)
+        dialog.setWindowIcon(QIcon(_icon_path()))
+        dialog.resize(1120, 780)
+        layout = QVBoxLayout(dialog)
+        canvas = PhysicsCanvas()
+        canvas.set_artifact(self.artifact)
+        if self.dimension_select:
+            canvas.set_render_mode(str(self.dimension_select.currentData()))
+        canvas.set_speed(float(self.speed_select.currentData()))
+        layout.addWidget(canvas)
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
 
     def _export_png(self):
         path, _ = QFileDialog.getSaveFileName(self, f"Export {self.artifact.title}", "", "PNG image (*.png)")
@@ -3662,7 +4975,9 @@ class InlineMoleculeWorkspace(QFrame):
         canvas.set_artifact(self.artifact)
         canvas.set_view_mode(str(self.dimension_select.currentData()))
         layout.addWidget(canvas)
-        dialog.exec()
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
 
     def _export(self, export_format: str):
         selected_filter, extension = {
@@ -3752,7 +5067,9 @@ class InlineDiagramWorkspace(QFrame):
         canvas = DiagramCanvas()
         canvas.set_artifact(self.artifact)
         layout.addWidget(canvas)
-        dialog.exec()
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
 
     def _export(self, export_format: str):
         selected_filter, extension = {
@@ -3778,6 +5095,452 @@ class InlineDiagramWorkspace(QFrame):
         self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
 
 
+class InlineChartWorkspace(QFrame):
+    def __init__(self, artifact: ChartArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(540)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Validated numeric chart")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        reset = QPushButton("Reset view")
+        reset.setObjectName("InlineVisualizationControl")
+        large = QPushButton("Open large")
+        large.setObjectName("InlineVisualizationControl")
+        reset.clicked.connect(self._reset)
+        large.clicked.connect(self._open_large)
+        controls.addWidget(reset)
+        controls.addWidget(large)
+        controls.addStretch(1)
+        for label, export_format in (("PNG", "png"), ("SVG", "svg"), ("PDF", "pdf")):
+            button = QPushButton(label)
+            button.setObjectName("InlineVisualizationControl")
+            button.clicked.connect(
+                lambda _checked=False, selected=export_format: self._export(selected)
+            )
+            controls.addWidget(button)
+
+        self.canvas = ChartCanvas()
+        self.canvas.set_artifact(artifact)
+        self.inspector = QLabel("Hover a mark for the exact value.")
+        self.inspector.setObjectName("InlineVisualizationInspector")
+        self.inspector.setWordWrap(True)
+        self.canvas.inspected.connect(self.inspector.setText)
+        details = QLabel(" | ".join(artifact.notes))
+        details.setObjectName("InlineVisualizationEquation")
+        details.setWordWrap(True)
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(details)
+        layout.addWidget(self.inspector)
+
+    def _reset(self):
+        self.canvas.reset_view()
+        self.inspector.setText("View reset. Hover a mark for the exact value.")
+
+    def _open_large(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.artifact.title)
+        dialog.setWindowIcon(QIcon(_icon_path()))
+        dialog.resize(1120, 760)
+        layout = QVBoxLayout(dialog)
+        canvas = ChartCanvas()
+        canvas.set_artifact(self.artifact)
+        layout.addWidget(canvas)
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
+
+    def _export(self, export_format: str):
+        selected_filter, extension = {
+            "png": ("PNG image (*.png)", ".png"),
+            "svg": ("SVG vector image (*.svg)", ".svg"),
+            "pdf": ("PDF document (*.pdf)", ".pdf"),
+        }[export_format]
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"Export {self.artifact.title}", "", selected_filter
+        )
+        if not path:
+            return
+        if not path.lower().endswith(extension):
+            path += extension
+        succeeded = {
+            "png": self.canvas.export_png,
+            "svg": self.canvas.export_svg,
+            "pdf": self.canvas.export_pdf,
+        }[export_format](path)
+        self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
+
+
+class InlineSceneWorkspace(QFrame):
+    def __init__(self, artifact: SceneArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(580)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Validated component schematic")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        self.dimension_select = QComboBox()
+        self.dimension_select.setObjectName("InlineVisualizationSelect")
+        self.dimension_select.addItem("2D", "2d")
+        self.dimension_select.addItem("3D", "3d")
+        self.dimension_select.setCurrentText("3D")
+        pause = QPushButton("Pause")
+        resume = QPushButton("Resume")
+        reset = QPushButton("Reset view")
+        large = QPushButton("Open large")
+        export = QPushButton("PNG")
+        for button in (pause, resume, reset, large, export):
+            button.setObjectName("InlineVisualizationControl")
+        controls.addWidget(QLabel("View"))
+        controls.addWidget(self.dimension_select)
+        controls.addWidget(pause)
+        controls.addWidget(resume)
+        controls.addWidget(reset)
+        controls.addWidget(large)
+        controls.addStretch(1)
+        controls.addWidget(export)
+
+        self.canvas = SceneCanvas()
+        self.canvas.set_artifact(artifact)
+        self.canvas.set_view_mode("3d")
+        self.inspector = QLabel("Hover a component to inspect it. Drag to rotate the 3D schematic.")
+        self.inspector.setObjectName("InlineVisualizationInspector")
+        self.inspector.setWordWrap(True)
+        self.canvas.inspected.connect(self.inspector.setText)
+        details = QLabel(" | ".join(artifact.notes))
+        details.setObjectName("InlineVisualizationEquation")
+        details.setWordWrap(True)
+
+        self.dimension_select.currentIndexChanged.connect(
+            lambda index: self.canvas.set_view_mode(str(self.dimension_select.itemData(index)))
+        )
+        pause.clicked.connect(lambda: self.canvas.set_running(False))
+        resume.clicked.connect(lambda: self.canvas.set_running(True))
+        reset.clicked.connect(self.canvas.reset_view)
+        large.clicked.connect(self._open_large)
+        export.clicked.connect(self._export_png)
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(details)
+        layout.addWidget(self.inspector)
+
+    def _open_large(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle(self.artifact.title)
+        dialog.setWindowIcon(QIcon(_icon_path()))
+        dialog.resize(1120, 780)
+        layout = QVBoxLayout(dialog)
+        canvas = SceneCanvas()
+        canvas.set_artifact(self.artifact)
+        canvas.set_view_mode(self.dimension_select.currentData())
+        layout.addWidget(canvas)
+        dialog.setAttribute(Qt.WA_DeleteOnClose, True)
+        dialog.show()
+        dialog.raise_()
+
+    def _export_png(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"Export {self.artifact.title}", "", "PNG image (*.png)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".png"):
+            path += ".png"
+        succeeded = self.canvas.export_png(path)
+        self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
+
+
+class InlineDocumentWorkspace(QFrame):
+    def __init__(self, artifact: DocumentArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(640)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel(f"Validated local {artifact.extension.lstrip('.').upper()} preview")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        self.preview = FilePreview()
+        loaded, message = self.preview.show_file(artifact.path)
+        self.status = QLabel(message)
+        self.status.setObjectName("InlineVisualizationInspector")
+        self.status.setWordWrap(True)
+        if not loaded:
+            self.status.setText(f"Preview failed after validation: {message}")
+
+        layout.addLayout(header)
+        layout.addWidget(self.preview, stretch=1)
+        layout.addWidget(self.status)
+
+
+class InlineBiologyWorkspace(QFrame):
+    def __init__(self, artifact: BiologyArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(550)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Validated biology model")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        self.dimension_select = QComboBox()
+        self.dimension_select.setObjectName("InlineVisualizationSelect")
+        self.dimension_select.addItem("2D", "2d")
+        self.dimension_select.addItem("3D", "3d")
+        self.dimension_select.setCurrentText("3D")
+        pause = QPushButton("Pause")
+        pause.setObjectName("InlineVisualizationControl")
+        resume = QPushButton("Resume")
+        resume.setObjectName("InlineVisualizationControl")
+        reset = QPushButton("Reset view")
+        reset.setObjectName("InlineVisualizationControl")
+        export = QPushButton("PNG")
+        export.setObjectName("InlineVisualizationControl")
+        controls.addWidget(QLabel("View"))
+        controls.addWidget(self.dimension_select)
+        controls.addWidget(pause)
+        controls.addWidget(resume)
+        controls.addWidget(reset)
+        controls.addStretch(1)
+        controls.addWidget(export)
+
+        self.canvas = BiologyCanvas()
+        self.canvas.set_artifact(artifact)
+        self.canvas.set_view_mode("3d")
+        self.inspector = QLabel("Hover the model to inspect validated components.")
+        self.inspector.setObjectName("InlineVisualizationInspector")
+        self.inspector.setWordWrap(True)
+        self.canvas.inspected.connect(self.inspector.setText)
+        details = QLabel(" | ".join(artifact.notes))
+        details.setObjectName("InlineVisualizationEquation")
+        details.setWordWrap(True)
+        details.setVisible(bool(artifact.notes))
+
+        self.dimension_select.currentIndexChanged.connect(
+            lambda index: self.canvas.set_view_mode(str(self.dimension_select.itemData(index)))
+        )
+        pause.clicked.connect(lambda: self.canvas.set_running(False))
+        resume.clicked.connect(lambda: self.canvas.set_running(True))
+        reset.clicked.connect(self.canvas.reset_view)
+        export.clicked.connect(self._export_png)
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(details)
+        layout.addWidget(self.inspector)
+
+    def _export_png(self):
+        path, _ = QFileDialog.getSaveFileName(
+            self, f"Export {self.artifact.title}", "", "PNG image (*.png)"
+        )
+        if not path:
+            return
+        if not path.lower().endswith(".png"):
+            path += ".png"
+        succeeded = self.canvas.export_png(path)
+        self.inspector.setText(f"Exported to {path}" if succeeded else f"Could not export {path}")
+
+
+class InlineDataStructureWorkspace(QFrame):
+    COMPLEXITY = {
+        "Binary Search Tree": {
+            "insert": "average O(log n), worst O(n)",
+            "delete": "average O(log n), worst O(n)",
+            "search": "average O(log n), worst O(n)",
+        },
+        "AVL Tree": {"insert": "O(log n)", "delete": "O(log n)", "search": "O(log n)"},
+        "Graph": {"insert": "O(1)", "delete": "O(V + E)", "search": "O(V + E)"},
+        "Linked List": {"insert": "O(1)", "delete": "O(n)", "search": "O(n)"},
+        "Queue": {"insert": "O(1)", "delete": "O(1)", "search": "O(n)"},
+        "Stack": {"insert": "O(1)", "delete": "O(1)", "search": "O(n)"},
+        "Hash Table": {
+            "insert": "average O(1), worst O(n)",
+            "delete": "average O(1), worst O(n)",
+            "search": "average O(1), worst O(n)",
+        },
+    }
+
+    def __init__(self, artifact: DataStructureArtifact, parent=None):
+        super().__init__(parent)
+        self.artifact = artifact
+        self.values_by_structure = {
+            structure: list(artifact.initial_values) for structure in artifact.structures
+        }
+        self.setObjectName("InlineVisualization")
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setMinimumHeight(590)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(9)
+        header = QHBoxLayout()
+        title = QLabel(artifact.title)
+        title.setObjectName("InlineVisualizationTitle")
+        kind = QLabel("Interactive algorithm lab")
+        kind.setObjectName("InlineVisualizationKind")
+        header.addWidget(title, stretch=1)
+        header.addWidget(kind)
+
+        controls = QHBoxLayout()
+        self.structure_select = QComboBox()
+        self.structure_select.setObjectName("InlineVisualizationSelect")
+        self.structure_select.addItems(artifact.structures)
+        self.value_input = QLineEdit("25")
+        self.value_input.setObjectName("InlineVisualizationInput")
+        self.value_input.setPlaceholderText("Integer value")
+        self.value_input.setMaximumWidth(130)
+        controls.addWidget(self.structure_select)
+        controls.addWidget(self.value_input)
+        for operation in ("Insert", "Delete", "Search"):
+            button = QPushButton(operation)
+            button.setObjectName("InlineVisualizationControl")
+            button.clicked.connect(
+                lambda _checked=False, selected=operation.lower(): self._operate(selected)
+            )
+            controls.addWidget(button)
+        reset = QPushButton("Reset")
+        reset.setObjectName("InlineVisualizationControl")
+        reset.clicked.connect(self._reset)
+        controls.addWidget(reset)
+        controls.addStretch(1)
+
+        self.canvas = DataStructureCanvas()
+        self.complexity = QLabel()
+        self.complexity.setObjectName("InlineVisualizationInspector")
+        self.complexity.setWordWrap(True)
+        self.structure_select.currentTextChanged.connect(self._structure_changed)
+
+        layout.addLayout(header)
+        layout.addLayout(controls)
+        layout.addWidget(self.canvas, stretch=1)
+        layout.addWidget(self.complexity)
+        self._structure_changed(self.structure_select.currentText())
+
+    def _current_values(self) -> list[int]:
+        return self.values_by_structure.setdefault(
+            self.structure_select.currentText(), list(self.artifact.initial_values)
+        )
+
+    def _structure_changed(self, structure: str):
+        values = self.values_by_structure.setdefault(structure, list(self.artifact.initial_values))
+        self.canvas.set_state(structure, values, status="Ready for insert, delete, or search.")
+        complexity = self.COMPLEXITY.get(structure, {})
+        self.complexity.setText(
+            "Complexity: "
+            + " | ".join(f"{operation.title()} {value}" for operation, value in complexity.items())
+        )
+
+    def _operate(self, operation: str):
+        try:
+            value = int(self.value_input.text().strip())
+        except ValueError:
+            self.complexity.setText("Enter a valid integer before running an operation.")
+            return
+        structure = self.structure_select.currentText()
+        values = self._current_values()
+        highlighted: set[int] = set()
+        if operation == "insert":
+            if value not in values:
+                values.append(value)
+                status = f"Inserted {value}."
+            else:
+                status = f"{value} already exists; duplicate insertion was skipped."
+            highlighted.add(value)
+        elif operation == "delete":
+            if structure == "Queue" and values:
+                removed = values.pop(0)
+                status = f"Dequeued {removed} from the front."
+            elif structure == "Stack" and values:
+                removed = values.pop()
+                status = f"Popped {removed} from the top."
+            elif value in values:
+                values.remove(value)
+                status = f"Deleted {value}."
+            else:
+                status = f"{value} was not found; nothing was deleted."
+        else:
+            if structure in {"Binary Search Tree", "AVL Tree"}:
+                tree = (
+                    DataStructureCanvas._balanced_tree(values)
+                    if structure == "AVL Tree"
+                    else DataStructureCanvas._bst(values)
+                )
+                node = tree
+                while node:
+                    highlighted.add(node[0])
+                    if value == node[0]:
+                        break
+                    node = node[1] if value < node[0] else node[2]
+            elif value in values:
+                highlighted.add(value)
+            status = f"Found {value}." if value in values else f"{value} was not found."
+        complexity = self.COMPLEXITY[structure][operation]
+        self.canvas.set_state(
+            structure,
+            values,
+            highlighted,
+            f"{status} {operation.title()} complexity: {complexity}.",
+        )
+        self.complexity.setText(
+            f"{operation.title()} result: {status} Complexity: {complexity}. "
+            "Highlighted nodes show the visited or changed state."
+        )
+
+    def _reset(self):
+        structure = self.structure_select.currentText()
+        self.values_by_structure[structure] = list(self.artifact.initial_values)
+        self._structure_changed(structure)
+
+
 class TitleBar(QFrame):
     def __init__(self, parent: QWidget):
         super().__init__(parent)
@@ -3787,6 +5550,7 @@ class TitleBar(QFrame):
 
         self.setObjectName("TitleBar")
         layout = QHBoxLayout(self)
+        self._layout = layout
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
 
@@ -3801,6 +5565,20 @@ class TitleBar(QFrame):
         self.workspace_btn.setObjectName("SidebarButton")
         self.workspace_btn.clicked.connect(self._parent.toggle_workspace_panel)
 
+        self.hub_btn = QPushButton("Tools")
+        self.hub_btn.setObjectName("SidebarButton")
+        self.hub_btn.setToolTip("Open workspace tools")
+        self.hub_btn.clicked.connect(self._parent.toggle_assistant_hub)
+
+        self.command_btn = QPushButton()
+        self.command_btn.setObjectName("TitleButton")
+        self.command_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_FileDialogContentsView)
+        )
+        self.command_btn.setToolTip("Command palette (Ctrl+K)")
+        self.command_btn.setFixedWidth(34)
+        self.command_btn.clicked.connect(self._parent.open_command_palette)
+
         logo = QLabel()
         logo.setObjectName("TitleLogo")
         icon = QIcon(_icon_path())
@@ -3814,37 +5592,158 @@ class TitleBar(QFrame):
         layout.addWidget(self.mode_btn)
         layout.addWidget(self.sidebar_btn)
         layout.addWidget(self.workspace_btn)
+        layout.addWidget(self.hub_btn)
         layout.addWidget(logo)
         layout.addWidget(title)
+        self.workspace_status = QLabel("Chat")
+        self.workspace_status.setObjectName("TopStatus")
+        self.workspace_status.setToolTip("Active workspace")
+        self.workspace_status.setAccessibleName("Active workspace")
+        self.model_status = QLabel("Local model")
+        self.model_status.setObjectName("TopStatus")
+        self.model_status.setToolTip("Active AI model")
+        self.model_status.setAccessibleName("Active AI model")
+        self.hardware_status = QLabel("GPU -- | RAM -- | VRAM --")
+        self.hardware_status.setObjectName("TopStatus")
+        self.hardware_status.setToolTip("Live hardware usage")
+        self.hardware_status.setAccessibleName("Live GPU RAM and VRAM usage")
+        self.task_status = QLabel("Idle")
+        self.task_status.setObjectName("TopStatus")
+        self.task_status.setToolTip("Background task status")
+        self.task_status.setAccessibleName("Background task status")
+        self._status_labels = (
+            self.workspace_status,
+            self.model_status,
+            self.hardware_status,
+            self.task_status,
+        )
+        for status in self._status_labels:
+            layout.addWidget(status)
         layout.addStretch(1)
+        self._plugin_buttons: list[QPushButton] = []
 
-        self.min_btn = QPushButton("-")
+        self.settings_btn = QPushButton()
+        self.settings_btn.setObjectName("TitleButton")
+        self.settings_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_FileDialogDetailedView)
+        )
+        self.settings_btn.setToolTip("Quick settings")
+        self.settings_btn.setAccessibleName("Open settings")
+        self.settings_btn.setFixedWidth(34)
+        self.settings_btn.clicked.connect(self._parent.open_premium_settings)
+        layout.addWidget(self.settings_btn)
+
+        self.command_btn.setAccessibleName("Open command palette")
+        layout.addWidget(self.command_btn)
+
+        self.theme_btn = QPushButton()
+        self.theme_btn.setObjectName("TitleButton")
+        self.theme_btn.setFixedWidth(34)
+        self.theme_btn.clicked.connect(self._parent.toggle_theme)
+        self.set_theme_icon(getattr(self._parent, "current_theme", "dark"))
+        layout.addWidget(self.theme_btn)
+
+        self.min_btn = QPushButton()
         self.min_btn.setToolTip("Minimize")
         self.min_btn.setObjectName("TitleButton")
-        self.min_btn.clicked.connect(self._parent.showMinimized)
+        self.min_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_TitleBarMinButton)
+        )
+        self.min_btn.setAccessibleName("Minimize")
+        self.min_btn.setFixedWidth(34)
+        self.min_btn.clicked.connect(self._parent.animate_minimize)
 
-        self.max_btn = QPushButton("[]")
+        self.max_btn = QPushButton()
         self.max_btn.setToolTip("Maximize")
         self.max_btn.setObjectName("TitleButton")
+        self.max_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_TitleBarMaxButton)
+        )
+        self.max_btn.setAccessibleName("Maximize")
+        self.max_btn.setFixedWidth(34)
         self.max_btn.clicked.connect(self._toggle_maximize)
 
-        self.close_btn = QPushButton("X")
+        self.close_btn = QPushButton()
         self.close_btn.setToolTip("Close")
         self.close_btn.setObjectName("TitleClose")
+        self.close_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_TitleBarCloseButton)
+        )
+        self.close_btn.setAccessibleName("Close")
+        self.close_btn.setFixedWidth(34)
         self.close_btn.clicked.connect(self._parent.close)
 
         layout.addWidget(self.min_btn)
         layout.addWidget(self.max_btn)
         layout.addWidget(self.close_btn)
 
+    def set_plugin_buttons(self, contributions: list[dict], callback):
+        for button in self._plugin_buttons:
+            self._layout.removeWidget(button)
+            button.deleteLater()
+        self._plugin_buttons.clear()
+        insert_at = self._layout.indexOf(self.settings_btn)
+        for contribution in contributions[:8]:
+            button = QPushButton(str(contribution.get("title", "Plugin"))[:18])
+            button.setObjectName("SidebarButton")
+            button.setToolTip(
+                f"Plugin: {contribution.get('pluginId', '')}"
+            )
+            button.clicked.connect(
+                lambda _checked=False, item=dict(contribution): callback(item)
+            )
+            self._layout.insertWidget(insert_at, button)
+            insert_at += 1
+            self._plugin_buttons.append(button)
+
+    def set_theme_icon(self, theme: str):
+        normalized = normalize_theme(theme)
+        self.theme_btn.setIcon(_theme_outline_icon(normalized))
+        self.theme_btn.setIconSize(QSize(22, 22))
+        self.theme_btn.setAccessibleName(
+            "Light theme active" if normalized == "light" else "Dark theme active"
+        )
+        self.theme_btn.setToolTip(
+            "Switch to dark theme" if normalized == "light" else "Switch to light theme"
+        )
+
+    def set_runtime_status(
+        self,
+        *,
+        workspace: str,
+        model: str,
+        gpu: str,
+        ram: str,
+        vram: str,
+        tasks: int,
+    ) -> None:
+        self.workspace_status.setText(workspace or "Chat")
+        self.model_status.setText(model or "Local model")
+        self.hardware_status.setText(
+            f"GPU {gpu or '--'} | RAM {ram or '--'} | VRAM {vram or '--'}"
+        )
+        self.task_status.setText(f"{tasks} task{'s' if tasks != 1 else ''}" if tasks else "Idle")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        width = self.width()
+        self.hardware_status.setVisible(width >= 1080)
+        self.model_status.setVisible(width >= 820)
+        self.workspace_status.setVisible(width >= 680)
+        self.task_status.setVisible(width >= 920)
+
     def _toggle_maximize(self):
         if self._parent.isMaximized() or getattr(self._parent, "_custom_maximized", False):
             self._parent.showNormal()
             normal_geometry = getattr(self._parent, "_normal_geometry", None)
             if normal_geometry is not None:
-                self._parent.setGeometry(normal_geometry)
+                self._parent.animation_engine.geometry(
+                    self._parent, normal_geometry, duration=220
+                )
             self._parent._custom_maximized = False
-            self.max_btn.setText("[]")
+            self.max_btn.setIcon(
+                QApplication.style().standardIcon(QStyle.SP_TitleBarMaxButton)
+            )
             self.max_btn.setToolTip("Maximize")
         else:
             self._parent._normal_geometry = self._parent.geometry()
@@ -3856,11 +5755,15 @@ class TitleBar(QFrame):
                 # Frameless translucent windows can extend below the taskbar
                 # when native maximize margins are guessed by Windows. Using
                 # the available geometry keeps every bottom control visible.
-                self._parent.setGeometry(screen.availableGeometry())
+                self._parent.animation_engine.geometry(
+                    self._parent, screen.availableGeometry(), duration=220
+                )
             else:
                 self._parent.showMaximized()
             self._parent._custom_maximized = True
-            self.max_btn.setText("[ ]")
+            self.max_btn.setIcon(
+                QApplication.style().standardIcon(QStyle.SP_TitleBarNormalButton)
+            )
             self.max_btn.setToolTip("Restore")
 
     def mousePressEvent(self, event):
@@ -3875,8 +5778,46 @@ class TitleBar(QFrame):
             event.accept()
 
     def mouseReleaseEvent(self, event):
+        was_dragging = self._drag_active
         self._drag_active = False
+        if was_dragging and event.button() == Qt.LeftButton:
+            self._snap_to_edge(event.globalPosition().toPoint())
         event.accept()
+
+    def _snap_to_edge(self, position: QPoint):
+        screen = QApplication.screenAt(position) or QApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        threshold = 18
+        if abs(position.y() - available.top()) <= threshold:
+            if not getattr(self._parent, "_custom_maximized", False):
+                self._toggle_maximize()
+            return
+        left_edge = abs(position.x() - available.left()) <= threshold
+        right_edge = abs(position.x() - available.right()) <= threshold
+        if not left_edge and not right_edge:
+            return
+        if available.width() // 2 < self._parent.minimumWidth():
+            if not getattr(self._parent, "_custom_maximized", False):
+                self._toggle_maximize()
+            return
+        self._parent.showNormal()
+        self._parent._custom_maximized = False
+        self._parent._normal_geometry = self._parent.geometry()
+        half = QRect(
+            available.left()
+            if left_edge
+            else available.left() + available.width() // 2,
+            available.top(),
+            available.width() // 2,
+            available.height(),
+        )
+        self._parent.animation_engine.geometry(self._parent, half, duration=220)
+        self.max_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_TitleBarMaxButton)
+        )
+        self.max_btn.setToolTip("Maximize")
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -3889,18 +5830,57 @@ class MoriceWindow(QWidget):
     thinking_update = Signal(str)
     project_changes_ready = Signal(str, str)
     project_output_ready = Signal(str)
+    project_patch_result = Signal(object)
+    project_command_state = Signal(bool)
     gpu_detected = Signal(object)
     visualization_progress = Signal(str, str, str, int)
     visualization_finished = Signal(object)
+    system_snapshot_ready = Signal(object)
+    file_search_ready = Signal(object)
+    desktop_action_ready = Signal(str, bool)
+    premium_metrics_ready = Signal(object)
+    plugin_catalog_changed = Signal()
+    plugin_notification_received = Signal(str, str)
 
-    def __init__(self):
+    def _emit_background(self, signal_name: str, *arguments) -> bool:
+        if getattr(self, "_is_closing", False):
+            return False
+        try:
+            getattr(self, signal_name).emit(*arguments)
+        except RuntimeError:
+            return False
+        return True
+
+    def __init__(
+        self,
+        runtime_services: RuntimeServices | None = None,
+        recovery_info: RecoveryInfo | None = None,
+    ):
         super().__init__()
+        self._is_closing = False
+        self.runtime = runtime_services or get_runtime_services()
+        self.recovery_info = recovery_info or RecoveryInfo(False)
+        self._owns_runtime_lifecycle = recovery_info is not None
         _load_ui_fonts()
         application = QApplication.instance()
         if application is not None:
             application.setApplicationName("MORICE")
             application.setApplicationDisplayName("MORICE")
             application.setOrganizationName("EONASH2722")
+        stored_base_size = (
+            application.property("moriceBaseFontPointSize")
+            if application is not None
+            else None
+        )
+        if stored_base_size is None:
+            stored_base_size = (
+                application.font().pointSize()
+                if application is not None and application.font().pointSize() > 0
+                else 10
+            )
+            if application is not None:
+                application.setProperty("moriceBaseFontPointSize", stored_base_size)
+        self._base_font_point_size = max(8, int(stored_base_size))
         self.setWindowTitle(MORICE_NAME)
         self.setMinimumSize(860, 580)
         self.resize(1240, 760)
@@ -3918,6 +5898,17 @@ class MoriceWindow(QWidget):
         self._normal_geometry = None
         self._custom_maximized = False
 
+        self._session_enabled = (
+            os.getenv("MORICE_DISABLE_SESSION", "").strip().lower()
+            not in {"1", "true", "yes"}
+        )
+        self.workspace_state = (
+            load_workspace_state() if self._session_enabled else WorkspaceState()
+        )
+        self.current_theme = normalize_theme(self.workspace_state.theme)
+        self.accent_color = normalize_accent(self.workspace_state.accent)
+        # Every process launch starts a new conversation. Appearance, notes,
+        # geometry, and workspace preferences remain persistent.
         self.history = []
         self.awake = os.getenv("MORICE_START_AWAKE", "").strip() == "1"
         self.last_notes_hits = []
@@ -3929,8 +5920,8 @@ class MoriceWindow(QWidget):
         self._auto_scrolling = False
         self._last_scroll_max = 0
         self._user_scroll_guard_until = 0.0
-        self.first_user_message = ""
         self.user_messages: list[str] = []
+        self.first_user_message = ""
         self.is_busy = False
         self.thinking_bubble: ThinkingBubble | None = None
         self._thinking_token = 0
@@ -3944,11 +5935,82 @@ class MoriceWindow(QWidget):
         self._panel_anims: dict[QWidget, QPropertyAnimation] = {}
         self._panel_target_visibility: dict[QWidget, bool] = {}
         self._motion_enabled = os.getenv("MORICE_REDUCE_MOTION", "").strip().lower() not in {"1", "true", "yes"}
+        self.animation_engine = AnimationEngine(self, enabled=self._motion_enabled)
+        self._child_windows: list[MoriceWindow] = []
+        self._closing_after_animation = False
+        self._open_animation_played = False
         self.message_queue: list[str] = []
+        self.clipboard_history: list[str] = []
         self.settings = load_settings()
+        self.animation_speed = normalize_animation_speed(
+            self.settings.get("animation_speed", "")
+        )
+        self.reduced_motion = normalize_boolean_setting(
+            self.settings.get("reduced_motion", "")
+        ) or not self._motion_enabled
+        self.high_contrast = normalize_boolean_setting(
+            self.settings.get("high_contrast", "")
+        )
+        self.large_text = normalize_boolean_setting(
+            self.settings.get("large_text", "")
+        )
+        self.ui_scale = normalize_ui_scale(self.settings.get("ui_scale", ""))
+        self.transparency = normalize_transparency(
+            self.settings.get("transparency", "")
+        )
+        self.workspace_preset = normalize_workspace_preset(
+            (
+                self.workspace_state.workspace_preset
+                if self.workspace_state.splitter_sizes
+                else self.settings.get("workspace_preset", "")
+            )
+        )
+        self.settings_profile = normalize_settings_profile(
+            self.settings.get("settings_profile", "")
+        )
+        self._motion_enabled = not self.reduced_motion
+        self.animation_engine.configure(
+            enabled=self._motion_enabled,
+            speed=self.animation_speed,
+        )
+        self.experience_profiles = ExperienceProfileStore(
+            self.runtime.directory / "experience"
+        )
         self.response_style = self.settings.get("response_style", "").strip()
         self.wake_phrase = normalize_wake_phrase(self.settings.get("wake_phrase", ""))
         self.user_title = normalize_user_title(self.settings.get("user_title", ""))
+        self.emoji_level = normalize_emoji_level(
+            self.settings.get("emoji_level", "")
+        )
+        self.maturity_level = normalize_maturity_level(
+            self.settings.get("maturity_level", "")
+        )
+        self.font_family = normalize_font_family(
+            self.settings.get("font_family", "")
+        )
+        self.custom_font_path = normalize_custom_font_path(
+            self.settings.get("custom_font_path", "")
+        )
+        registered_custom_family = register_ui_font_file(self.custom_font_path)
+        installed_fonts = {
+            family.casefold(): family for family in QFontDatabase.families()
+        }
+        if self.font_family.casefold() not in installed_fonts:
+            self.font_family = (
+                registered_custom_family
+                or installed_fonts.get("segoe ui")
+                or QApplication.font().family()
+                or DEFAULT_SETTINGS["font_family"]
+            )
+        application = QApplication.instance()
+        if application is not None:
+            scale = self.ui_scale * (1.12 if self.large_text else 1.0)
+            application.setFont(
+                QFont(
+                    self.font_family,
+                    max(8, round(self._base_font_point_size * scale)),
+                )
+            )
         self.chat_mode = normalize_chat_mode(self.settings.get("chat_mode", ""))
         self.project_folder = normalize_project_folder(self.settings.get("project_folder", ""))
         self.project_access = normalize_project_access(self.settings.get("project_access", ""))
@@ -3973,10 +6035,19 @@ class MoriceWindow(QWidget):
             self._save_project_settings()
         self.science_artifacts: list[ScienceArtifact] = []
         self.visualization_manager = VisualizationManager()
+        self.runtime.plugins.bind(
+            tool_registry=self.runtime.agent.tools.registry,
+            renderer_registry=self.visualization_manager.registry,
+        )
         self.visualization_cards: dict[str, VisualizationGenerationCard] = {}
         self.visualization_futures: dict[str, object] = {}
         self.active_workspace_kind = "graph"
         self.last_project_request = ""
+        self._active_agent_request_id = ""
+        self._active_platform_run_id = ""
+        self.pending_project_patch: dict | None = None
+        self.last_project_undo_id = ""
+        self._active_project_command_id = ""
         self._last_external_wake_notice = 0.0
 
         self.wake_signal_path = wake_signal_path()
@@ -3984,9 +6055,17 @@ class MoriceWindow(QWidget):
         self.thinking_update.connect(self._on_thinking_update)
         self.project_changes_ready.connect(self._on_project_changes_ready)
         self.project_output_ready.connect(self._append_project_output)
+        self.project_patch_result.connect(self._on_project_patch_result)
+        self.project_command_state.connect(
+            lambda running: self.project_command_stop_btn.setEnabled(running)
+        )
         self.gpu_detected.connect(self._on_gpu_detected)
         self.visualization_progress.connect(self._on_visualization_progress)
         self.visualization_finished.connect(self._on_visualization_finished)
+        self.system_snapshot_ready.connect(self._on_system_snapshot_ready)
+        self.file_search_ready.connect(self._on_file_search_ready)
+        self.desktop_action_ready.connect(self._on_desktop_action_ready)
+        self.premium_metrics_ready.connect(self._on_premium_metrics)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
@@ -3997,15 +6076,22 @@ class MoriceWindow(QWidget):
 
         body = QHBoxLayout()
         body.setContentsMargins(0, 0, 0, 0)
-        body.setSpacing(12)
+        body.setSpacing(0)
         root.addLayout(body, stretch=1)
+        self.workspace_splitter = QSplitter(Qt.Horizontal)
+        self.workspace_splitter.setObjectName("WorkspaceSplitter")
+        self.workspace_splitter.setChildrenCollapsible(False)
+        self.workspace_splitter.setHandleWidth(6)
+        body.addWidget(self.workspace_splitter)
         self.window_resize_grip = QSizeGrip(self)
         self.window_resize_grip.setObjectName("WindowResizeGrip")
         self.window_resize_grip.setToolTip("Resize MORICE window")
 
         self.mode_panel = QFrame()
         self.mode_panel.setObjectName("ModePanel")
-        self.mode_panel.setFixedWidth(292)
+        self.mode_panel.setMinimumWidth(250)
+        self.mode_panel.setMaximumWidth(420)
+        self.mode_panel.resize(292, 620)
         mode_layout = QVBoxLayout(self.mode_panel)
         mode_layout.setContentsMargins(14, 16, 14, 16)
         mode_layout.setSpacing(10)
@@ -4138,14 +6224,14 @@ class MoriceWindow(QWidget):
         mode_layout.addWidget(self.mode_status)
         mode_layout.addStretch(1)
 
-        body.addWidget(self.mode_panel)
+        self.workspace_splitter.addWidget(self.mode_panel)
         self.mode_panel.setVisible(False)
 
         self.workspace_panel = QFrame()
         self.workspace_panel.setObjectName("ScienceWorkspacePanel")
         self.workspace_panel.setMinimumWidth(350)
         self.workspace_panel.setMaximumWidth(700)
-        self.workspace_panel.setFixedWidth(430)
+        self.workspace_panel.resize(430, 620)
         workspace_layout = QVBoxLayout(self.workspace_panel)
         workspace_layout.setContentsMargins(14, 14, 14, 14)
         workspace_layout.setSpacing(10)
@@ -4274,7 +6360,10 @@ class MoriceWindow(QWidget):
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(12)
         self.content_layout = content_layout
-        body.addLayout(content_layout, stretch=1)
+        self.content_host = QWidget()
+        self.content_host.setObjectName("ContentHost")
+        self.content_host.setLayout(content_layout)
+        self.workspace_splitter.addWidget(self.content_host)
 
         chat_container = QFrame()
         chat_container.setObjectName("ChatContainer")
@@ -4309,6 +6398,21 @@ class MoriceWindow(QWidget):
         self._last_scroll_max = scroll_bar.maximum()
         scroll_bar.valueChanged.connect(self._on_scroll_change)
         scroll_bar.rangeChanged.connect(self._on_scroll_range_change)
+        self._message_rows: list[QFrame] = []
+        self._archived_messages: list[tuple[str, str, bool]] = []
+        self.chat_archive_notice = QFrame()
+        self.chat_archive_notice.setObjectName("ChatArchiveNotice")
+        archive_layout = QHBoxLayout(self.chat_archive_notice)
+        archive_layout.setContentsMargins(8, 5, 8, 5)
+        self.chat_archive_label = QLabel()
+        self.chat_archive_label.setObjectName("MessageMeta")
+        self.chat_archive_load_btn = QPushButton("Load earlier")
+        self.chat_archive_load_btn.setObjectName("MessageAction")
+        self.chat_archive_load_btn.clicked.connect(self._load_earlier_messages)
+        archive_layout.addWidget(self.chat_archive_label, stretch=1)
+        archive_layout.addWidget(self.chat_archive_load_btn)
+        self.chat_archive_notice.setVisible(False)
+        self.chat_list_layout.addWidget(self.chat_archive_notice)
         self._bottom_spacer = QWidget()
         self._bottom_spacer.setFixedHeight(8)
         self.chat_list_layout.addWidget(self._bottom_spacer)
@@ -4317,14 +6421,18 @@ class MoriceWindow(QWidget):
         chat_container.setVisible(False)
 
         # Keep the live graph/simulation workspace beside the conversation instead of hiding it in the chat flow.
-        body.addWidget(self.workspace_panel)
+        self.workspace_splitter.addWidget(self.workspace_panel)
         self.workspace_panel.setVisible(False)
 
         self.changes_panel = QFrame()
         self.changes_panel.setObjectName("ProjectChangesPanel")
-        self.changes_panel.setFixedWidth(440)
+        self.changes_panel.setMinimumWidth(390)
+        self.changes_panel.setMaximumWidth(680)
+        self.changes_panel.resize(390, 620)
         self.changes_minimized = False
         self.changes_expanded = False
+        self.changes_panel_dismissed = False
+        self.changes_available = False
         changes_layout = QVBoxLayout(self.changes_panel)
         changes_layout.setContentsMargins(14, 14, 14, 14)
         changes_layout.setSpacing(10)
@@ -4343,11 +6451,21 @@ class MoriceWindow(QWidget):
         self.changes_minimize_btn.setVisible(False)
         self.changes_expand_btn = QPushButton("[]")
         self.changes_expand_btn.setObjectName("ChangesIconButton")
+        self.changes_expand_btn.setFixedSize(30, 30)
         self.changes_expand_btn.setToolTip("Widen project changes")
         self.changes_expand_btn.clicked.connect(self._toggle_changes_width)
+        self.changes_close_btn = QPushButton()
+        self.changes_close_btn.setObjectName("ChangesIconButton")
+        self.changes_close_btn.setFixedSize(30, 30)
+        self.changes_close_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_TitleBarCloseButton)
+        )
+        self.changes_close_btn.setToolTip("Close project changes")
+        self.changes_close_btn.clicked.connect(self._close_changes_panel)
         changes_header.addWidget(self.changes_title, stretch=1)
         changes_header.addWidget(self.changes_minimize_btn)
         changes_header.addWidget(self.changes_expand_btn)
+        changes_header.addWidget(self.changes_close_btn)
 
         self.changes_summary = QLabel("Build something in Project mode to see file changes here.")
         self.changes_summary.setObjectName("ProjectChangesSummary")
@@ -4426,17 +6544,41 @@ class MoriceWindow(QWidget):
         self.changes_run_btn.setObjectName("ProjectActionButton")
         self.changes_run_btn.setToolTip("Run the project using its verified local entry point")
         self.changes_run_btn.clicked.connect(self._run_project)
+        self.changes_apply_btn = QPushButton("Apply patch")
+        self.changes_apply_btn.setObjectName("ProjectActionButton")
+        self.changes_apply_btn.setToolTip(
+            "Apply the reviewed file patch to the selected work folder"
+        )
+        self.changes_apply_btn.clicked.connect(self._apply_pending_project_patch)
+        self.changes_apply_btn.setEnabled(False)
+        self.changes_reject_btn = QPushButton("Reject")
+        self.changes_reject_btn.setObjectName("ProjectActionButton")
+        self.changes_reject_btn.setToolTip("Discard the pending file patch")
+        self.changes_reject_btn.clicked.connect(self._reject_pending_project_patch)
+        self.changes_reject_btn.setEnabled(False)
+        self.changes_undo_btn = QPushButton("Undo")
+        self.changes_undo_btn.setObjectName("ProjectActionButton")
+        self.changes_undo_btn.setToolTip("Restore files changed by the last MORICE patch")
+        self.changes_undo_btn.clicked.connect(self._undo_last_project_patch)
+        self.changes_undo_btn.setEnabled(False)
         self.changes_action_status = QLabel("No runnable project detected yet.")
         self.changes_action_status.setObjectName("ProjectChangesSummary")
         self.changes_action_status.setWordWrap(True)
-        action_row = QHBoxLayout()
-        action_row.setContentsMargins(0, 0, 0, 0)
-        action_row.setSpacing(8)
-        action_row.addWidget(self.changes_verify_btn)
-        action_row.addWidget(self.changes_run_btn)
+        run_action_row = QHBoxLayout()
+        run_action_row.setContentsMargins(0, 0, 0, 0)
+        run_action_row.setSpacing(8)
+        run_action_row.addWidget(self.changes_verify_btn)
+        run_action_row.addWidget(self.changes_run_btn)
+        patch_action_row = QHBoxLayout()
+        patch_action_row.setContentsMargins(0, 0, 0, 0)
+        patch_action_row.setSpacing(8)
+        patch_action_row.addWidget(self.changes_apply_btn)
+        patch_action_row.addWidget(self.changes_reject_btn)
+        patch_action_row.addWidget(self.changes_undo_btn)
         changes_page_layout.addWidget(self.changes_summary)
         changes_page_layout.addWidget(self.changes_view, stretch=1)
-        changes_page_layout.addLayout(action_row)
+        changes_page_layout.addLayout(run_action_row)
+        changes_page_layout.addLayout(patch_action_row)
         changes_page_layout.addWidget(self.changes_action_status)
         self.project_workspace_stack.addWidget(self.project_changes_page)
 
@@ -4473,8 +6615,15 @@ class MoriceWindow(QWidget):
         command_button = QPushButton("Run")
         command_button.setObjectName("ProjectActionButton")
         command_button.clicked.connect(self._run_project_command)
+        self.project_command_stop_btn = QPushButton("Stop")
+        self.project_command_stop_btn.setObjectName("ProjectActionButton")
+        self.project_command_stop_btn.setEnabled(False)
+        self.project_command_stop_btn.clicked.connect(
+            self._cancel_project_command
+        )
         command_row.addWidget(self.project_command_input, stretch=1)
         command_row.addWidget(command_button)
+        command_row.addWidget(self.project_command_stop_btn)
         output_layout.addLayout(output_header)
         output_layout.addWidget(self.project_output_view, stretch=1)
         output_layout.addLayout(command_row)
@@ -4483,13 +6632,23 @@ class MoriceWindow(QWidget):
         changes_layout.addLayout(changes_header)
         changes_layout.addWidget(self.changes_content, stretch=1)
         self._set_project_workspace_tab(1)
-        body.addWidget(self.changes_panel)
+        self.workspace_splitter.addWidget(self.changes_panel)
         self.changes_panel.setVisible(False)
 
         self.sidebar = QFrame()
         self.sidebar.setObjectName("SidebarPanel")
-        self.sidebar.setFixedWidth(340)
-        sidebar_layout = QVBoxLayout(self.sidebar)
+        self.sidebar.setMinimumWidth(290)
+        self.sidebar.setMaximumWidth(480)
+        self.sidebar.resize(340, 620)
+        sidebar_shell_layout = QVBoxLayout(self.sidebar)
+        sidebar_shell_layout.setContentsMargins(0, 0, 0, 0)
+        self.sidebar_scroll = QScrollArea()
+        self.sidebar_scroll.setObjectName("SidebarScroll")
+        self.sidebar_scroll.setWidgetResizable(True)
+        self.sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.sidebar_content = QFrame()
+        self.sidebar_content.setObjectName("SidebarContent")
+        sidebar_layout = QVBoxLayout(self.sidebar_content)
         sidebar_layout.setContentsMargins(16, 16, 16, 16)
         sidebar_layout.setSpacing(12)
 
@@ -4552,6 +6711,142 @@ class MoriceWindow(QWidget):
         self.style_status.setTextInteractionFlags(Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard)
         self.style_status.setFocusPolicy(Qt.StrongFocus)
 
+        appearance_label = QLabel("Appearance")
+        appearance_label.setObjectName("SidebarSectionLabel")
+
+        theme_label = QLabel("Theme")
+        theme_label.setObjectName("StyleLabel")
+        self.theme_select = QComboBox()
+        self.theme_select.setObjectName("AppearanceSelect")
+        for label, key in (
+            ("Dark", "dark"),
+            ("Light", "light"),
+            ("Midnight", "midnight"),
+            ("Glass", "glass"),
+            ("Custom", "custom"),
+        ):
+            self.theme_select.addItem(label, key)
+        self.theme_select.setCurrentIndex(
+            max(0, self.theme_select.findData(self.current_theme))
+        )
+        self.theme_select.currentIndexChanged.connect(self._on_theme_selection_changed)
+
+        emoji_label = QLabel("Emoji amount")
+        emoji_label.setObjectName("StyleLabel")
+        self.emoji_select = QComboBox()
+        self.emoji_select.setObjectName("AppearanceSelect")
+        self.emoji_select.addItem("None", "none")
+        self.emoji_select.addItem("Medium", "medium")
+        self.emoji_select.addItem("Expressive", "expressive")
+        emoji_index = self.emoji_select.findData(self.emoji_level)
+        self.emoji_select.setCurrentIndex(max(0, emoji_index))
+        self.emoji_select.currentIndexChanged.connect(self._on_emoji_selection_changed)
+
+        maturity_label = QLabel("Maturity")
+        maturity_label.setObjectName("StyleLabel")
+        self.maturity_select = QComboBox()
+        self.maturity_select.setObjectName("AppearanceSelect")
+        self.maturity_select.addItem("None", "none")
+        self.maturity_select.addItem("Medium", "medium")
+        self.maturity_select.addItem("Full", "full")
+        maturity_index = self.maturity_select.findData(self.maturity_level)
+        self.maturity_select.setCurrentIndex(max(0, maturity_index))
+        self.maturity_select.currentIndexChanged.connect(
+            self._on_maturity_selection_changed
+        )
+
+        font_label = QLabel("App font")
+        font_label.setObjectName("StyleLabel")
+        self.font_select = QComboBox()
+        self.font_select.setObjectName("AppearanceSelect")
+        for family in available_ui_font_families(self.font_family):
+            self.font_select.addItem(family, family)
+        selected_font_index = self.font_select.findData(self.font_family)
+        self.font_select.setCurrentIndex(max(0, selected_font_index))
+        self.font_select.currentIndexChanged.connect(self._on_font_selection_changed)
+
+        add_font_btn = QPushButton("Add your own")
+        add_font_btn.setObjectName("QueueButton")
+        add_font_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_DialogOpenButton)
+        )
+        add_font_btn.setToolTip("Load a local TTF, OTF, or TTC font")
+        add_font_btn.clicked.connect(self._choose_custom_font)
+        self.add_font_btn = add_font_btn
+
+        motion_label = QLabel("Motion")
+        motion_label.setObjectName("StyleLabel")
+        self.animation_speed_select = QComboBox()
+        self.animation_speed_select.setObjectName("AppearanceSelect")
+        for label, key in (("Slow", "slow"), ("Normal", "normal"), ("Fast", "fast")):
+            self.animation_speed_select.addItem(label, key)
+        self.animation_speed_select.setCurrentIndex(
+            max(0, self.animation_speed_select.findData(self.animation_speed))
+        )
+        self.animation_speed_select.currentIndexChanged.connect(
+            self._on_experience_control_changed
+        )
+
+        self.reduced_motion_check = QCheckBox("Reduced motion")
+        self.reduced_motion_check.setChecked(self.reduced_motion)
+        self.reduced_motion_check.setAccessibleName("Reduce interface motion")
+        self.reduced_motion_check.toggled.connect(self._on_experience_control_changed)
+
+        self.high_contrast_check = QCheckBox("High contrast")
+        self.high_contrast_check.setChecked(self.high_contrast)
+        self.high_contrast_check.setAccessibleName("Use high contrast interface")
+        self.high_contrast_check.toggled.connect(self._on_experience_control_changed)
+
+        self.large_text_check = QCheckBox("Large text")
+        self.large_text_check.setChecked(self.large_text)
+        self.large_text_check.setAccessibleName("Use large interface text")
+        self.large_text_check.toggled.connect(self._on_experience_control_changed)
+
+        scale_label = QLabel("Interface scale")
+        scale_label.setObjectName("StyleLabel")
+        self.ui_scale_slider = QSlider(Qt.Horizontal)
+        self.ui_scale_slider.setRange(80, 160)
+        self.ui_scale_slider.setSingleStep(5)
+        self.ui_scale_slider.setValue(round(self.ui_scale * 100))
+        self.ui_scale_slider.setAccessibleName("Interface scale")
+        self.ui_scale_slider.sliderReleased.connect(self._on_experience_control_changed)
+
+        opacity_label = QLabel("Glass opacity")
+        opacity_label.setObjectName("StyleLabel")
+        self.transparency_slider = QSlider(Qt.Horizontal)
+        self.transparency_slider.setRange(70, 100)
+        self.transparency_slider.setValue(self.transparency)
+        self.transparency_slider.setAccessibleName("Glass opacity")
+        self.transparency_slider.sliderReleased.connect(
+            self._on_experience_control_changed
+        )
+
+        layout_label = QLabel("Workspace layout")
+        layout_label.setObjectName("StyleLabel")
+        self.workspace_preset_select = QComboBox()
+        self.workspace_preset_select.setObjectName("AppearanceSelect")
+        for label, key in (
+            ("Balanced", "balanced"),
+            ("Focus", "focus"),
+            ("Science", "science"),
+            ("Project", "project"),
+            ("Research", "research"),
+        ):
+            self.workspace_preset_select.addItem(label, key)
+        self.workspace_preset_select.setCurrentIndex(
+            max(0, self.workspace_preset_select.findData(self.workspace_preset))
+        )
+        self.workspace_preset_select.currentIndexChanged.connect(
+            self._on_workspace_preset_selected
+        )
+
+        self.advanced_settings_btn = QPushButton("Advanced settings")
+        self.advanced_settings_btn.setObjectName("QueueButton")
+        self.advanced_settings_btn.setToolTip(
+            "Search settings, preview themes, and manage profiles"
+        )
+        self.advanced_settings_btn.clicked.connect(self.open_premium_settings)
+
         queue_label = QLabel("Message queue")
         queue_label.setObjectName("StyleLabel")
 
@@ -4600,13 +6895,57 @@ class MoriceWindow(QWidget):
         sidebar_layout.addLayout(style_buttons)
         sidebar_layout.addWidget(self.style_status)
         sidebar_layout.addSpacing(8)
+        sidebar_layout.addWidget(appearance_label)
+        sidebar_layout.addWidget(theme_label)
+        sidebar_layout.addWidget(self.theme_select)
+        sidebar_layout.addWidget(emoji_label)
+        sidebar_layout.addWidget(self.emoji_select)
+        sidebar_layout.addWidget(maturity_label)
+        sidebar_layout.addWidget(self.maturity_select)
+        sidebar_layout.addWidget(font_label)
+        sidebar_layout.addWidget(self.font_select)
+        sidebar_layout.addWidget(self.add_font_btn)
+        sidebar_layout.addWidget(motion_label)
+        sidebar_layout.addWidget(self.animation_speed_select)
+        sidebar_layout.addWidget(self.reduced_motion_check)
+        sidebar_layout.addWidget(self.high_contrast_check)
+        sidebar_layout.addWidget(self.large_text_check)
+        sidebar_layout.addWidget(scale_label)
+        sidebar_layout.addWidget(self.ui_scale_slider)
+        sidebar_layout.addWidget(opacity_label)
+        sidebar_layout.addWidget(self.transparency_slider)
+        sidebar_layout.addWidget(layout_label)
+        sidebar_layout.addWidget(self.workspace_preset_select)
+        sidebar_layout.addWidget(self.advanced_settings_btn)
+        sidebar_layout.addSpacing(8)
         sidebar_layout.addWidget(queue_label)
         sidebar_layout.addWidget(self.queue_list)
         sidebar_layout.addLayout(queue_buttons)
         sidebar_layout.addStretch(1)
+        self.sidebar_scroll.setWidget(self.sidebar_content)
+        sidebar_shell_layout.addWidget(self.sidebar_scroll)
 
-        body.addWidget(self.sidebar)
+        self.workspace_splitter.addWidget(self.sidebar)
         self.sidebar.setVisible(False)
+
+        self.assistant_hub = AssistantHub(self)
+        self.assistant_hub.command_requested.connect(self._on_workspace_command)
+        self.assistant_hub.notes_changed.connect(self._on_workspace_notes_changed)
+        self.assistant_hub.visibility_requested.connect(self._set_assistant_hub_visible)
+        self.workspace_splitter.addWidget(self.assistant_hub)
+        self.assistant_hub.setVisible(False)
+        self.assistant_hub.set_clipboard_status(
+            self.runtime.desktop.clipboard.enabled
+        )
+        clipboard = QApplication.clipboard()
+        clipboard.dataChanged.connect(self._capture_clipboard_entry)
+        self._register_desktop_search_providers()
+        self.workspace_splitter.setStretchFactor(0, 0)
+        self.workspace_splitter.setStretchFactor(1, 1)
+        self.workspace_splitter.setStretchFactor(2, 0)
+        self.workspace_splitter.setStretchFactor(3, 0)
+        self.workspace_splitter.setStretchFactor(4, 0)
+        self.workspace_splitter.setStretchFactor(5, 0)
 
         input_frame = QFrame()
         input_frame.setObjectName("InputFrame")
@@ -4615,22 +6954,80 @@ class MoriceWindow(QWidget):
         input_layout.setContentsMargins(12, 12, 12, 12)
         input_layout.setSpacing(10)
 
-        self.input = QLineEdit()
+        self._prompt_history_index = -1
+        self.input = AdaptivePromptEdit()
         self.input.setPlaceholderText(f"{self.user_title}: type here...")
         self.input.setObjectName("InputBox")
         self.input.returnPressed.connect(self.on_send)
-        self.input.textChanged.connect(lambda _text: self._refresh_send_button_state())
+        self.input.historyRequested.connect(self._navigate_prompt_history)
+        self.input.textChanged.connect(self._refresh_send_button_state)
+
+        self.attach_btn = QPushButton()
+        self.attach_btn.setObjectName("ComposerToolButton")
+        self.attach_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_DialogOpenButton)
+        )
+        self.attach_btn.setToolTip("Attach an image (Ctrl+O)")
+        self.attach_btn.setAccessibleName("Attach image")
+        self.attach_btn.clicked.connect(self.on_attach)
+
+        self.voice_btn = QPushButton()
+        self.voice_btn.setObjectName("ComposerToolButton")
+        self.voice_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_MediaVolume)
+        )
+        self.voice_btn.setToolTip("Voice and wake-listener status")
+        self.voice_btn.setAccessibleName("Voice input and wake-listener status")
+        self.voice_btn.clicked.connect(self._show_voice_status)
+
+        self.model_selector_btn = QPushButton()
+        self.model_selector_btn.setObjectName("ComposerToolButton")
+        self.model_selector_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_ComputerIcon)
+        )
+        self.model_selector_btn.setToolTip("Choose AI model")
+        self.model_selector_btn.setAccessibleName("Choose AI model")
+        self.model_selector_btn.clicked.connect(self._choose_model_source)
+
+        self.project_selector_btn = QPushButton()
+        self.project_selector_btn.setObjectName("ComposerToolButton")
+        self.project_selector_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_DirIcon)
+        )
+        self.project_selector_btn.setToolTip("Switch between chat and Project mode")
+        self.project_selector_btn.setAccessibleName("Choose workspace mode")
+        self.project_selector_btn.clicked.connect(self._toggle_composer_project_mode)
+
+        self.quick_actions_btn = QPushButton()
+        self.quick_actions_btn.setObjectName("ComposerToolButton")
+        self.quick_actions_btn.setIcon(
+            QApplication.style().standardIcon(QStyle.SP_FileDialogContentsView)
+        )
+        self.quick_actions_btn.setToolTip("Quick actions (Ctrl+K)")
+        self.quick_actions_btn.setAccessibleName("Open quick actions")
+        self.quick_actions_btn.clicked.connect(self.open_command_palette)
+
+        for tool_button in (
+            self.attach_btn,
+            self.voice_btn,
+            self.model_selector_btn,
+            self.project_selector_btn,
+            self.quick_actions_btn,
+        ):
+            tool_button.setFixedSize(38, 38)
 
         precision_btn = QPushButton("Precision: ON")
         precision_btn.setObjectName("PrecisionButton")
         precision_btn.clicked.connect(self.on_toggle_precision)
         self.precision_btn = precision_btn
         self.precision_btn.setProperty("active", "true")
+        self.precision_btn.setMinimumWidth(106)
 
         personalization_btn = QPushButton()
         personalization_btn.setObjectName("PersonalizationStatus")
         personalization_btn.clicked.connect(self.toggle_sidebar)
         self.personalization_btn = personalization_btn
+        self.personalization_btn.setMinimumWidth(112)
 
         access_status_btn = QPushButton()
         access_status_btn.setObjectName("ProjectAccessStatus")
@@ -4647,7 +7044,13 @@ class MoriceWindow(QWidget):
         send_btn = SendButton("Send")
         send_btn.clicked.connect(self.on_send)
         self.send_btn = send_btn
+        self.send_btn.setMinimumWidth(82)
 
+        input_layout.addWidget(self.attach_btn)
+        input_layout.addWidget(self.voice_btn)
+        input_layout.addWidget(self.model_selector_btn)
+        input_layout.addWidget(self.project_selector_btn)
+        input_layout.addWidget(self.quick_actions_btn)
         input_layout.addWidget(self.input, stretch=1)
         input_layout.addWidget(precision_btn)
         input_layout.addWidget(personalization_btn)
@@ -5454,33 +7857,163 @@ class MoriceWindow(QWidget):
             }
             """
         )
+        self._base_stylesheet = self.styleSheet()
+        self.command_palette = CommandPalette(self)
+        self.command_palette.action_requested.connect(self._execute_palette_command)
+        self.command_shortcut = install_command_shortcut(self, self.command_palette)
+        self.attach_shortcut = QShortcut(QKeySequence("Ctrl+O"), self)
+        self.attach_shortcut.setContext(Qt.WindowShortcut)
+        self.attach_shortcut.activated.connect(self.on_attach)
+        self.settings_shortcut = QShortcut(QKeySequence("Ctrl+,"), self)
+        self.settings_shortcut.setContext(Qt.WindowShortcut)
+        self.settings_shortcut.activated.connect(self.open_premium_settings)
+        self.notification_toast = NotificationToast(self)
+        self.plugin_center = PluginCenter(self.runtime.plugins, self)
+        self.plugin_catalog_changed.connect(self._refresh_plugin_commands)
+        self.plugin_notification_received.connect(self._show_plugin_notification)
+        self.runtime.plugins.bind(
+            notification_callback=lambda title, message: self._emit_background(
+                "plugin_notification_received", title, message
+            ),
+            command_callback=lambda: self._emit_background(
+                "plugin_catalog_changed"
+            ),
+        )
+        self._refresh_plugin_commands()
+        self.diagnostics_dialog = DiagnosticsDialog(
+            self.runtime,
+            self._diagnostics_context,
+            self,
+        )
+        self.recovery_timer = QTimer(self)
+        self.recovery_timer.setInterval(10_000)
+        self.recovery_timer.timeout.connect(self._save_recovery_snapshot)
+        if self._owns_runtime_lifecycle:
+            self.recovery_timer.start()
+        self.micro_interactions = MicroInteractionFilter(
+            self, enabled=not self.reduced_motion
+        )
+        for button in self.findChildren(QPushButton):
+            button.installEventFilter(self.micro_interactions)
+            button.setCursor(Qt.PointingHandCursor)
+            if not button.accessibleName():
+                button.setAccessibleName(
+                    button.toolTip() or button.text().replace("&", "")
+                )
+        self.smooth_scroll_controllers = [
+            SmoothScrollController(
+                area,
+                enabled=not self.reduced_motion,
+                duration=150,
+            )
+            for area in self.findChildren(QScrollArea)
+        ]
+        self._apply_theme()
         self._update_style_badge()
         self._refresh_queue_list()
         self._refresh_mode_panel()
         self._refresh_gpu_profile_ui()
         self._set_workspace_view("graph")
         self._refresh_send_button_state()
+        self.assistant_hub.set_notes(self.workspace_state.notes)
+        self._refresh_workspace_hub()
+        self.assistant_hub.tabs.setCurrentIndex(
+            min(
+                self.assistant_hub.tabs.count() - 1,
+                self.workspace_state.active_workspace_tab,
+            )
+        )
+        self.mode_panel.setVisible(self.workspace_state.mode_panel_visible)
+        self.sidebar.setVisible(self.workspace_state.sidebar_visible)
+        self.assistant_hub.setVisible(self.workspace_state.assistant_hub_visible)
+        self.title_bar.hub_btn.setText(
+            "Close Tools" if self.assistant_hub.isVisible() else "Tools"
+        )
+        self._monitor_callback = lambda sample: self._emit_background(
+            "premium_metrics_ready", sample
+        )
+        self.runtime.desktop.system_monitor.subscribe(
+            self._monitor_callback,
+            interval_seconds=3.0,
+        )
+        self._refresh_top_bar_status()
+        if len(self.workspace_state.geometry) == 4:
+            x, y, width, height = self.workspace_state.geometry
+            target = QRect(x, y, max(860, width), max(580, height))
+            screen = QApplication.primaryScreen()
+            if screen is not None:
+                available = screen.availableGeometry()
+                target.setWidth(min(target.width(), available.width()))
+                target.setHeight(min(target.height(), available.height()))
+                if not target.intersects(available):
+                    target.moveTopLeft(
+                        available.topLeft() + QPoint(32, 32)
+                    )
+                target.moveLeft(
+                    max(
+                        available.left(),
+                        min(target.left(), available.right() - target.width() + 1),
+                    )
+                )
+                target.moveTop(
+                    max(
+                        available.top(),
+                        min(target.top(), available.bottom() - target.height() + 1),
+                    )
+                )
+            self.setGeometry(target)
 
-        if should_preload():
-            try:
-                chunk_count = load_knowledge()
-            except MemoryError:
-                chunk_count = 0
-            if chunk_count:
-                self.append_message(MORICE_NAME, f"Loaded {chunk_count} knowledge chunks from {KB_DIR}.")
-            else:
-                self.append_message(MORICE_NAME, f"No knowledge files loaded from {KB_DIR}.")
-        else:
-            self.append_message(MORICE_NAME, "Knowledge is on-demand. Use @notes to include your files.")
-        if self.awake:
-            self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {self.user_title}.")
-        else:
-            self.append_message(
-                MORICE_NAME,
-                f"{MORICE_NAME} is asleep, {self.user_title}. Type '{self.wake_phrase}' to wake me.",
+        if len(self.workspace_state.splitter_sizes) == self.workspace_splitter.count():
+            QTimer.singleShot(
+                0,
+                lambda sizes=list(self.workspace_state.splitter_sizes): self.workspace_splitter.setSizes(
+                    sizes
+                ),
+            )
+        elif self.workspace_preset != "balanced":
+            QTimer.singleShot(
+                0,
+                lambda preset=self.workspace_preset: self._apply_workspace_preset(
+                    preset,
+                    notify=False,
+                ),
             )
 
+        restored_history = bool(self.history)
+        if restored_history:
+            for entry in self.history:
+                role = entry.get("role", "")
+                content = entry.get("content", "")
+                if role == "user":
+                    self.append_message(self.user_title, content, is_user=True, force_scroll=False)
+                elif role == "assistant":
+                    self.append_message(MORICE_NAME, self._address(content), force_scroll=False)
+            self._dock_composer_immediate()
+        else:
+            if should_preload():
+                try:
+                    chunk_count = load_knowledge()
+                except MemoryError:
+                    chunk_count = 0
+                if chunk_count:
+                    self.append_message(MORICE_NAME, f"Loaded {chunk_count} knowledge chunks from {KB_DIR}.")
+                else:
+                    self.append_message(MORICE_NAME, f"No knowledge files loaded from {KB_DIR}.")
+            else:
+                self.append_message(MORICE_NAME, "Knowledge is on-demand. Use @notes to include your files.")
+            if self.awake:
+                self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {self.user_title}.")
+            else:
+                self.append_message(
+                    MORICE_NAME,
+                    f"{MORICE_NAME} is asleep, {self.user_title}. Type '{self.wake_phrase}' to wake me.",
+                )
+
         QTimer.singleShot(200, self._post_init)
+        if self.workspace_state.fullscreen:
+            QTimer.singleShot(240, self.showFullScreen)
+        elif self.workspace_state.maximized:
+            QTimer.singleShot(240, self.title_bar._toggle_maximize)
         if not self.gpu_profile.detected or self.gpu_profile.vram_mb <= 0:
             QTimer.singleShot(650, lambda: self._detect_gpu_profile(auto=True))
         self.wake_signal_timer = QTimer(self)
@@ -5493,6 +8026,309 @@ class MoriceWindow(QWidget):
             _enable_acrylic(hwnd)
         except Exception:
             pass
+        if self.recovery_info.available:
+            QTimer.singleShot(350, self._offer_crash_recovery)
+        if (
+            os.getenv("MORICE_DISABLE_FIRST_RUN", "0") != "1"
+            and os.getenv("MORICE_DISABLE_SESSION", "0") != "1"
+            and os.getenv("QT_QPA_PLATFORM", "").strip().lower()
+            not in {"offscreen", "minimal"}
+            and not self.runtime.platform_services.first_run.path.exists()
+        ):
+            QTimer.singleShot(700, self._offer_first_run)
+
+    def _offer_first_run(self):
+        if self.runtime.platform_services.first_run.path.exists():
+            return
+        report = self.runtime.platform_services.first_run.inspect(self.gpu_profile)
+        wizard = FirstRunWizard(
+            self.runtime.platform_services.first_run,
+            report,
+            self,
+        )
+        wizard.exec()
+        self._refresh_workspace_hub()
+
+    def _diagnostics_context(self) -> dict:
+        gpu = {
+            "name": self.gpu_profile.name,
+            "vramMb": self.gpu_profile.vram_mb,
+            "detected": self.gpu_profile.detected,
+            "source": self.gpu_profile.source,
+        }
+        model_path = self.model_path or os.getenv("MORICE_GGUF_PATH", "")
+        model = {
+            "name": self.model_name or os.getenv("MORICE_MODEL", "") or "Not selected",
+            "path": model_path,
+            "exists": bool(model_path and os.path.isfile(model_path)),
+        }
+        return {
+            "renderer_capabilities": self.visualization_manager.capabilities(),
+            "model": model,
+            "gpu": gpu,
+            "tools": tuple(command.title for command in self.command_palette.commands),
+            "task_queue": (
+                len(self.message_queue)
+                + self.visualization_manager.scheduler.queued_jobs
+                + (1 if self.is_busy else 0)
+            ),
+            "renderer_cache_bytes": self.visualization_manager.resources.used_bytes,
+            "project_root": (
+                self.project_folder
+                if self.chat_mode == "project"
+                and os.path.isdir(self.project_folder)
+                else ""
+            ),
+        }
+
+    def _run_startup_health_check(self):
+        context = self._diagnostics_context()
+        return self.runtime.run_health_check(
+            renderer_capabilities=context["renderer_capabilities"],
+            model_path=self.model_path or os.getenv("MORICE_GGUF_PATH", ""),
+            model_name=self.model_name or os.getenv("MORICE_MODEL", ""),
+            tools=context["tools"],
+            gpu=context["gpu"],
+        )
+
+    def _prepare_agent_request(
+        self,
+        request: str,
+        *,
+        include_project: bool = False,
+    ) -> str:
+        renderer_tools = tuple(
+            capability.renderer_id
+            for capability in self.visualization_manager.capabilities()
+            if capability.available
+        )
+        selected_model = (
+            self.model_name
+            or (os.path.basename(self.model_path) if self.model_path else "")
+        )
+        available_models = tuple(
+            item
+            for item in (
+                selected_model,
+                os.getenv("MORICE_MODEL", "").strip(),
+                "Bundled Qwen2.5 Coder 7B",
+            )
+            if item
+        )
+        persistent_context = saved_settings_instruction(
+            self.user_title,
+            self.response_style,
+            emoji_preference_instruction(self.emoji_level),
+            maturity_preference_instruction(self.maturity_level),
+        )
+        try:
+            context, platform_run = self.runtime.platform_services.orchestrator.prepare(
+                request,
+                history=self.history,
+                project_root=(
+                    self.project_folder
+                    if include_project
+                    and self.chat_mode == "project"
+                    and os.path.isdir(self.project_folder)
+                    else ""
+                ),
+                selected_model=selected_model,
+                available_models=available_models,
+                capabilities=(
+                    *renderer_tools,
+                    *(definition.tool_id for definition in self.runtime.agent.tools.registry.definitions()),
+                ),
+                persistent_context=persistent_context,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.runtime.logs.log(
+                "ERROR",
+                f"Agent request preparation failed: {exc}",
+                category="agent",
+            )
+            return ""
+        self._active_agent_request_id = context.request_id
+        self._active_platform_run_id = platform_run.run_id
+        return context.request_id
+
+    def _complete_agent_ui(
+        self,
+        *,
+        response_present: bool = True,
+        successful: bool | None = None,
+    ):
+        request_id = self._active_agent_request_id
+        if request_id:
+            self.runtime.agent.mark_ui_complete(
+                request_id,
+                response_present=response_present,
+            )
+        run_id = self._active_platform_run_id
+        if run_id:
+            try:
+                self.runtime.platform_services.orchestrator.finish(
+                    run_id,
+                    success=response_present if successful is None else successful,
+                    summary=(
+                        f"Request finished in {self.chat_mode} mode."
+                        if response_present
+                        else f"Request failed in {self.chat_mode} mode."
+                    ),
+                )
+            except (KeyError, OSError, RuntimeError, TypeError, ValueError) as exc:
+                self.runtime.logs.log(
+                    "ERROR",
+                    f"Platform run completion failed: {exc}",
+                    category="platform",
+                )
+        self._active_agent_request_id = ""
+        self._active_platform_run_id = ""
+
+    def _agent_project_prompt_context(self, request_id: str) -> str:
+        context = self.runtime.agent.request_context(request_id)
+        if context is None or not context.project.root:
+            return self._project_snapshot()
+        summary = context.project.summary
+        lines = [
+            "Indexed project context (verified from the selected work folder):",
+            f"Root: {context.project.root}",
+            f"Languages: {summary.get('languages', {})}",
+            f"Frameworks: {summary.get('frameworks', ())}",
+            f"Dependencies: {summary.get('dependencies', ())}",
+            f"Build systems: {summary.get('build_systems', ())}",
+            f"Entry points: {summary.get('entry_points', ())}",
+            f"Git: {summary.get('git', {})}",
+        ]
+        relevant = context.project.relevant_files
+        if relevant and any("content" in item for item in relevant):
+            lines.append("\nRelevant source files:")
+            for item in relevant:
+                content = str(item.get("content", ""))
+                if not content:
+                    continue
+                lines.append(
+                    f"\n--- {item.get('path', 'unknown')} ---\n{content}"
+                )
+            return "\n".join(lines)
+        return self._project_snapshot()
+
+    def _open_diagnostics(self):
+        self.runtime.logs.log(
+            "INFO",
+            "Diagnostics window opened.",
+            category="ui",
+        )
+        self.diagnostics_dialog.show()
+        self.diagnostics_dialog.raise_()
+        self.diagnostics_dialog.activateWindow()
+
+    def _save_recovery_snapshot(self):
+        if not self._owns_runtime_lifecycle:
+            return
+        self.runtime.save_recovery_snapshot(
+            {
+                "history": list(self.history),
+                "messageQueue": list(self.message_queue),
+                "draft": self.input.text() if hasattr(self, "input") else "",
+                "chatMode": self.chat_mode,
+                "projectFolder": self.project_folder,
+                "projectAccess": self.project_access,
+                "projectLookupMode": self.project_lookup_mode,
+            }
+        )
+
+    def _offer_crash_recovery(self):
+        if not self.recovery_info.available:
+            return
+        if os.getenv("MORICE_DISABLE_RECOVERY", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }:
+            return
+        crash_message = str(self.recovery_info.crash.get("message", "")).strip()
+        detail = self.recovery_info.reason
+        if crash_message:
+            detail += f"\n\nLast error: {crash_message[:400]}"
+        detail += "\n\nRestore the crash-only conversation snapshot?"
+        choice = QMessageBox.question(
+            self,
+            "Recover previous MORICE session",
+            detail,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes,
+        )
+        if choice == QMessageBox.Yes:
+            self._restore_crash_recovery(self.recovery_info.payload)
+        else:
+            self.runtime.logs.log(
+                "INFO",
+                "Crash recovery snapshot was declined.",
+                category="recovery",
+            )
+        self.recovery_info = RecoveryInfo(False)
+
+    def _restore_crash_recovery(self, payload: dict):
+        history = payload.get("history", [])
+        if not isinstance(history, list):
+            history = []
+        self._start_new_chat()
+        restored: list[dict[str, str]] = []
+        for entry in history[-160:]:
+            if not isinstance(entry, dict):
+                continue
+            role = str(entry.get("role", "")).strip().lower()
+            content = str(entry.get("content", "")).replace("\x00", "").strip()
+            if role not in {"user", "assistant"} or not content:
+                continue
+            restored.append({"role": role, "content": content[:120_000]})
+            if role == "user":
+                self.append_message(
+                    self.user_title,
+                    content,
+                    is_user=True,
+                    force_scroll=False,
+                )
+            else:
+                self.append_message(
+                    MORICE_NAME,
+                    self._address(content),
+                    force_scroll=False,
+                )
+        self.history = restored
+        queue = payload.get("messageQueue", [])
+        self.message_queue = [
+            str(item)[:20_000]
+            for item in queue
+            if str(item).strip()
+        ][:80]
+        draft = str(payload.get("draft", "")).replace("\x00", "")[:20_000]
+        self.input.setText(draft)
+        recovered_folder = normalize_project_folder(
+            str(payload.get("projectFolder", ""))
+        )
+        if recovered_folder and os.path.isdir(recovered_folder):
+            self.project_folder = recovered_folder
+            self.project_access = normalize_project_access(
+                str(payload.get("projectAccess", self.project_access))
+            )
+            self.project_lookup_mode = normalize_project_lookup_mode(
+                str(payload.get("projectLookupMode", self.project_lookup_mode))
+            )
+        self._refresh_queue_list()
+        self._refresh_mode_panel()
+        self._dock_composer_immediate()
+        self._scroll_to_latest()
+        self.runtime.logs.log(
+            "INFO",
+            f"Recovered {len(restored)} conversation entries after an unclean shutdown.",
+            category="recovery",
+        )
+        self._show_notification(
+            f"Recovered {len(restored)} conversation entries from the crash snapshot.",
+            "success",
+            7000,
+        )
 
     def _check_external_wake_signal(self):
         if not os.path.exists(self.wake_signal_path):
@@ -5522,10 +8358,1583 @@ class MoriceWindow(QWidget):
         self._last_external_wake_notice = now
 
     def _address(self, reply: str) -> str:
-        return enforce_father(reply, self.user_title)
+        addressed = enforce_father(reply, self.user_title)
+        return apply_emoji_presentation(addressed, self.emoji_level)
 
     def _input_placeholder(self) -> str:
         return f"{self.user_title}: type here..."
+
+    def _experience_profile(self) -> ExperienceProfile:
+        return ExperienceProfile.from_value(
+            {
+                "name": self.settings_profile,
+                "theme": self.current_theme,
+                "accent": self.accent_color,
+                "animation_speed": self.animation_speed,
+                "reduced_motion": self.reduced_motion,
+                "high_contrast": self.high_contrast,
+                "large_text": self.large_text,
+                "ui_scale": self.ui_scale,
+                "transparency": self.transparency,
+                "workspace_preset": self.workspace_preset,
+            }
+        )
+
+    def open_premium_settings(self) -> None:
+        dialog = PremiumSettingsDialog(
+            self.experience_profiles,
+            self._experience_profile(),
+            self,
+        )
+        dialog.setStyleSheet(
+            premium_theme_stylesheet(
+                self.current_theme,
+                self.accent_color,
+                self.font_family,
+                high_contrast=self.high_contrast,
+                transparency=self.transparency,
+            )
+        )
+        dialog.preferences_applied.connect(self._apply_experience_preferences)
+        self.premium_settings_dialog = dialog
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    def _apply_experience_preferences(self, values: object) -> None:
+        data = dict(values) if isinstance(values, dict) else {}
+        profile = ExperienceProfile.from_value(data)
+        self.settings_profile = profile.name
+        self.current_theme = profile.theme
+        self.accent_color = profile.accent
+        self.animation_speed = profile.animation_speed
+        self.reduced_motion = profile.reduced_motion
+        self.high_contrast = profile.high_contrast
+        self.large_text = profile.large_text
+        self.ui_scale = profile.ui_scale
+        self.transparency = profile.transparency
+        self.workspace_preset = profile.workspace_preset
+        self._motion_enabled = not self.reduced_motion
+        self.animation_engine.configure(
+            enabled=self._motion_enabled,
+            speed=self.animation_speed,
+        )
+        if hasattr(self, "micro_interactions"):
+            self.micro_interactions.set_enabled(self._motion_enabled)
+        for controller in getattr(self, "smooth_scroll_controllers", ()):
+            controller.set_enabled(self._motion_enabled)
+        self._sync_experience_controls()
+        self._apply_theme()
+        self._apply_workspace_preset(self.workspace_preset, notify=False)
+        self._save_appearance_settings()
+        self._save_workspace_session()
+        self._show_notification(
+            f"{profile.name} experience profile applied.",
+            "success",
+        )
+
+    def _sync_experience_controls(self) -> None:
+        controls = (
+            getattr(self, "animation_speed_select", None),
+            getattr(self, "workspace_preset_select", None),
+            getattr(self, "reduced_motion_check", None),
+            getattr(self, "high_contrast_check", None),
+            getattr(self, "large_text_check", None),
+            getattr(self, "ui_scale_slider", None),
+            getattr(self, "transparency_slider", None),
+        )
+        for control in controls:
+            if control is not None:
+                control.blockSignals(True)
+        if hasattr(self, "animation_speed_select"):
+            self.animation_speed_select.setCurrentIndex(
+                max(0, self.animation_speed_select.findData(self.animation_speed))
+            )
+            self.workspace_preset_select.setCurrentIndex(
+                max(0, self.workspace_preset_select.findData(self.workspace_preset))
+            )
+            self.reduced_motion_check.setChecked(self.reduced_motion)
+            self.high_contrast_check.setChecked(self.high_contrast)
+            self.large_text_check.setChecked(self.large_text)
+            self.ui_scale_slider.setValue(round(self.ui_scale * 100))
+            self.transparency_slider.setValue(self.transparency)
+        for control in controls:
+            if control is not None:
+                control.blockSignals(False)
+
+    def _on_experience_control_changed(self, *_args) -> None:
+        values = {
+            "name": self.settings_profile,
+            "theme": self.current_theme,
+            "accent": self.accent_color,
+            "animation_speed": self.animation_speed_select.currentData(),
+            "reduced_motion": self.reduced_motion_check.isChecked(),
+            "high_contrast": self.high_contrast_check.isChecked(),
+            "large_text": self.large_text_check.isChecked(),
+            "ui_scale": self.ui_scale_slider.value() / 100,
+            "transparency": self.transparency_slider.value(),
+            "workspace_preset": self.workspace_preset,
+        }
+        self._apply_experience_preferences(values)
+
+    def _on_workspace_preset_selected(self, _index: int) -> None:
+        requested = normalize_workspace_preset(
+            self.workspace_preset_select.currentData()
+        )
+        self._apply_workspace_preset(requested)
+
+    def _apply_workspace_preset(self, name: str, *, notify: bool = True) -> None:
+        preset = workspace_layout(name)
+        self.workspace_preset = preset.name
+        if preset.project_panel and self.chat_mode != "project":
+            self._set_chat_mode("project")
+        self._animate_panel_visibility(self.mode_panel, preset.mode_panel)
+        self._animate_panel_visibility(self.workspace_panel, preset.science_panel)
+        show_changes = preset.project_panel and self.changes_available
+        if show_changes:
+            self.changes_panel_dismissed = False
+        self._animate_panel_visibility(self.changes_panel, show_changes)
+        self._animate_panel_visibility(
+            self.sidebar,
+            preset.personalization_panel,
+        )
+        self._set_assistant_hub_visible(preset.tools_panel)
+        self.workspace_splitter.setSizes(list(preset.splitter_sizes))
+        self._sync_experience_controls()
+        self._save_appearance_settings()
+        self._save_workspace_session()
+        self._refresh_top_bar_status()
+        self.runtime.plugins.publish_event(
+            "workspace.changed",
+            {"preset": preset.name, "chatMode": self.chat_mode},
+        )
+        if notify:
+            self._show_notification(
+                f"{preset.name.title()} workspace layout applied.",
+                "success",
+            )
+
+    def _refresh_top_bar_status(self, sample: object | None = None) -> None:
+        if not hasattr(self, "title_bar"):
+            return
+        gpu = "--"
+        ram = "--"
+        vram = "--"
+        if sample is not None:
+            gpu_value = getattr(sample, "gpu_percent", None)
+            ram_value = getattr(sample, "memory_percent", None)
+            vram_used = getattr(sample, "vram_used_mb", None)
+            vram_total = getattr(sample, "vram_total_mb", None)
+            gpu = f"{gpu_value:.0f}%" if gpu_value is not None else "--"
+            ram = f"{ram_value:.0f}%" if ram_value is not None else "--"
+            if vram_used is not None and vram_total:
+                vram = f"{vram_used / 1024:.1f}/{vram_total / 1024:.1f}G"
+        model = (
+            self.model_name
+            or (os.path.basename(self.model_path) if self.model_path else "")
+            or "Qwen local"
+        )
+        if len(model) > 24:
+            model = model[:21] + "..."
+        tasks = (
+            self.runtime.workers.pending_count
+            + len(self.message_queue)
+            + (1 if self.is_busy else 0)
+        )
+        workspace = "Project" if self.chat_mode == "project" else "Chat"
+        if self.workspace_panel.isVisible():
+            workspace = "Science"
+        elif self.assistant_hub.isVisible():
+            workspace = "Tools"
+        self.title_bar.set_runtime_status(
+            workspace=workspace,
+            model=model,
+            gpu=gpu,
+            ram=ram,
+            vram=vram,
+            tasks=tasks,
+        )
+
+    def _on_premium_metrics(self, sample: object) -> None:
+        self._refresh_top_bar_status(sample)
+
+    def _show_voice_status(self) -> None:
+        state = "awake" if self.awake else "listening for the wake line"
+        self._show_notification(
+            f"Voice service is {state}. Wake line: \"{self.wake_phrase}\".",
+            "info",
+            6500,
+        )
+
+    def _toggle_composer_project_mode(self) -> None:
+        self._set_chat_mode("normal" if self.chat_mode == "project" else "project")
+
+    def _navigate_prompt_history(self, direction: int) -> None:
+        if not self.user_messages:
+            return
+        if self._prompt_history_index < 0:
+            self._prompt_history_index = len(self.user_messages)
+        self._prompt_history_index = max(
+            0,
+            min(
+                len(self.user_messages),
+                self._prompt_history_index + int(direction),
+            ),
+        )
+        if self._prompt_history_index >= len(self.user_messages):
+            self.input.clear()
+        else:
+            self.input.setText(self.user_messages[self._prompt_history_index])
+            cursor = self.input.textCursor()
+            cursor.movePosition(QTextCursor.End)
+            self.input.setTextCursor(cursor)
+
+    def _apply_theme(self):
+        global _ACTIVE_UI_FONT_FAMILY, _ACTIVE_UI_THEME
+        _ACTIVE_UI_FONT_FAMILY = self.font_family
+        _ACTIVE_UI_THEME = self.current_theme
+        application = QApplication.instance()
+        if application is not None:
+            scale = self.ui_scale * (1.12 if self.large_text else 1.0)
+            application.setFont(
+                QFont(
+                    self.font_family,
+                    max(8, round(self._base_font_point_size * scale)),
+                )
+            )
+        base = getattr(self, "_base_stylesheet", self.styleSheet())
+        self.setStyleSheet(
+            base
+            + "\n"
+            + premium_theme_stylesheet(
+                self.current_theme,
+                self.accent_color,
+                self.font_family,
+                high_contrast=self.high_contrast,
+                transparency=self.transparency,
+            )
+        )
+        if hasattr(self, "command_palette"):
+            self.command_palette.setStyleSheet(
+                premium_theme_stylesheet(
+                    self.current_theme,
+                    self.accent_color,
+                    self.font_family,
+                    high_contrast=self.high_contrast,
+                    transparency=self.transparency,
+                )
+            )
+        if hasattr(self, "diagnostics_dialog"):
+            self.diagnostics_dialog.setStyleSheet(
+                premium_theme_stylesheet(
+                    self.current_theme,
+                    self.accent_color,
+                    self.font_family,
+                    high_contrast=self.high_contrast,
+                    transparency=self.transparency,
+                )
+            )
+        if hasattr(self, "premium_settings_dialog"):
+            self.premium_settings_dialog.setStyleSheet(
+                premium_theme_stylesheet(
+                    self.current_theme,
+                    self.accent_color,
+                    self.font_family,
+                    high_contrast=self.high_contrast,
+                    transparency=self.transparency,
+                )
+            )
+        if hasattr(self, "composer_stage"):
+            self.composer_stage.set_theme(self.current_theme)
+        if hasattr(self, "theme_select"):
+            self.theme_select.blockSignals(True)
+            self.theme_select.setCurrentIndex(
+                max(0, self.theme_select.findData(self.current_theme))
+            )
+            self.theme_select.blockSignals(False)
+        if hasattr(self, "title_bar"):
+            self.title_bar.set_theme_icon(self.current_theme)
+        for rich_view in self.findChildren(RichContentView):
+            rich_view.apply_appearance(self.current_theme, self.font_family)
+
+    def toggle_theme(self):
+        requested = "light" if self.current_theme != "light" else "dark"
+        self._set_theme(requested)
+
+    def _set_theme(self, theme: str, notify: bool = True):
+        requested = normalize_theme(theme)
+        if requested == self.current_theme:
+            self._apply_theme()
+            return
+        self.current_theme = requested
+        self._apply_theme()
+        self._record_activity(
+            "Theme changed", self.current_theme.title(), category="appearance"
+        )
+        if notify:
+            self._show_notification(
+                f"{self.current_theme.title()} theme enabled.", "success"
+            )
+        self._save_workspace_session()
+
+    def _on_theme_selection_changed(self, _index: int):
+        requested = self.theme_select.currentData()
+        if requested:
+            self._set_theme(str(requested))
+
+    def _save_appearance_settings(self):
+        self.settings["emoji_level"] = self.emoji_level
+        self.settings["maturity_level"] = self.maturity_level
+        self.settings["font_family"] = self.font_family
+        self.settings["custom_font_path"] = self.custom_font_path
+        self.settings["animation_speed"] = self.animation_speed
+        self.settings["reduced_motion"] = str(self.reduced_motion).lower()
+        self.settings["high_contrast"] = str(self.high_contrast).lower()
+        self.settings["large_text"] = str(self.large_text).lower()
+        self.settings["ui_scale"] = str(self.ui_scale)
+        self.settings["transparency"] = str(self.transparency)
+        self.settings["workspace_preset"] = self.workspace_preset
+        self.settings["settings_profile"] = self.settings_profile
+        save_settings(self.settings)
+
+    def _on_emoji_selection_changed(self, _index: int):
+        self.emoji_level = normalize_emoji_level(self.emoji_select.currentData())
+        self._save_appearance_settings()
+        self.style_status.setText(
+            f"Emoji amount saved: {self.emoji_level.title()}."
+        )
+        self._record_activity(
+            "Emoji preference changed",
+            self.emoji_level.title(),
+            category="appearance",
+        )
+
+    def _on_maturity_selection_changed(self, _index: int):
+        self.maturity_level = normalize_maturity_level(
+            self.maturity_select.currentData()
+        )
+        self._save_appearance_settings()
+        self.style_status.setText(
+            f"Maturity level saved: {self.maturity_level.title()}."
+        )
+        self._record_activity(
+            "Maturity preference changed",
+            self.maturity_level.title(),
+            category="appearance",
+        )
+
+    def _on_font_selection_changed(self, _index: int):
+        family = normalize_font_family(self.font_select.currentData())
+        if not family:
+            return
+        self.font_family = family
+        self._save_appearance_settings()
+        self._apply_theme()
+        self.style_status.setText(f"App font changed to {self.font_family}.")
+        self._record_activity(
+            "Font changed", self.font_family, category="appearance"
+        )
+
+    def _choose_custom_font(self):
+        path, _selected_filter = QFileDialog.getOpenFileName(
+            self,
+            "Add a MORICE font",
+            os.path.dirname(self.custom_font_path)
+            if self.custom_font_path
+            else os.path.expanduser("~"),
+            "Font files (*.ttf *.otf *.ttc)",
+        )
+        if not path:
+            return
+        family = register_ui_font_file(path)
+        if not family:
+            self.style_status.setText(
+                "That file is not a valid TTF, OTF, or TTC font."
+            )
+            self._show_notification("MORICE could not load that font file.", "error")
+            return
+        self.custom_font_path = normalize_custom_font_path(path)
+        self.font_family = family
+        index = self.font_select.findData(family)
+        if index < 0:
+            self.font_select.addItem(family, family)
+            index = self.font_select.findData(family)
+        self.font_select.blockSignals(True)
+        self.font_select.setCurrentIndex(index)
+        self.font_select.blockSignals(False)
+        self._save_appearance_settings()
+        self._apply_theme()
+        self.style_status.setText(f"Custom font loaded: {family}.")
+        self._show_notification(f"{family} is now active.", "success")
+        self._record_activity(
+            "Custom font loaded",
+            os.path.basename(self.custom_font_path),
+            category="appearance",
+        )
+
+    def _choose_accent_color(self):
+        selected = QColorDialog.getColor(
+            QColor(self.accent_color),
+            self,
+            "Choose MORICE accent color",
+        )
+        if not selected.isValid():
+            return
+        self.accent_color = normalize_accent(selected.name())
+        self._apply_theme()
+        self._record_activity(
+            "Accent changed", self.accent_color, category="appearance"
+        )
+        self._save_workspace_session()
+
+    def open_command_palette(self):
+        if hasattr(self.command_palette, "set_recent"):
+            self.command_palette.set_recent(self.workspace_state.recent_commands)
+        self.command_palette.open_palette()
+
+    def animate_minimize(self):
+        if not self._motion_enabled:
+            self.showMinimized()
+            return
+
+        def minimize():
+            self.showMinimized()
+            self.setWindowOpacity(1.0)
+
+        self.animation_engine.window_opacity(
+            self, 0.0, duration=130, finished=minimize
+        )
+
+    def toggle_assistant_hub(self):
+        target = not self._panel_target_visibility.get(
+            self.assistant_hub, self.assistant_hub.isVisible()
+        )
+        self._set_assistant_hub_visible(target)
+
+    def _set_assistant_hub_visible(self, visible: bool):
+        self._animate_panel_visibility(self.assistant_hub, visible)
+        self.title_bar.hub_btn.setText("Close Tools" if visible else "Tools")
+        if visible:
+            self._refresh_workspace_hub()
+        self._refresh_top_bar_status()
+
+    def _refresh_workspace_hub(self):
+        if not hasattr(self, "assistant_hub"):
+            return
+        self.assistant_hub.set_recent(
+            self.workspace_state.recent_chats,
+            self.workspace_state.recent_files,
+        )
+        self.assistant_hub.set_activity(self.workspace_state.activity)
+        self.assistant_hub.set_tasks(self.message_queue, self.is_busy)
+        self.assistant_hub.set_clipboard_history(self.clipboard_history)
+        self._refresh_desktop_hub_state()
+        self._refresh_downloads()
+        workspace = None
+        if self.project_folder and os.path.isdir(self.project_folder):
+            workspace = next(
+                (
+                    item
+                    for item in self.runtime.desktop.workspaces.list()
+                    if os.path.normcase(item.root)
+                    == os.path.normcase(os.path.abspath(self.project_folder))
+                ),
+                None,
+            )
+        renderer_values = tuple(
+            {
+                "id": capability.renderer_id,
+                "label": capability.label,
+                "available": capability.available,
+                "interactive": capability.interactive,
+                "backend": capability.backend,
+                "reason": capability.reason,
+            }
+            for capability in self.visualization_manager.capabilities()
+        )
+        platform_state = self.runtime.platform_services.snapshot(
+            project_root=(
+                self.project_folder
+                if self.chat_mode == "project"
+                and os.path.isdir(self.project_folder)
+                else ""
+            ),
+            workspace=workspace,
+            health=self.runtime.health_report,
+            plugins=self.runtime.plugins.diagnostics(),
+            renderers=renderer_values,
+        )
+        self.assistant_hub.set_platform_state(platform_state)
+
+    def _refresh_desktop_hub_state(self):
+        if not hasattr(self, "assistant_hub"):
+            return
+        desktop = self.runtime.desktop
+        self.assistant_hub.set_desktop_state(
+            desktop.snapshot(),
+            desktop.notifications.history(limit=100),
+            desktop.memory.search("")[:200],
+            desktop.automations.list(),
+        )
+
+    def _capture_clipboard_entry(self):
+        if not self.runtime.desktop.clipboard.enabled:
+            return
+        clipboard = QApplication.clipboard()
+        text = clipboard.text().replace("\x00", "").strip()[:20_000]
+        if not text:
+            return
+        self.runtime.desktop.clipboard.observe(text)
+        self.clipboard_history = [
+            item.text for item in self.runtime.desktop.clipboard.history()
+        ]
+        if hasattr(self, "assistant_hub"):
+            self.assistant_hub.set_clipboard_history(self.clipboard_history)
+
+    def _refresh_downloads(self):
+        if not hasattr(self, "assistant_hub"):
+            return
+        directory = os.path.join(os.path.expanduser("~"), "Downloads")
+        files: list[tuple[float, str]] = []
+        try:
+            for entry in os.scandir(directory):
+                if entry.is_file():
+                    try:
+                        modified = entry.stat().st_mtime
+                    except OSError:
+                        modified = 0.0
+                    files.append((modified, entry.path))
+        except OSError:
+            files = []
+        files.sort(reverse=True)
+        self.assistant_hub.set_downloads(path for _modified, path in files[:80])
+
+    def _record_activity(
+        self, title: str, detail: str = "", category: str = "general"
+    ):
+        self.workspace_state.add_activity(title, detail, category)
+        self.runtime.logs.log(
+            "INFO",
+            title,
+            category=category,
+            metadata={"detail": detail} if detail else None,
+        )
+        self._refresh_workspace_hub()
+
+    def _show_notification(
+        self,
+        message: str,
+        severity: str = "info",
+        timeout_ms: int = 4200,
+        *,
+        action_text: str = "",
+        action_callback=None,
+        progress: int | None = None,
+        details: str = "",
+    ):
+        if not getattr(self, "_handling_plugin_notification", False):
+            self.runtime.plugins.publish_event(
+                "notification.created",
+                {"message": message[:2_000], "severity": severity},
+            )
+        try:
+            self.runtime.desktop.notifications.publish(
+                "MORICE",
+                message,
+                severity=severity,
+                category="desktop-ui",
+            )
+        except (OSError, ValueError, TypeError):
+            pass
+        if hasattr(self, "assistant_hub"):
+            self._refresh_desktop_hub_state()
+        if hasattr(self, "notification_toast"):
+            self.notification_toast.show_message(
+                message,
+                severity,
+                timeout_ms,
+                action_text=action_text,
+                action_callback=action_callback,
+                progress=progress,
+                details=details,
+            )
+
+    def _show_plugin_notification(self, message: str, severity: str = "info"):
+        self._handling_plugin_notification = True
+        try:
+            self._show_notification(message, severity)
+        finally:
+            self._handling_plugin_notification = False
+
+    def _on_workspace_notes_changed(self, notes: str):
+        self.workspace_state.notes = notes[:200_000]
+        self._save_workspace_session()
+
+    def _save_workspace_session(self):
+        if not self._session_enabled:
+            return
+        geometry = self._normal_geometry if self._custom_maximized else self.geometry()
+        self.workspace_state.theme = self.current_theme
+        self.workspace_state.accent = self.accent_color
+        self.workspace_state.geometry = [
+            geometry.x(),
+            geometry.y(),
+            geometry.width(),
+            geometry.height(),
+        ]
+        self.workspace_state.maximized = bool(
+            self.isMaximized() or self._custom_maximized
+        )
+        self.workspace_state.fullscreen = bool(self.isFullScreen())
+        self.workspace_state.splitter_sizes = self.workspace_splitter.sizes()
+        self.workspace_state.workspace_preset = self.workspace_preset
+        self.workspace_state.active_workspace_tab = (
+            self.assistant_hub.tabs.currentIndex()
+            if hasattr(self, "assistant_hub")
+            else 0
+        )
+        self.workspace_state.mode_panel_visible = bool(
+            hasattr(self, "mode_panel") and self.mode_panel.isVisible()
+        )
+        self.workspace_state.sidebar_visible = bool(
+            hasattr(self, "sidebar") and self.sidebar.isVisible()
+        )
+        self.workspace_state.assistant_hub_visible = bool(
+            hasattr(self, "assistant_hub") and self.assistant_hub.isVisible()
+        )
+        self.workspace_state.history = []
+        self.workspace_state.user_messages = []
+        self.workspace_state.notes = (
+            self.assistant_hub.notes.toPlainText()[:200_000]
+            if hasattr(self, "assistant_hub")
+            else self.workspace_state.notes
+        )
+        try:
+            save_workspace_state(self.workspace_state)
+            self.runtime.desktop.sessions.save(
+                SessionState(
+                    session_id=str(os.getpid()),
+                    saved_at="",
+                    project_ids=(
+                        [
+                            self.runtime.desktop.workspaces.register(
+                                self.project_folder
+                            ).project_id
+                        ]
+                        if self.project_folder
+                        and os.path.isdir(self.project_folder)
+                        and not self._is_inside_app_folder(self.project_folder)
+                        else []
+                    ),
+                    editors=(
+                        [self.current_project_preview_path]
+                        if getattr(self, "current_project_preview_path", "")
+                        else []
+                    ),
+                    tabs=[
+                        self.assistant_hub.TAB_NAMES[
+                            self.assistant_hub.tabs.currentIndex()
+                        ]
+                    ]
+                    if hasattr(self, "assistant_hub")
+                    else [],
+                    renderers=[
+                        str(getattr(self.runtime.profiler, "current_renderer", "") or "")
+                    ],
+                    pending_tasks=list(self.message_queue),
+                )
+            )
+        except OSError as exc:
+            self.runtime.logs.log(
+                "ERROR",
+                f"Workspace state save failed: {exc}",
+                category="storage",
+            )
+            self._show_notification(f"Session could not be saved: {exc}", "error")
+
+    def _execute_palette_command(self, command: str):
+        self.workspace_state.add_recent_command(command)
+        self._on_workspace_command(command, None)
+        self._save_workspace_session()
+
+    def _refresh_plugin_commands(self):
+        if not hasattr(self, "command_palette"):
+            return
+        dynamic_commands = tuple(
+            CommandItem(
+                item["key"],
+                item["title"],
+                item["hint"],
+                item["keywords"],
+            )
+            for item in self.runtime.plugins.command_contributions()
+        )
+        catalog = self.runtime.plugins.contribution_catalog()
+        ui_contributions = tuple(catalog.get("ui", ()))
+        dynamic_ui = tuple(
+            CommandItem(
+                f"plugin-ui:{item['pluginId']}:{item['id']}",
+                item["title"],
+                f"{item['kind']} from {item['pluginId']}",
+                f"plugin extension {item['kind']}",
+            )
+            for item in ui_contributions
+        )
+        self.command_palette.set_commands(
+            (*DEFAULT_COMMANDS, *dynamic_commands, *dynamic_ui)
+        )
+        toolbar = [
+            item for item in ui_contributions if item.get("kind") == "toolbar-button"
+        ]
+        if hasattr(self, "title_bar"):
+            self.title_bar.set_plugin_buttons(toolbar, self._run_plugin_ui_contribution)
+        panels = [
+            item
+            for item in ui_contributions
+            if item.get("kind") in {"sidebar-panel", "workspace-panel"}
+        ]
+        panels.extend(
+            {
+                **item,
+                "kind": "workspace-panel",
+                "commandId": "",
+            }
+            for item in catalog.get("workspaces", ())
+        )
+        if hasattr(self, "assistant_hub"):
+            self.assistant_hub.set_plugin_panels(
+                panels,
+                self._run_plugin_ui_contribution,
+            )
+
+    def _run_plugin_ui_contribution(self, contribution: dict):
+        plugin_id = str(contribution.get("pluginId", ""))
+        command_id = str(contribution.get("commandId", ""))
+        if command_id:
+            try:
+                result = self.runtime.plugins.invoke_command(
+                    plugin_id, command_id, {}
+                )
+                self._show_notification(str(result or "Plugin action completed.")[:500], "success")
+            except Exception as exc:
+                self._show_notification(f"Plugin action failed: {exc}", "error")
+            return
+        dialog = QDialog(self)
+        dialog.setWindowTitle(str(contribution.get("title", "Plugin surface")))
+        dialog.setMinimumSize(520, 320)
+        layout = QVBoxLayout(dialog)
+        title = QLabel(str(contribution.get("title", "Plugin surface")))
+        title.setObjectName("PluginDetailTitle")
+        detail = QLabel(
+            f"{contribution.get('kind', 'surface')} provided by {plugin_id}. "
+            "The surface is hosted by MORICE so plugin code cannot modify the core UI."
+        )
+        detail.setWordWrap(True)
+        open_center = QPushButton("Open Plugin Center")
+        open_center.clicked.connect(self.plugin_center.open_center)
+        layout.addWidget(title)
+        layout.addWidget(detail)
+        layout.addStretch(1)
+        layout.addWidget(open_center, alignment=Qt.AlignLeft)
+        dialog.show()
+        self._plugin_surface_dialogs = getattr(self, "_plugin_surface_dialogs", [])
+        self._plugin_surface_dialogs.append(dialog)
+
+    def _on_workspace_command(self, command: str, argument: object = None):
+        if command == "plugins":
+            self.plugin_center.open_center()
+            return
+        if command.startswith("plugin:"):
+            _prefix, plugin_id, command_id = command.split(":", 2)
+            try:
+                result = self.runtime.plugins.invoke_command(
+                    plugin_id,
+                    command_id,
+                    argument if isinstance(argument, dict) else {},
+                )
+                detail = (
+                    json.dumps(result, ensure_ascii=False)
+                    if isinstance(result, (dict, list))
+                    else str(result or "Plugin command completed.")
+                )
+                self._show_notification(detail[:500], "success")
+            except Exception as exc:
+                self._show_notification(f"Plugin command failed: {exc}", "error")
+            return
+        if command.startswith("plugin-ui:"):
+            _prefix, plugin_id, component_id = command.split(":", 2)
+            contribution = next(
+                (
+                    item
+                    for item in self.runtime.plugins.contribution_catalog().get("ui", ())
+                    if item.get("pluginId") == plugin_id
+                    and item.get("id") == component_id
+                ),
+                None,
+            )
+            if contribution:
+                self._run_plugin_ui_contribution(contribution)
+            return
+        if command == "settings":
+            self.open_premium_settings()
+            return
+        if command.startswith("layout-"):
+            self._apply_workspace_preset(command.removeprefix("layout-"))
+            return
+        if command == "workspace":
+            self.toggle_assistant_hub()
+            return
+        if command == "new-chat":
+            self._start_new_chat()
+            return
+        if command == "project":
+            self._set_chat_mode("project")
+            return
+        if command == "normal-chat":
+            self._set_chat_mode("normal")
+            return
+        if command == "open-file":
+            self._choose_workspace_file()
+            return
+        if command == "open-media":
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Open local media",
+                os.path.expanduser("~"),
+                "Media (*.mp3 *.wav *.flac *.m4a *.mp4 *.webm *.mkv *.mov *.avi);;All files (*.*)",
+            )
+            if path:
+                succeeded, detail = self.assistant_hub.open_media(path)
+                if succeeded:
+                    self.workspace_state.add_recent_file(path)
+                    self._record_activity("Media opened", path, "media")
+                self._show_notification(
+                    detail, "success" if succeeded else "error"
+                )
+            return
+        if command == "find-files-from-hub":
+            query = self.assistant_hub.file_query.text().strip()
+            if query:
+                self._start_file_search(query)
+            return
+        if command == "find-files":
+            query = str(argument or "").strip()
+            if query:
+                self._start_file_search(query)
+            else:
+                self._set_assistant_hub_visible(True)
+                self.assistant_hub.show_tab("Files")
+                self.assistant_hub.file_query.setFocus()
+            return
+        if command == "search-everywhere":
+            query = str(argument or "").strip()
+            if query:
+                self._start_search_everywhere(query)
+            else:
+                self._set_assistant_hub_visible(True)
+                self.assistant_hub.search.setFocus()
+            return
+        if command == "clipboard-monitor":
+            if self.runtime.desktop.clipboard.enabled:
+                self.runtime.desktop.clipboard.disable(clear=False)
+                self.assistant_hub.set_clipboard_status(False)
+                self._show_notification(
+                    "Clipboard monitoring is off. Session history remains until MORICE closes."
+                )
+                return
+            choice = QMessageBox.question(
+                self,
+                "Enable clipboard monitoring",
+                "Allow MORICE to observe text copied during this session? "
+                "Clipboard history stays in memory and is not persisted.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if choice == QMessageBox.Yes:
+                grant = self.runtime.desktop.clipboard.request_monitoring()
+                self.runtime.desktop.clipboard.enable(grant.token)
+                self.assistant_hub.set_clipboard_status(True)
+                self._capture_clipboard_entry()
+                self._show_notification(
+                    "Clipboard monitoring is enabled for this session.", "success"
+                )
+            return
+        if command == "desktop-refresh":
+            self._refresh_desktop_hub_state()
+            self.assistant_hub.show_tab("Desktop")
+            return
+        if command == "notification-dismiss":
+            notification_id = str(argument or "")
+            if notification_id and self.runtime.desktop.notifications.dismiss(
+                notification_id
+            ):
+                self._refresh_desktop_hub_state()
+            return
+        if command == "memory-toggle":
+            memory = self.runtime.desktop.memory
+            memory.set_enabled(not memory.enabled)
+            self._refresh_desktop_hub_state()
+            self._show_notification(
+                f"Structured memory is now {'enabled' if memory.enabled else 'disabled'}."
+            )
+            return
+        if command == "memory-export":
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export MORICE memory",
+                os.path.join(os.path.expanduser("~"), "morice-memory.json"),
+                "JSON (*.json)",
+            )
+            if path:
+                try:
+                    target = self.runtime.desktop.memory.export(path)
+                    self._show_notification(
+                        f"Memory exported to {target}.", "success", 7000
+                    )
+                except OSError as exc:
+                    self._show_notification(f"Memory export failed: {exc}", "error")
+            return
+        if command == "memory-import":
+            path, _ = QFileDialog.getOpenFileName(
+                self,
+                "Import MORICE memory",
+                os.path.expanduser("~"),
+                "JSON (*.json)",
+            )
+            if path:
+                try:
+                    count = self.runtime.desktop.memory.import_file(path)
+                    self._refresh_desktop_hub_state()
+                    self._show_notification(
+                        f"Imported {count} memory record(s).", "success"
+                    )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    self._show_notification(f"Memory import failed: {exc}", "error")
+            return
+        if command in {
+            "memory-pin-selected",
+            "memory-archive-selected",
+            "memory-delete-selected",
+        }:
+            memory_id = self.assistant_hub.selected_memory_id()
+            if not memory_id:
+                self._show_notification("Select a memory record first.", "warning")
+                return
+            if command == "memory-pin-selected":
+                self.runtime.desktop.memory.update(memory_id, pinned=True)
+            elif command == "memory-archive-selected":
+                self.runtime.desktop.memory.update(memory_id, archived=True)
+            else:
+                choice = QMessageBox.question(
+                    self,
+                    "Delete memory",
+                    "Permanently delete the selected memory record?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if choice == QMessageBox.Yes:
+                    self.runtime.desktop.memory.delete(memory_id)
+            self._refresh_desktop_hub_state()
+            return
+        if command in {
+            "automation-enable-selected",
+            "automation-disable-selected",
+        }:
+            workflow_id = self.assistant_hub.selected_automation_id()
+            if not workflow_id:
+                self._show_notification("Select an automation first.", "warning")
+                return
+            try:
+                if command == "automation-enable-selected":
+                    grant = self.runtime.desktop.automations.request_enable(
+                        workflow_id
+                    )
+                    self.runtime.desktop.automations.enable(
+                        workflow_id, grant.token
+                    )
+                else:
+                    self.runtime.desktop.automations.disable(workflow_id)
+                self._refresh_desktop_hub_state()
+            except (KeyError, PermissionError, ValueError) as exc:
+                self._show_notification(f"Automation update failed: {exc}", "error")
+            return
+        if command == "diagnostics":
+            self._open_diagnostics()
+            return
+        if command in {"platform", "platform-refresh"}:
+            self._set_assistant_hub_visible(True)
+            self._refresh_workspace_hub()
+            self.assistant_hub.show_tab("Platform")
+            return
+        if command == "platform-export":
+            path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Export MORICE platform bundle",
+                os.path.join(
+                    os.path.expanduser("~"),
+                    f"morice-platform-{time.strftime('%Y%m%d')}.zip",
+                ),
+                "MORICE bundle (*.zip)",
+            )
+            if path:
+                try:
+                    target = self.runtime.platform_services.exports.export_bundle(
+                        path,
+                        {
+                            "platform": self.runtime.directory / "platform",
+                            "desktop": self.runtime.directory / "desktop",
+                            "logs": self.runtime.directory / "logs",
+                            **(
+                                {"project": self.project_folder}
+                                if self.project_folder
+                                and os.path.isdir(self.project_folder)
+                                else {}
+                            ),
+                        },
+                        metadata={
+                            "projectRoot": self.project_folder,
+                            "applicationVersion": __version__,
+                        },
+                    )
+                    self._show_notification(
+                        f"Platform bundle exported to {target}.",
+                        "success",
+                        7000,
+                    )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    self._show_notification(
+                        f"Platform export failed: {exc}",
+                        "error",
+                    )
+            return
+        if command == "platform-first-run":
+            report = self.runtime.platform_services.first_run.inspect(
+                self.gpu_profile
+            )
+            gpu = dict(report.get("gpu", {}))
+            fit = next(
+                (
+                    item.get("modelClass", "")
+                    for item in report.get("recommendedModels", ())
+                    if item.get("fit")
+                ),
+                "CPU-friendly model",
+            )
+            QMessageBox.information(
+                self,
+                "MORICE hardware profile",
+                (
+                    f"GPU: {gpu.get('name') or 'Not detected'}\n"
+                    f"VRAM: {gpu.get('vramMb', 0) / 1024:.1f} GB\n"
+                    f"System memory: {report.get('memoryMb', 0) / 1024:.1f} GB\n"
+                    f"Recommended local class: {fit}\n\n"
+                    "You can change the model at any time from the MORICE panel."
+                ),
+            )
+            return
+        if command == "platform-release-check":
+            renderers = tuple(
+                {
+                    "id": item.renderer_id,
+                    "available": item.available,
+                    "reason": item.reason,
+                }
+                for item in self.visualization_manager.capabilities()
+            )
+            report = self.runtime.platform_services.release.check(
+                health=self.runtime.health_report,
+                plugins=self.runtime.plugins.diagnostics(),
+                renderers=renderers,
+            )
+            failures = tuple(report.get("criticalFailures", ()))
+            self._refresh_workspace_hub()
+            self.assistant_hub.show_tab("Platform")
+            self._show_notification(
+                (
+                    "Release readiness checks passed."
+                    if report.get("ready")
+                    else "Release is not ready yet: "
+                    + (
+                        ", ".join(str(item) for item in failures)
+                        if failures
+                        else "record a passing automated test run"
+                    )
+                ),
+                "success" if report.get("ready") else "warning",
+                7000,
+            )
+            return
+        if command == "system":
+            self._refresh_system_snapshot()
+            return
+        if command == "screenshot":
+            self._capture_desktop_screenshot()
+            return
+        if command == "theme":
+            self.toggle_theme()
+            return
+        if command == "accent":
+            self._choose_accent_color()
+            return
+        if command in {"notes", "browser", "media", "desktop"}:
+            self._set_assistant_hub_visible(True)
+            self.assistant_hub.show_tab(command.title())
+            return
+        if command == "new-window":
+            self._open_new_window()
+            return
+        if command == "clear-activity":
+            self.workspace_state.activity.clear()
+            self._refresh_workspace_hub()
+            self._save_workspace_session()
+            return
+        if command == "resume-chat":
+            self.input.setText(str(argument or ""))
+            self.input.setFocus()
+            return
+        if command == "preview-file":
+            if isinstance(argument, dict):
+                self._preview_workspace_file(str(argument.get("path", "")))
+            else:
+                self._preview_workspace_file(str(argument or ""))
+            return
+        if command == "open-project" and isinstance(argument, dict):
+            root = normalize_project_folder(str(argument.get("root", "")))
+            if root and os.path.isdir(root) and not self._is_inside_app_folder(root):
+                self.project_folder = root
+                self.project_folder_input.setText(root)
+                self.project_folder_input.setToolTip(root)
+                self._set_chat_mode("project")
+                self._save_project_settings()
+                self._refresh_project_tree()
+                self._show_notification(
+                    f"Project workspace opened: {Path(root).name}", "success"
+                )
+            return
+        if command == "inspect-memory" and isinstance(argument, dict):
+            memory_id = str(argument.get("memoryId", ""))
+            record = next(
+                (
+                    item
+                    for item in self.runtime.desktop.memory.search("")
+                    if item.memory_id == memory_id
+                ),
+                None,
+            )
+            if record is not None:
+                self.append_message(
+                    MORICE_NAME,
+                    self._address(
+                        f"Memory ({record.scope}):\n\n{record.content}"
+                    ),
+                )
+            return
+        if command == "open-path":
+            path = str(argument or "")
+            if path:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            return
+        if command == "open-downloads":
+            downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+            QDesktopServices.openUrl(QUrl.fromLocalFile(downloads))
+            return
+        if command == "refresh-downloads":
+            self._refresh_downloads()
+            self.assistant_hub.show_tab("Files")
+            if self.assistant_hub.files_subtabs is not None:
+                self.assistant_hub.files_subtabs.setCurrentIndex(1)
+            return
+        if command == "restore-clipboard":
+            text = str(argument or "")
+            if text:
+                QApplication.clipboard().setText(text)
+                self._show_notification("Copied back to the clipboard.", "success")
+            return
+        if command in {"browser-go", "browser-navigate"}:
+            address = (
+                self.assistant_hub.browser_address.text().strip()
+                if command == "browser-go"
+                else str(argument or "").strip()
+            )
+            self.assistant_hub.navigate_browser(address)
+            self._record_activity("Website opened", address, "browser")
+            return
+        if command == "media":
+            self._execute_desktop_action_async(
+                DesktopAction("media", argument=str(argument or "play-pause"))
+            )
+
+    def _start_new_chat(self):
+        if self.is_busy:
+            self._show_notification(
+                "Wait for the current response before clearing this chat.", "error"
+            )
+            return
+        for index in reversed(range(self.chat_list_layout.count())):
+            item = self.chat_list_layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is not None and widget not in {
+                self._bottom_spacer,
+                self.chat_archive_notice,
+            }:
+                self.chat_list_layout.removeWidget(widget)
+                widget.deleteLater()
+        self._message_rows.clear()
+        self._archived_messages.clear()
+        self._refresh_archive_notice()
+        self.history.clear()
+        self.user_messages.clear()
+        self.first_user_message = ""
+        self.science_artifacts.clear()
+        self._refresh_workspace_artifact_list()
+        self.append_message(
+            MORICE_NAME,
+            f"New chat ready, {self.user_title}.",
+            force_scroll=True,
+        )
+        self._record_activity("New chat", category="chat")
+        self.runtime.plugins.publish_event("chat.started", {"newChat": True})
+        self._save_workspace_session()
+
+    def _choose_workspace_file(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open a file in MORICE",
+            os.path.expanduser("~"),
+            "All files (*.*)",
+        )
+        if path:
+            self._preview_workspace_file(path)
+
+    def _preview_workspace_file(self, path: str):
+        if not path:
+            return
+        self._set_assistant_hub_visible(True)
+        try:
+            descriptor = self.runtime.desktop.files.preview(path)
+            self.assistant_hub.show_tab("Files")
+            succeeded, detail = self.assistant_hub.file_preview.show_descriptor(
+                descriptor
+            )
+        except (OSError, ValueError, TypeError) as exc:
+            succeeded, detail = False, str(exc)
+        if os.path.isfile(path):
+            self.workspace_state.add_recent_file(path)
+            try:
+                self.runtime.desktop.files.record_access(path)
+            except OSError:
+                pass
+            self._record_activity(
+                "File previewed", os.path.abspath(path), category="files"
+            )
+            self._save_workspace_session()
+        self._show_notification(detail, "success" if succeeded else "error")
+
+    def _file_search_roots(self) -> list[str]:
+        home = os.path.expanduser("~")
+        roots = [
+            os.path.join(home, "Desktop"),
+            os.path.join(home, "Documents"),
+            os.path.join(home, "Downloads"),
+        ]
+        if self.project_folder:
+            roots.insert(0, self.project_folder)
+        return [root for root in roots if os.path.isdir(root)]
+
+    def _start_file_search(self, query: str):
+        self._set_assistant_hub_visible(True)
+        self.assistant_hub.show_tab("Files")
+        self.assistant_hub.file_results.clear()
+        self.assistant_hub.file_results.addItem("Searching...")
+        roots = self._file_search_roots()
+
+        def worker():
+            try:
+                result = [
+                    item.path
+                    for item in self.runtime.desktop.files.search(
+                        query,
+                        roots,
+                        limit=80,
+                    )
+                ]
+            except Exception:  # noqa: BLE001
+                result = []
+            self._emit_background(
+                "file_search_ready", {"query": query, "paths": result}
+            )
+
+        _start_background_task("file-search", worker)
+
+    def _on_file_search_ready(self, result: object):
+        data = result if isinstance(result, dict) else {}
+        query = str(data.get("query", ""))
+        if data.get("scope") == "everywhere":
+            values = list(data.get("results", []))
+            self.assistant_hub.set_search_results(values)
+            self._record_activity(
+                "Search everywhere",
+                f"{query}: {len(values)} result(s)",
+                category="search",
+            )
+            self._show_notification(
+                f"Found {len(values)} result(s) across MORICE."
+            )
+            return
+        paths = list(data.get("paths", []))
+        self.assistant_hub.set_file_results(paths)
+        self._record_activity(
+            "File search",
+            f"{query}: {len(paths)} result(s)",
+            category="files",
+        )
+        self._show_notification(f"Found {len(paths)} file(s) for {query}.")
+
+    def _register_desktop_search_providers(self):
+        def commands(query: str):
+            terms = _tokenize_for_ui_search(query)
+            for command in self.command_palette.commands:
+                if terms and not all(
+                    term in command.searchable_text for term in terms
+                ):
+                    continue
+                yield SearchEverywhereResult(
+                    "commands",
+                    command.title,
+                    command.hint,
+                    command.key,
+                    25.0,
+                )
+
+        def logs(query: str):
+            for record in self.runtime.logs.search(query)[-20:]:
+                yield SearchEverywhereResult(
+                    "logs",
+                    record.message[:140],
+                    f"{record.level} | {record.category} | {record.timestamp}",
+                    "diagnostics",
+                    12.0,
+                )
+
+        def tools(query: str):
+            needle = query.casefold()
+            for tool in self.runtime.agent.tools.registry.definitions():
+                label = str(tool.display_name or tool.tool_id)
+                detail = str(tool.description)
+                if needle not in f"{label} {detail}".casefold():
+                    continue
+                yield SearchEverywhereResult(
+                    "tools", label, detail, "diagnostics", 15.0
+                )
+
+        self.runtime.desktop.search.register("commands", commands)
+        self.runtime.desktop.search.register("logs", logs)
+        self.runtime.desktop.search.register("tools", tools)
+
+    def _start_search_everywhere(self, query: str):
+        self._set_assistant_hub_visible(True)
+        self.assistant_hub.show_tab("Files")
+        self.assistant_hub.file_results.clear()
+        self.assistant_hub.file_results.addItem("Searching MORICE and local files...")
+        roots = self._file_search_roots()
+
+        def worker():
+            try:
+                results = self.runtime.desktop.search.search(
+                    query, roots=roots, limit=80
+                )
+            except Exception:  # noqa: BLE001
+                results = []
+            self._emit_background(
+                "file_search_ready",
+                {"scope": "everywhere", "query": query, "results": results}
+            )
+
+        _start_background_task("search-everywhere", worker)
+
+    def _refresh_system_snapshot(self):
+        self._set_assistant_hub_visible(True)
+        self.assistant_hub.show_tab("System")
+        self.assistant_hub.system_summary.setText("Reading system information...")
+
+        def worker():
+            try:
+                snapshot = collect_system_snapshot()
+            except Exception as exc:  # noqa: BLE001
+                snapshot = exc
+            self._emit_background("system_snapshot_ready", snapshot)
+
+        _start_background_task("system-snapshot", worker)
+
+    def _on_system_snapshot_ready(self, snapshot: object):
+        if isinstance(snapshot, Exception):
+            self.assistant_hub.system_summary.setText(str(snapshot))
+            self._show_notification(
+                f"System status failed: {snapshot}", "error"
+            )
+            return
+        gpu = ""
+        if getattr(self, "gpu_profile", None) is not None:
+            gpu = (
+                f"{self.gpu_profile.name} "
+                f"({self.gpu_profile.vram_mb / 1024:.1f} GB VRAM)"
+                if self.gpu_profile.detected and self.gpu_profile.vram_mb > 0
+                else self.gpu_profile.name
+            )
+        self.assistant_hub.set_system_snapshot(snapshot, gpu)
+        self._record_activity("System status refreshed", category="system")
+
+    def _capture_desktop_screenshot(self):
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            self._show_notification("No display is available to capture.", "error")
+            return
+        target_dir = os.path.join(
+            os.path.expanduser("~"), "Pictures", "MORICE Screenshots"
+        )
+        os.makedirs(target_dir, exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        target = os.path.join(target_dir, f"MORICE-{stamp}.png")
+        pixmap = screen.grabWindow(0)
+        if pixmap.isNull() or not pixmap.save(target, "PNG"):
+            self._show_notification("The screenshot could not be saved.", "error")
+            return
+        self.workspace_state.add_recent_file(target)
+        if self.chat_mode == "project" and self.project_folder:
+            try:
+                project = self.runtime.desktop.workspaces.register(
+                    self.project_folder
+                )
+                self.runtime.desktop.workspaces.update(
+                    project.project_id,
+                    screenshots=[*project.screenshots, target],
+                )
+            except (OSError, ValueError):
+                pass
+        self._record_activity("Screenshot captured", target, "system")
+        self.runtime.plugins.publish_event(
+            "screenshot.captured",
+            {"path": target, "projectFolder": self.project_folder},
+        )
+        self._refresh_workspace_hub()
+        self._save_workspace_session()
+        self._show_notification(f"Screenshot saved to {target}", "success", 7000)
+
+    def _open_new_window(self):
+        window = MoriceWindow(self.runtime)
+        window.setAttribute(Qt.WA_DeleteOnClose, True)
+        window.destroyed.connect(
+            lambda: self._child_windows.remove(window)
+            if window in self._child_windows
+            else None
+        )
+        self._child_windows.append(window)
+        window.show()
+        self._record_activity("New MORICE window opened", category="workspace")
+
+    def _execute_desktop_action_async(self, action: DesktopAction):
+        def worker():
+            try:
+                message = execute_desktop_action(action)
+                self._emit_background("desktop_action_ready", message, True)
+            except Exception as exc:  # noqa: BLE001
+                self._emit_background("desktop_action_ready", str(exc), False)
+
+        _start_background_task("desktop-action", worker)
+
+    def _on_desktop_action_ready(self, message: str, succeeded: bool):
+        self.append_message(MORICE_NAME, self._address(message), force_scroll=True)
+        self._record_activity(
+            "Desktop action completed" if succeeded else "Desktop action failed",
+            message,
+            category="desktop",
+        )
+        self._show_notification(message, "success" if succeeded else "error")
+
+    def _handle_desktop_command(self, user_input: str) -> bool:
+        action = parse_desktop_command(user_input)
+        if action is None:
+            return False
+        if action.kind == "unknown":
+            self.animation_engine.shake(self.input_frame)
+            self.append_message(
+                MORICE_NAME,
+                self._address(
+                    "Unknown command. Try /system, /find, /open, /site, "
+                    "/diagnostics, /screenshot, /workspace, /theme, /new-window, "
+                    "or a media command."
+                ),
+            )
+            return True
+        if action.kind == "system":
+            self._refresh_system_snapshot()
+            self.append_message(
+                MORICE_NAME,
+                self._address("System status is opening in Tools."),
+            )
+            return True
+        if action.kind == "diagnostics":
+            self._open_diagnostics()
+            self.append_message(
+                MORICE_NAME,
+                self._address(
+                    "Diagnostics is open with health checks, structured logs, "
+                    "worker state, renderers, and live performance."
+                ),
+            )
+            return True
+        if action.kind == "find":
+            self._start_file_search(action.argument)
+            self.append_message(
+                MORICE_NAME,
+                self._address(f"Searching local folders for {action.argument}."),
+            )
+            return True
+        if action.kind == "workspace":
+            self.toggle_assistant_hub()
+            return True
+        if action.kind == "theme":
+            requested = normalize_theme(action.argument) if action.argument else ""
+            if requested and requested != self.current_theme:
+                self.current_theme = requested
+                self._apply_theme()
+                self._save_workspace_session()
+            elif not action.argument:
+                self.toggle_theme()
+            self.append_message(
+                MORICE_NAME,
+                self._address(f"{self.current_theme.title()} theme is active."),
+            )
+            return True
+        if action.kind == "new-window":
+            self._open_new_window()
+            return True
+        if action.kind == "screenshot":
+            self._capture_desktop_screenshot()
+            return True
+        if action.kind == "close-app":
+            choice = QMessageBox.question(
+                self,
+                "Confirm application close",
+                f"Close {action.target}? Unsaved work in that application may be lost.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if choice != QMessageBox.Yes:
+                self.append_message(MORICE_NAME, self._address("Close cancelled."))
+                return True
+
+            def close_worker():
+                try:
+                    message = close_application(action.target)
+                    self._emit_background("desktop_action_ready", message, True)
+                except Exception as exc:  # noqa: BLE001
+                    self._emit_background("desktop_action_ready", str(exc), False)
+
+            _start_background_task("close-application", close_worker)
+            return True
+        self._execute_desktop_action_async(action)
+        return True
 
     def _track_animation(self, animation):
         """Keep transient Qt animations alive until their finished signal fires."""
@@ -5536,58 +9945,11 @@ class MoriceWindow(QWidget):
         return animation
 
     def _animate_panel_visibility(self, panel: QWidget, visible: bool):
-        """Fade a side panel without leaving layout space behind after it closes."""
+        """Route panel transitions through the shared animation engine."""
         self._panel_target_visibility[panel] = visible
-        running = self._panel_anims.pop(panel, None)
-        if running is not None:
-            running.stop()
-            if running in self._anims:
-                self._anims.remove(running)
-
-        effect = panel.graphicsEffect()
-        if not isinstance(effect, QGraphicsOpacityEffect):
-            effect = QGraphicsOpacityEffect(panel)
-            panel.setGraphicsEffect(effect)
-
-        if not self._motion_enabled or not self.isVisible():
-            panel.setVisible(visible)
-            effect.setOpacity(1.0)
-            return
-
-        if visible:
-            was_visible = panel.isVisible()
-            panel.setVisible(True)
-            start = effect.opacity() if was_visible else 0.0
-            end = 1.0
-        else:
-            if not panel.isVisible():
-                effect.setOpacity(1.0)
-                return
-            start = effect.opacity()
-            end = 0.0
-
-        if abs(start - end) < 0.01:
-            panel.setVisible(visible)
-            effect.setOpacity(1.0)
-            return
-
-        animation = QPropertyAnimation(effect, b"opacity", self)
-        animation.setDuration(180)
-        animation.setStartValue(start)
-        animation.setEndValue(end)
-        animation.setEasingCurve(QEasingCurve.OutCubic if visible else QEasingCurve.InCubic)
-
-        def finish():
-            if self._panel_anims.get(panel) is not animation:
-                return
-            self._panel_anims.pop(panel, None)
-            if not visible:
-                panel.setVisible(False)
-            effect.setOpacity(1.0)
-
-        animation.finished.connect(finish)
-        self._panel_anims[panel] = animation
-        self._track_animation(animation).start()
+        self.animation_engine.fade(panel, visible, duration=180)
+        if visible and panel is getattr(self, "changes_panel", None):
+            QTimer.singleShot(0, self._ensure_changes_panel_allocation)
 
     def _animate_input_glow(self, blur_radius: int, alpha: int):
         if self.input_glow is None:
@@ -5649,7 +10011,11 @@ class MoriceWindow(QWidget):
         self.title_bar.sidebar_btn.setText("Close" if is_visible else "Panel")
 
     def toggle_workspace_panel(self):
-        if self.workspace_panel.isVisible():
+        is_open = self._panel_target_visibility.get(
+            self.workspace_panel,
+            self.workspace_panel.isVisible(),
+        )
+        if is_open:
             self._close_workspace()
         else:
             self._open_workspace(self.active_workspace_kind)
@@ -5668,6 +10034,7 @@ class MoriceWindow(QWidget):
             self.append_message(MORICE_NAME, self._address(f"{mode_name} mode enabled."))
         elif self.chat_mode == "normal":
             self.mode_status.setText(f"{mode_name} mode is ready for the next message.")
+        self._refresh_top_bar_status()
 
     def _choose_project_folder(self):
         start_dir = (
@@ -5688,6 +10055,10 @@ class MoriceWindow(QWidget):
         self._save_project_settings()
         self._refresh_mode_panel()
         self._refresh_project_tree()
+        self.runtime.plugins.publish_event(
+            "project.loaded",
+            {"path": self.project_folder, "access": self.project_access},
+        )
         self.mode_status.setText("Work folder saved. Project mode can use this as the build root.")
 
     def _ensure_project_folder_for_build(self) -> bool:
@@ -5737,6 +10108,10 @@ class MoriceWindow(QWidget):
         self.mode_status.setText(f"{label} saved for Project mode.")
 
     def _save_project_settings(self):
+        self.settings["emoji_level"] = self.emoji_level
+        self.settings["maturity_level"] = self.maturity_level
+        self.settings["font_family"] = self.font_family
+        self.settings["custom_font_path"] = self.custom_font_path
         self.settings["chat_mode"] = self.chat_mode
         self.settings["project_folder"] = self.project_folder
         self.settings["project_access"] = self.project_access
@@ -5764,9 +10139,9 @@ class MoriceWindow(QWidget):
 
         def worker():
             profile = detect_gpu_profile()
-            self.gpu_detected.emit(profile)
+            self._emit_background("gpu_detected", profile)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("gpu-detection", worker)
 
     def _on_gpu_detected(self, profile: GpuProfile):
         self._gpu_detection_busy = False
@@ -5800,6 +10175,14 @@ class MoriceWindow(QWidget):
         self._refresh_mode_panel()
         if old_name != self.model_name or replaced_file:
             reset_model_runtime()
+            self.runtime.plugins.publish_event(
+                "model.changed",
+                {"name": self.model_name, "path": self.model_path},
+            )
+            self.runtime.plugins.publish_event(
+                "model.switched",
+                {"name": self.model_name, "path": self.model_path},
+            )
         if self.model_name:
             replacement = " It replaced the selected GGUF file." if replaced_file else ""
             self.mode_status.setText(f"Ollama model saved: {self.model_name}. MORICE will use it next.{replacement}")
@@ -5962,7 +10345,7 @@ class MoriceWindow(QWidget):
             return
         is_project = self.chat_mode == "project"
         self._set_project_details_visible(is_project)
-        if is_project:
+        if is_project and self.changes_available and not self.changes_panel_dismissed:
             self._animate_panel_visibility(self.changes_panel, True)
             self._refresh_project_tree()
         else:
@@ -5997,6 +10380,7 @@ class MoriceWindow(QWidget):
             button.setProperty("active", "true" if active else "false")
             button.style().unpolish(button)
             button.style().polish(button)
+        QTimer.singleShot(0, self._update_composer_responsive_state)
         if not is_project:
             self.mode_status.setText(
                 "Normal chat is for everyday questions, quick replies, and casual work.\n"
@@ -6054,9 +10438,11 @@ class MoriceWindow(QWidget):
             "frm' as 'short form' and 'sory' as 'sorry' when the conversation makes that clear. "
             "When the user asks to build something, produce complete, practical source files that can run locally. "
             "Do not pretend a text file is a compiled app and never propose or emit fake .exe, .dll, .apk, .msi, or archive files. "
-            "For a new playable game, default to a complete self-contained HTML/CSS/JavaScript Canvas project that runs by opening index.html. "
-            "Only edit a Unity project when the chosen folder already contains a real Unity project and the request specifically asks for it; "
-            "never invent Unity scenes, prefabs, metadata, binary art/audio, or a compiled executable. "
+            "Treat an explicitly requested language, engine, framework, platform, and game/app identity as non-negotiable acceptance criteria. "
+            "Never replace the requested product with a generic landing page, unrelated mini-games, or a page that merely uses the prompt as its heading. "
+            "For a new playable game with no language or engine specified, default to a complete self-contained HTML/CSS/JavaScript project that runs by opening index.html. "
+            "For a new Unity request, create valid C# source and text configuration that can be imported into Unity; "
+            "only edit scenes, prefabs, and metadata when those files already exist. Never invent binary art/audio or a compiled executable. "
             "Prefer dependency-light HTML/CSS/JavaScript for browser games and apps. For Python, include a requirements.txt "
             "only for real third-party imports and make the source run with a normal Python installation. "
             "Use clean architecture, readable names, validation, useful error handling, responsive UI guidance, and "
@@ -6182,6 +10568,15 @@ class MoriceWindow(QWidget):
             and len(lowered.split()) <= 5
         )
 
+    def _project_has_files(self) -> bool:
+        if not self.project_folder or not os.path.isdir(self.project_folder):
+            return False
+        try:
+            with os.scandir(self.project_folder) as entries:
+                return any(entries)
+        except OSError:
+            return False
+
     def _project_snapshot(self) -> str:
         if not self.project_folder or not os.path.isdir(self.project_folder):
             return "Existing project snapshot: no files yet."
@@ -6242,8 +10637,8 @@ class MoriceWindow(QWidget):
             snapshot += "\n\nReadable file contents:" + "".join(content_blocks)
         return snapshot
 
-    def _project_manifest_instruction(self) -> str:
-        return (
+    def _project_manifest_instruction(self, request: str = "") -> str:
+        instruction = (
             "For this project request, do not give copy-paste instructions and do not ask the user to create files. "
             "Return only valid JSON with this shape: "
             '{"summary":"short result","files":[{"path":"relative/path.ext","content":"full file content"}],'
@@ -6252,11 +10647,17 @@ class MoriceWindow(QWidget):
             "When editing an existing file, include the full updated file content. "
             "Do not return a commands-only manifest; create or update at least one practical file whenever the request asks to build. "
             "Never create .exe, .dll, .msi, .apk, .zip, or another compiled/binary artifact. MORICE writes runnable source files only. "
-            "For a new game or browser app, create a complete self-contained index.html (plus CSS/JS when useful) rather than Unity files, fake assets, or pygame-only code. "
-            "Only edit existing Unity source scripts when the folder already contains that Unity project; never create .unity, .prefab, .meta, or binary asset files. "
+            "Honor every explicitly requested language, engine, framework, and platform. Do not silently switch languages. "
+            "For a new game with no requested language or engine, create a complete self-contained index.html (plus CSS/JS when useful) rather than Unity files, fake assets, or pygame-only code. "
+            "For Unity, create or edit complete C# source files and safe text configuration; never fabricate .unity, .prefab, .meta, or binary asset files. "
             "For a browser app, create a complete index.html. For a Python app, create a complete .py entry point and requirements.txt when packages are needed. "
+            "Implement the requested behavior itself. A title, description, mockup, TODO, or unrelated substitute does not satisfy the request. "
+            "On follow-up requests, preserve unrelated existing features and edit the current project instead of rebuilding it as a new prompt-title page. "
             "Do not wrap the JSON in markdown. Do not include explanations outside the JSON."
         )
+        if request:
+            instruction += "\n\n" + project_request_contract(request, self._project_has_files())
+        return instruction
 
     def _manifest_from_markdown_files(self, text: str) -> dict | None:
         default_names = {
@@ -6391,10 +10792,18 @@ class MoriceWindow(QWidget):
             rendered.append(f"<div style='white-space:pre;color:{color}'>{escaped}</div>")
         return "".join(rendered)
 
-    def _apply_project_manifest(self, reply) -> dict | None:
+    def _apply_project_manifest(
+        self,
+        reply,
+        request: str = "",
+        *,
+        preview_only: bool = False,
+    ) -> dict | None:
         manifest = reply if isinstance(reply, dict) else self._extract_project_manifest(reply)
         if not manifest:
             return None
+        if request:
+            validate_project_manifest_intent(manifest, request)
         files = manifest.get("files") or []
         if not self.project_folder:
             raise ValueError("No work folder selected.")
@@ -6451,39 +10860,76 @@ class MoriceWindow(QWidget):
             changed.append(relative_path)
             diff_parts.append(self._diff_html(relative_path, old, content))
 
-        temporary_paths: list[tuple[str, str]] = []
-        try:
-            for content, target, _relative_path in pending_writes:
-                os.makedirs(os.path.dirname(target), exist_ok=True)
-                descriptor, temporary_path = tempfile.mkstemp(
-                    prefix=".morice-write-",
-                    suffix=".tmp",
-                    dir=os.path.dirname(target),
-                    text=True,
+        patch_arguments = {
+            "root": self.project_folder,
+            "changes": [
+                {"path": relative_path, "content": content}
+                for content, _target, relative_path in pending_writes
+            ],
+        }
+        patch_result = None
+        if pending_writes and preview_only:
+            preview_result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "filesystem.preview_patch",
+                    patch_arguments,
+                    call_id=f"project-preview-{time.time_ns()}",
                 )
-                with os.fdopen(
-                    descriptor,
-                    "w",
-                    encoding="utf-8",
-                    newline="",
-                ) as handle:
-                    handle.write(content)
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                temporary_paths.append((temporary_path, target))
-            for temporary_path, target in temporary_paths:
-                os.replace(temporary_path, target)
-        finally:
-            for temporary_path, _target in temporary_paths:
-                if os.path.exists(temporary_path):
-                    try:
-                        os.remove(temporary_path)
-                    except OSError:
-                        pass
+            )
+            if not preview_result.success:
+                raise ProjectValidationError(
+                    "; ".join(preview_result.errors)
+                    or "MORICE could not validate the project patch preview."
+                )
+            preview_files = (
+                preview_result.output.get("files", ())
+                if isinstance(preview_result.output, dict)
+                else ()
+            )
+            baselines = {
+                str(item.get("path", "")): item
+                for item in preview_files
+                if isinstance(item, dict)
+            }
+            for change in patch_arguments["changes"]:
+                baseline = baselines.get(str(change["path"]))
+                if baseline is None:
+                    raise ProjectValidationError(
+                        f"MORICE could not establish a safe patch baseline for {change['path']}."
+                    )
+                change["expected_exists"] = bool(baseline.get("exists", False))
+                change["expected_sha256"] = str(
+                    baseline.get("beforeSha256", "")
+                )
+            self.pending_project_patch = patch_arguments
+        elif pending_writes:
+            permission_token = self.runtime.agent.permission_token(
+                "filesystem.apply_patch",
+                patch_arguments,
+            )
+            patch_result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "filesystem.apply_patch",
+                    patch_arguments,
+                    call_id=f"project-apply-{time.time_ns()}",
+                    permission_token=permission_token,
+                )
+            )
+            if not patch_result.success or not patch_result.verified:
+                raise ProjectValidationError(
+                    "; ".join(patch_result.errors)
+                    or "MORICE could not verify the applied project patch."
+                )
+            self.last_project_undo_id = str(
+                patch_result.metadata.get("undoId", "")
+            )
+            self.pending_project_patch = None
 
         summary = str(manifest.get("summary") or "").strip() or f"Updated {len(changed)} file(s)."
         if not changed:
             summary = summary + " No file content changed."
+        elif preview_only:
+            summary = f"Patch ready for review: {summary}"
         panel_html = "<div style='font-family:Consolas,monospace;font-size:11px'>" + "".join(diff_parts) + "</div>"
         commands = [
             str(command).strip()
@@ -6512,6 +10958,11 @@ class MoriceWindow(QWidget):
             f"Work folder: {self.project_folder}\n"
             f"Changed files: {', '.join(changed) if changed else 'none'}"
         )
+        if preview_only and changed:
+            message += (
+                "\n\nReview the green and red diff in Project changes, then choose "
+                "Apply patch or Reject."
+            )
         if commands:
             message += "\n\nSuggested run commands:\n" + "\n".join(f"- {command}" for command in commands)
         if notes:
@@ -6522,25 +10973,220 @@ class MoriceWindow(QWidget):
             "diff_html": panel_html,
             "changed": changed,
             "validated": True,
+            "pending": bool(preview_only and changed),
+            "verified": bool(
+                not changed
+                or (patch_result is not None and patch_result.verified)
+                or preview_only
+            ),
         }
 
     def _on_project_changes_ready(self, summary: str, diff_html: str):
         self._set_changes_minimized(False)
+        self.changes_available = True
+        self.changes_panel_dismissed = False
         self.changes_summary.setText(summary or "Project files updated.")
         self.changes_view.setHtml(
             diff_html
             or "<span style='color:rgba(255,255,255,0.64)'>No visible file diff for this action.</span>"
         )
         if self.chat_mode == "project":
-            self.changes_panel.setVisible(True)
-            effect = self.changes_panel.graphicsEffect()
-            if isinstance(effect, QGraphicsOpacityEffect):
-                effect.setOpacity(1.0)
+            self._animate_panel_visibility(self.changes_panel, True)
         else:
             self._animate_panel_visibility(self.changes_panel, False)
         self._set_project_workspace_tab(1)
+        has_pending_patch = bool(
+            self.pending_project_patch
+            and self.pending_project_patch.get("changes")
+        )
+        self.changes_apply_btn.setEnabled(has_pending_patch)
+        self.changes_reject_btn.setEnabled(has_pending_patch)
+        self.changes_undo_btn.setEnabled(bool(self.last_project_undo_id))
         self._refresh_project_tree()
+        try:
+            self.runtime.desktop.workspaces.register(self.project_folder)
+        except OSError:
+            pass
         self._refresh_project_actions()
+        self._record_activity(
+            "Project files updated",
+            summary or self.project_folder,
+            category="project",
+        )
+        self._save_workspace_session()
+
+    def _apply_pending_project_patch(self):
+        arguments = copy.deepcopy(self.pending_project_patch or {})
+        if not arguments.get("changes"):
+            self.changes_action_status.setText("There is no pending patch to apply.")
+            return
+        pending_root = os.path.normcase(
+            os.path.realpath(str(arguments.get("root", "")))
+        )
+        current_root = os.path.normcase(os.path.realpath(self.project_folder))
+        if not pending_root or pending_root != current_root:
+            self.pending_project_patch = None
+            self.changes_apply_btn.setEnabled(False)
+            self.changes_reject_btn.setEnabled(False)
+            self.changes_action_status.setText(
+                "The work folder changed. Generate a fresh patch for the selected folder."
+            )
+            return
+        permission_token = self.runtime.agent.permission_token(
+            "filesystem.apply_patch",
+            arguments,
+        )
+        self.changes_apply_btn.setEnabled(False)
+        self.changes_reject_btn.setEnabled(False)
+        self.changes_action_status.setText("Applying and verifying the approved patch...")
+
+        def worker():
+            result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "filesystem.apply_patch",
+                    arguments,
+                    call_id=f"project-approved-{time.time_ns()}",
+                    permission_token=permission_token,
+                )
+            )
+            self._emit_background(
+                "project_patch_result",
+                {"operation": "apply", "result": result, "arguments": arguments}
+            )
+
+        _start_background_task("project-apply-patch", worker)
+
+    def _reject_pending_project_patch(self):
+        self.pending_project_patch = None
+        self.changes_apply_btn.setEnabled(False)
+        self.changes_reject_btn.setEnabled(False)
+        self.changes_summary.setText("Pending patch rejected. No files were changed.")
+        self.changes_action_status.setText("Patch rejected.")
+        self._append_project_output("Pending MORICE patch rejected by the user.")
+
+    def _undo_last_project_patch(self):
+        undo_id = self.last_project_undo_id
+        if not undo_id:
+            self.changes_action_status.setText("There is no MORICE patch to undo.")
+            return
+        arguments = {"undo_id": undo_id}
+        permission_token = self.runtime.agent.permission_token(
+            "action.undo",
+            arguments,
+        )
+        self.changes_undo_btn.setEnabled(False)
+        self.changes_action_status.setText("Restoring the previous file state...")
+
+        def worker():
+            result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "action.undo",
+                    arguments,
+                    call_id=f"project-undo-{time.time_ns()}",
+                    permission_token=permission_token,
+                )
+            )
+            self._emit_background(
+                "project_patch_result",
+                {"operation": "undo", "result": result, "arguments": arguments}
+            )
+
+        _start_background_task("project-undo-patch", worker)
+
+    def _on_project_patch_result(self, payload: object):
+        value = payload if isinstance(payload, dict) else {}
+        operation = str(value.get("operation", ""))
+        result = value.get("result")
+        if result is None:
+            self.changes_action_status.setText("Project action returned no result.")
+            return
+        if operation == "verify":
+            output = result.output if isinstance(result.output, dict) else {}
+            checked = int(output.get("checked", 0))
+            failures = list(output.get("failures", ()))
+            launch = output.get("launch")
+            if failures:
+                self.changes_action_status.setText(
+                    "Verification failed: " + str(failures[0])
+                )
+                self._append_project_output(
+                    "Project verification failed:\n"
+                    + "\n".join(str(item) for item in failures[:30])
+                )
+            else:
+                entry = (
+                    os.path.basename(str(launch.get("target", "")))
+                    if isinstance(launch, dict)
+                    else ""
+                )
+                detail = (
+                    f" Entry point: {entry}."
+                    if entry
+                    else " No runnable entry point was detected."
+                )
+                self.changes_action_status.setText(
+                    f"Verified {checked} source file(s).{detail}"
+                )
+                self._append_project_output(
+                    f"Project verification passed: {checked} source file(s) checked."
+                    + detail
+                )
+            self.changes_verify_btn.setEnabled(True)
+            if isinstance(launch, dict):
+                self.changes_run_btn.setEnabled(True)
+                self.changes_run_btn.setText(
+                    str(launch.get("label", "Run project"))
+                )
+            else:
+                self.changes_run_btn.setEnabled(False)
+                self.changes_run_btn.setText("Run project")
+            return
+        verify_after_apply = False
+        if result.success and result.verified:
+            if operation == "apply":
+                self.pending_project_patch = None
+                self.last_project_undo_id = str(
+                    result.metadata.get("undoId", "")
+                )
+                changed = [
+                    *result.generated_files,
+                    *result.modified_files,
+                ]
+                self.changes_summary.setText(
+                    f"Applied and verified {len(changed)} file change(s)."
+                )
+                self.changes_action_status.setText(
+                    "Patch applied. Verification passed."
+                )
+                self._append_project_output(
+                    "Approved patch applied and verified.\n"
+                    + "\n".join(changed)
+                )
+                verify_after_apply = True
+            else:
+                self.last_project_undo_id = ""
+                restored = result.output.get("restored", []) if isinstance(result.output, dict) else []
+                self.changes_summary.setText(
+                    f"Undo completed for {len(restored)} file(s)."
+                )
+                self.changes_action_status.setText("Previous file state restored.")
+                self._append_project_output(
+                    "Undo completed and verified.\n" + "\n".join(restored)
+                )
+        else:
+            errors = "; ".join(result.errors) or "Unknown project action failure."
+            self.changes_action_status.setText(errors)
+            self._append_project_output(
+                f"Project {operation or 'patch'} failed:\n{errors}"
+            )
+        self.changes_apply_btn.setEnabled(bool(self.pending_project_patch))
+        self.changes_reject_btn.setEnabled(bool(self.pending_project_patch))
+        self.changes_undo_btn.setEnabled(bool(self.last_project_undo_id))
+        self._refresh_project_tree()
+        if verify_after_apply:
+            QTimer.singleShot(0, self._verify_project)
+        else:
+            self._refresh_project_actions()
 
     def _set_project_workspace_tab(self, index: int):
         if not hasattr(self, "project_workspace_stack"):
@@ -6656,7 +11302,7 @@ class MoriceWindow(QWidget):
             combined = "[Older output trimmed]\n\n" + combined[-220_000:]
         self.project_output_view.setPlainText(combined)
         cursor = self.project_output_view.textCursor()
-        cursor.movePosition(cursor.End)
+        cursor.movePosition(QTextCursor.End)
         self.project_output_view.setTextCursor(cursor)
 
     def _run_project_command(self):
@@ -6713,32 +11359,64 @@ class MoriceWindow(QWidget):
         self.project_command_input.clear()
         self._set_project_workspace_tab(2)
         self._append_project_output(f"> {command}")
+        try:
+            command_parts = shlex.split(command, posix=False)
+        except ValueError as exc:
+            self._append_project_output(f"Command not started: {exc}")
+            return
+        command_parts = [
+            part[1:-1] if len(part) >= 2 and part[0] == part[-1] == '"' else part
+            for part in command_parts
+        ]
+        arguments = {
+            "cwd": self.project_folder,
+            "command": command_parts,
+            "timeout": 300,
+        }
+        permission_token = self.runtime.agent.permission_token(
+            "terminal.run",
+            arguments,
+        )
+        command_call_id = f"project-command-{time.time_ns()}"
+        self._active_project_command_id = command_call_id
+        self._emit_background("project_command_state", True)
 
         def worker():
-            try:
-                completed = subprocess.run(
-                    command,
-                    cwd=self.project_folder,
-                    capture_output=True,
-                    text=True,
-                    errors="replace",
-                    timeout=300,
-                    shell=False,
-                    creationflags=(
-                        subprocess.CREATE_NO_WINDOW
-                        if os.name == "nt"
-                        else 0
-                    ),
+            result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "terminal.run",
+                    arguments,
+                    call_id=command_call_id,
+                    permission_token=permission_token,
                 )
-                output = (completed.stdout or "") + (completed.stderr or "")
-                self.project_output_ready.emit(
-                    (output.rstrip() or "(no output)")
-                    + f"\n[exit code {completed.returncode}]"
-                )
-            except (OSError, subprocess.SubprocessError) as exc:
-                self.project_output_ready.emit(f"Command failed: {exc}")
+            )
+            output = result.output if isinstance(result.output, dict) else {}
+            combined = (str(output.get("stdout", "")) + str(output.get("stderr", ""))).rstrip()
+            if result.errors:
+                combined += ("\n" if combined else "") + "\n".join(result.errors)
+            self._emit_background(
+                "project_output_ready",
+                (combined or "(no output)")
+                + f"\n[exit code {output.get('exitCode', 'unknown')}]"
+            )
+            self._active_project_command_id = ""
+            self._emit_background("project_command_state", False)
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("project-command", worker)
+
+    def _cancel_project_command(self):
+        call_id = self._active_project_command_id
+        if not call_id:
+            self._emit_background("project_command_state", False)
+            return
+        if self.runtime.agent.cancel(call_id):
+            self._append_project_output(
+                "Cancellation requested for the active command."
+            )
+        else:
+            self._append_project_output(
+                "The command already finished or could not be cancelled."
+            )
 
     def _show_project_git_status(self):
         if not self.project_folder or not os.path.isdir(self.project_folder):
@@ -6750,32 +11428,46 @@ class MoriceWindow(QWidget):
         self._append_project_output("> git status --short --branch")
 
         def worker():
-            try:
-                completed = subprocess.run(
-                    ["git", "status", "--short", "--branch"],
-                    cwd=self.project_folder,
-                    capture_output=True,
-                    text=True,
-                    errors="replace",
-                    timeout=30,
-                    creationflags=(
-                        subprocess.CREATE_NO_WINDOW
-                        if os.name == "nt"
-                        else 0
-                    ),
+            result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "git.status",
+                    {"root": self.project_folder},
+                    call_id=f"git-status-{time.time_ns()}",
                 )
-                output = (completed.stdout or "") + (completed.stderr or "")
-                self.project_output_ready.emit(
-                    (output.rstrip() or "Clean working tree.")
-                    + f"\n[exit code {completed.returncode}]"
-                )
-            except (OSError, subprocess.SubprocessError) as exc:
-                self.project_output_ready.emit(f"Git status failed: {exc}")
+            )
+            output = result.output if isinstance(result.output, dict) else {}
+            combined = (str(output.get("stdout", "")) + str(output.get("stderr", ""))).rstrip()
+            if result.errors:
+                combined += ("\n" if combined else "") + "\n".join(result.errors)
+            self._emit_background(
+                "project_output_ready",
+                (combined or "Clean working tree.")
+                + f"\n[exit code {output.get('exitCode', 'unknown')}]"
+            )
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("project-git-status", worker)
 
     def _toggle_changes_minimized(self):
         self._set_changes_minimized(not self.changes_minimized)
+
+    def _close_changes_panel(self):
+        self.changes_panel_dismissed = True
+        self._animate_panel_visibility(self.changes_panel, False)
+
+    def _ensure_changes_panel_allocation(self):
+        """Give the review pane enough splitter space for its header and controls."""
+        panel_index = self.workspace_splitter.indexOf(self.changes_panel)
+        chat_index = self.workspace_splitter.indexOf(self.chat_container)
+        sizes = self.workspace_splitter.sizes()
+        if panel_index < 0 or panel_index >= len(sizes):
+            return
+        target_width = 620 if self.changes_expanded else 390
+        current_width = sizes[panel_index]
+        sizes[panel_index] = target_width
+        if 0 <= chat_index < len(sizes) and current_width < target_width:
+            sizes[chat_index] = max(360, sizes[chat_index] - (target_width - current_width))
+        self.workspace_splitter.setSizes(sizes)
+        self.changes_panel.resize(target_width, self.changes_panel.height())
 
     def _set_changes_minimized(self, minimized: bool):
         self.changes_minimized = False
@@ -6783,13 +11475,14 @@ class MoriceWindow(QWidget):
         self.changes_title.setVisible(True)
         self.changes_minimize_btn.setVisible(False)
         self.changes_expand_btn.setVisible(True)
-        self.changes_panel.setFixedWidth(640 if self.changes_expanded else 440)
+        self.changes_panel.resize(620 if self.changes_expanded else 390, self.changes_panel.height())
 
     def _toggle_changes_width(self):
         if self.changes_minimized:
             self._set_changes_minimized(False)
         self.changes_expanded = not self.changes_expanded
-        self.changes_panel.setFixedWidth(640 if self.changes_expanded else 440)
+        target_width = 620 if self.changes_expanded else 390
+        self._ensure_changes_panel_allocation()
         self.changes_expand_btn.setText("<>" if self.changes_expanded else "[]")
         self.changes_expand_btn.setToolTip("Use normal width" if self.changes_expanded else "Widen project changes")
 
@@ -6809,39 +11502,24 @@ class MoriceWindow(QWidget):
         if not self.project_folder or not os.path.isdir(self.project_folder):
             self.changes_action_status.setText("Choose a project folder before verification.")
             return
-        failures = []
-        checked = 0
-        for dirpath, dirnames, filenames in os.walk(self.project_folder):
-            dirnames[:] = [name for name in dirnames if name not in PROJECT_IGNORED_DIRS]
-            for filename in filenames:
-                full_path = os.path.join(dirpath, filename)
-                relative_path = os.path.relpath(full_path, self.project_folder).replace("\\", "/")
-                if os.path.splitext(relative_path)[1].lower() not in PROJECT_TEXT_EXTENSIONS | {".bat"}:
-                    continue
-                try:
-                    with open(full_path, "r", encoding="utf-8", errors="replace") as handle:
-                        validate_project_file(relative_path, handle.read())
-                    checked += 1
-                except (OSError, ProjectValidationError) as exc:
-                    failures.append(f"{relative_path}: {exc}")
-        if failures:
-            self.changes_action_status.setText("Verification failed: " + failures[0])
-            self._append_project_output(
-                "Project verification failed:\n" + "\n".join(failures[:30])
+        self.changes_verify_btn.setEnabled(False)
+        self.changes_action_status.setText("Verifying project source files...")
+        arguments = {"root": self.project_folder}
+
+        def worker():
+            result = self.runtime.agent.tools.executor.execute(
+                ToolCall(
+                    "project.verify",
+                    arguments,
+                    call_id=f"project-verify-{time.time_ns()}",
+                )
             )
-        else:
-            self.changes_action_status.setText(f"Verified {checked} source file(s).")
-            self._append_project_output(
-                f"Project verification passed: {checked} source file(s) checked."
+            self._emit_background(
+                "project_patch_result",
+                {"operation": "verify", "result": result, "arguments": arguments}
             )
-        plan = build_launch_plan(self.project_folder)
-        if plan:
-            self.changes_run_btn.setEnabled(True)
-            self.changes_run_btn.setText(plan.label)
-            if not failures:
-                self.changes_action_status.setText(f"Verified {checked} source file(s). Entry point: {os.path.basename(plan.target)}")
-        else:
-            self.changes_run_btn.setEnabled(False)
+
+        _start_background_task("project-verify", worker)
 
     def _run_project(self):
         plan = build_launch_plan(self.project_folder)
@@ -6883,11 +11561,13 @@ class MoriceWindow(QWidget):
         self._set_workspace_view(kind)
         if hasattr(self.title_bar, "workspace_btn"):
             self.title_bar.workspace_btn.setText("Close Lab")
+        self._refresh_top_bar_status()
 
     def _close_workspace(self):
         self._animate_panel_visibility(self.workspace_panel, False)
         if hasattr(self.title_bar, "workspace_btn"):
             self.title_bar.workspace_btn.setText("Lab")
+        self._refresh_top_bar_status()
 
     def _refresh_workspace_artifact_list(self):
         self.workspace_artifact_list.blockSignals(True)
@@ -6898,6 +11578,11 @@ class MoriceWindow(QWidget):
                 "physics": "Physics",
                 "chemistry": "Molecule",
                 "diagram": "Diagram",
+                "biology": "Biology",
+                "data-structures": "Data structures",
+                "chart": "Chart",
+                "scene": "3D schematic",
+                "document": "Document",
             }.get(artifact.kind, "Artifact")
             item = QListWidgetItem(f"{prefix}: {artifact.title}")
             item.setData(Qt.UserRole, artifact.kind)
@@ -6999,10 +11684,28 @@ class MoriceWindow(QWidget):
         self.history.append({"role": "user", "content": user_input})
 
         def progress(stage: str, detail: str, percent: int):
-            self.visualization_progress.emit(request.job_id, stage, detail, percent)
+            self._emit_background(
+                "visualization_progress",
+                request.job_id,
+                stage,
+                detail,
+                percent,
+            )
 
         future = self.visualization_manager.submit(request, progress)
         self.visualization_futures[request.job_id] = future
+        self.runtime.plugins.publish_event(
+            "visualization.started",
+            {
+                "jobId": request.job_id,
+                "rendererId": decision.renderer_id,
+                "prompt": user_input[:2_000],
+            },
+        )
+        self.runtime.plugins.publish_event(
+            "renderer.started",
+            {"jobId": request.job_id, "rendererId": decision.renderer_id},
+        )
 
         def completed(completed_future):
             try:
@@ -7014,10 +11717,7 @@ class MoriceWindow(QWidget):
                     renderer_id=decision.renderer_id,
                     error=f"Rendering failed: {exc}",
                 )
-            try:
-                self.visualization_finished.emit(result)
-            except RuntimeError:
-                return
+            self._emit_background("visualization_finished", result)
 
         future.add_done_callback(completed)
         return True
@@ -7032,6 +11732,26 @@ class MoriceWindow(QWidget):
         self.visualization_futures.pop(result.job_id, None)
         if card is None:
             return
+        self.runtime.plugins.publish_event(
+            "visualization.finished",
+            {
+                "jobId": result.job_id,
+                "rendererId": result.renderer_id,
+                "status": result.status,
+                "validated": result.validated,
+                "durationMs": result.duration_ms,
+                "error": result.error,
+            },
+        )
+        self.runtime.plugins.publish_event(
+            "renderer.finished",
+            {
+                "jobId": result.job_id,
+                "rendererId": result.renderer_id,
+                "status": result.status,
+                "validated": result.validated,
+            },
+        )
         if not result.ok or result.artifact is None:
             message = result.error or "The renderer did not produce a validated visualization."
             card.set_error(message)
@@ -7041,9 +11761,23 @@ class MoriceWindow(QWidget):
             )
             self.history.append({"role": "assistant", "content": reply})
             self.append_message(MORICE_NAME, self._address(reply))
+            self._record_activity(
+                "Visualization failed", message, category="visualization"
+            )
+            self._complete_agent_ui(response_present=True, successful=False)
+            self._save_workspace_session()
             return
 
         artifact = result.artifact
+        self.runtime.plugins.publish_event(
+            "visualization.created",
+            {
+                "jobId": result.job_id,
+                "rendererId": result.renderer_id,
+                "kind": artifact.kind,
+                "title": artifact.title,
+            },
+        )
         self._add_science_artifact(artifact)
         if artifact.kind == "graph" and artifact.graph:
             workspace = InlineGraphWorkspace(artifact.graph)
@@ -7053,17 +11787,43 @@ class MoriceWindow(QWidget):
             workspace = InlineMoleculeWorkspace(artifact.chemistry)
         elif artifact.kind == "diagram" and isinstance(artifact.diagram, DiagramArtifact):
             workspace = InlineDiagramWorkspace(artifact.diagram)
+        elif artifact.kind == "biology" and isinstance(artifact.biology, BiologyArtifact):
+            workspace = InlineBiologyWorkspace(artifact.biology)
+        elif artifact.kind == "data-structures" and isinstance(
+            artifact.data_structures, DataStructureArtifact
+        ):
+            workspace = InlineDataStructureWorkspace(artifact.data_structures)
+        elif artifact.kind == "chart" and isinstance(artifact.chart, ChartArtifact):
+            workspace = InlineChartWorkspace(artifact.chart)
+        elif artifact.kind == "scene" and isinstance(artifact.scene, SceneArtifact):
+            workspace = InlineSceneWorkspace(artifact.scene)
+        elif artifact.kind == "document" and isinstance(
+            artifact.document, DocumentArtifact
+        ):
+            workspace = InlineDocumentWorkspace(artifact.document)
         else:
             message = "The renderer returned an unsupported artifact type, so nothing was displayed."
             card.set_error(message)
             self.history.append({"role": "assistant", "content": message})
             self.append_message(MORICE_NAME, self._address(message))
+            self._record_activity(
+                "Visualization rejected", message, category="visualization"
+            )
+            self._complete_agent_ui(response_present=True, successful=False)
+            self._save_workspace_session()
             return
 
         self._replace_chat_widget(card, workspace)
         reply = self._science_ready_reply(artifact, result)
         self.history.append({"role": "assistant", "content": reply})
         self.append_message(MORICE_NAME, self._address(reply))
+        self._record_activity(
+            "Visualization rendered",
+            f"{artifact.kind}: {artifact.title}",
+            category="visualization",
+        )
+        self._complete_agent_ui(response_present=True)
+        self._save_workspace_session()
 
     def _science_ready_reply(
         self,
@@ -7122,7 +11882,169 @@ class MoriceWindow(QWidget):
                 f"Hover nodes to inspect their connections, drag to pan, zoom with the wheel, "
                 f"or export it.{timing}"
             )
+        if artifact and artifact.kind == "biology" and isinstance(
+            artifact.biology, BiologyArtifact
+        ):
+            biology = artifact.biology
+            return (
+                f"The interactive {biology.title} model above contains "
+                f"{len(biology.points)} validated geometry points. Switch between its 2D "
+                f"schematic and 3D perspective, pause or resume animation, zoom, rotate, "
+                f"and inspect labeled components.{timing}"
+            )
+        if artifact and artifact.kind == "data-structures" and isinstance(
+            artifact.data_structures, DataStructureArtifact
+        ):
+            data = artifact.data_structures
+            return (
+                f"The data-structure lab above includes {', '.join(data.structures)}. "
+                "Choose a structure and run real Insert, Delete, or Search operations; "
+                f"the changed or visited nodes animate and the operation complexity updates live.{timing}"
+            )
+        if artifact and artifact.kind == "chart" and isinstance(
+            artifact.chart, ChartArtifact
+        ):
+            chart = artifact.chart
+            return (
+                f"The interactive {chart.chart_type} chart above contains "
+                f"{len(chart.points)} validated numeric points taken directly from your prompt. "
+                f"Hover marks for exact values or export PNG, SVG, or PDF.{timing}"
+            )
+        if artifact and artifact.kind == "scene" and isinstance(
+            artifact.scene, SceneArtifact
+        ):
+            scene = artifact.scene
+            return (
+                f"The labeled {scene.scene_type} schematic above contains "
+                f"{len(scene.primitives)} validated components. Switch between 2D and 3D, "
+                f"pause rotation, zoom, drag to inspect the assembly, or export PNG. "
+                f"It is an educational component schematic, not a dimensionally certified CAD model.{timing}"
+            )
+        if artifact and artifact.kind == "document" and isinstance(
+            artifact.document, DocumentArtifact
+        ):
+            document = artifact.document
+            return (
+                f"The validated local preview above displays {document.title} "
+                f"({document.size_bytes / 1024:.1f} KB). The file was read from the exact "
+                f"path you supplied and no substitute content was generated.{timing}"
+            )
         return "The renderer completed, but no supported interactive artifact was available."
+
+    def _create_message_row(
+        self,
+        author: str,
+        message: str,
+        is_user: bool,
+        *,
+        insert_index: int | None = None,
+        animate: bool = True,
+        row_list_index: int | None = None,
+    ) -> QFrame:
+        row = QFrame()
+        row.setObjectName("MessageRow")
+        row.setProperty("chatMessage", "true")
+        row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(0)
+        bubble = ChatBubble(author, message, is_user=is_user)
+        bubble.edit_requested.connect(self._edit_chat_message)
+        bubble.reaction_changed.connect(
+            lambda reaction, author=author: self._record_activity(
+                "Message reaction changed",
+                f"{author}: {reaction or 'cleared'}",
+                category="chat",
+            )
+        )
+        bubble.installEventFilter(self)
+        bubble.setMaximumWidth(16777215)
+        row_layout.addWidget(bubble, stretch=1)
+        for button in bubble.findChildren(QPushButton):
+            if hasattr(self, "micro_interactions"):
+                button.installEventFilter(self.micro_interactions)
+            button.setCursor(Qt.PointingHandCursor)
+
+        opacity = QGraphicsOpacityEffect(row)
+        row.setGraphicsEffect(opacity)
+        opacity.setOpacity(0.0 if animate else 1.0)
+        target_index = (
+            max(1, int(insert_index))
+            if insert_index is not None
+            else max(1, self.chat_list_layout.count() - 1)
+        )
+        self.chat_list_layout.insertWidget(target_index, row)
+        if row_list_index is None:
+            self._message_rows.append(row)
+        else:
+            self._message_rows.insert(max(0, row_list_index), row)
+
+        if animate and self._motion_enabled and self.isVisible():
+            animation = QPropertyAnimation(opacity, b"opacity", row)
+            animation.setDuration(self.animation_engine.duration(180))
+            animation.setStartValue(0.0)
+            animation.setEndValue(1.0)
+            animation.setEasingCurve(QEasingCurve.OutCubic)
+            if not is_user:
+                glow_color = QColor(self.accent_color)
+                glow_color.setAlpha(72)
+                animation.finished.connect(
+                    lambda bubble=bubble, color=glow_color: self.animation_engine.shadow(
+                        bubble,
+                        color=color,
+                        blur=16,
+                        duration=220,
+                    )
+                )
+            self._track_animation(animation).start()
+        else:
+            opacity.setOpacity(1.0)
+        return row
+
+    def _edit_chat_message(self, message: str) -> None:
+        self.input.setText(message)
+        self.input.setFocus(Qt.OtherFocusReason)
+        cursor = self.input.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.input.setTextCursor(cursor)
+        self._show_notification("Message loaded into the composer for editing.")
+
+    def _virtualize_chat_widgets(self) -> None:
+        while len(self._message_rows) > MAX_VISIBLE_CHAT_WIDGETS:
+            row = self._message_rows.pop(0)
+            bubble = row.findChild(ChatBubble)
+            if bubble is not None:
+                self._archived_messages.append(
+                    (bubble.author, bubble.message, bubble.is_user)
+                )
+            self.chat_list_layout.removeWidget(row)
+            row.deleteLater()
+        self._refresh_archive_notice()
+
+    def _refresh_archive_notice(self) -> None:
+        count = len(self._archived_messages)
+        self.chat_archive_notice.setVisible(count > 0)
+        self.chat_archive_label.setText(
+            f"{count} earlier message{'s' if count != 1 else ''} are virtualized."
+            if count
+            else ""
+        )
+
+    def _load_earlier_messages(self) -> None:
+        if not self._archived_messages:
+            return
+        batch = self._archived_messages[-20:]
+        del self._archived_messages[-len(batch) :]
+        for offset, (author, message, is_user) in enumerate(batch):
+            self._create_message_row(
+                author,
+                message,
+                is_user,
+                insert_index=1 + offset,
+                animate=self._motion_enabled,
+                row_list_index=offset,
+            )
+        self._refresh_archive_notice()
 
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
         should_follow = self.follow_latest or self._is_at_bottom()
@@ -7131,26 +12053,31 @@ class MoriceWindow(QWidget):
         if force_scroll:
             self.follow_latest = True
 
-        bubble = ChatBubble(author, message, is_user=is_user)
-        bubble.installEventFilter(self)
-        opacity = QGraphicsOpacityEffect(bubble)
-        bubble.setGraphicsEffect(opacity)
-        opacity.setOpacity(0.0)
-
-        insert_index = max(0, self.chat_list_layout.count() - 1)
-        self.chat_list_layout.insertWidget(insert_index, bubble)
-
-        if self._motion_enabled and self.isVisible():
-            anim = QPropertyAnimation(opacity, b"opacity", bubble)
-            anim.setDuration(180)
-            anim.setStartValue(0.0)
-            anim.setEndValue(1.0)
-            anim.setEasingCurve(QEasingCurve.OutCubic)
-            self._track_animation(anim).start()
-        else:
-            opacity.setOpacity(1.0)
-
+        self._create_message_row(author, message, is_user)
+        self._virtualize_chat_widgets()
         self._schedule_latest_scroll(force=force_scroll)
+
+    def _remember_conversation_turn(self, user_input: str, assistant_reply: str):
+        user_text = str(user_input or "").strip()
+        reply_text = str(assistant_reply or "").strip()
+        if user_text:
+            self.history.append({"role": "user", "content": user_text})
+        if reply_text:
+            self.history.append({"role": "assistant", "content": reply_text})
+        self.history = self.history[-160:]
+
+    def _append_direct_reply(
+        self,
+        user_input: str,
+        reply: str,
+        *,
+        address: bool = True,
+    ):
+        visible_reply = self._address(reply) if address else str(reply or "").strip()
+        self._remember_conversation_turn(user_input, visible_reply)
+        self.append_message(MORICE_NAME, visible_reply)
+        self._complete_agent_ui(response_present=bool(visible_reply))
+        self._save_workspace_session()
 
     def _set_busy(self, is_busy: bool):
         self.is_busy = is_busy
@@ -7161,6 +12088,19 @@ class MoriceWindow(QWidget):
         self.style_input.setEnabled(not is_busy)
         self.title_input.setEnabled(not is_busy)
         self.wake_input.setEnabled(not is_busy)
+        self.theme_select.setEnabled(not is_busy)
+        self.emoji_select.setEnabled(not is_busy)
+        self.maturity_select.setEnabled(not is_busy)
+        self.font_select.setEnabled(not is_busy)
+        self.add_font_btn.setEnabled(not is_busy)
+        self.animation_speed_select.setEnabled(not is_busy)
+        self.reduced_motion_check.setEnabled(not is_busy)
+        self.high_contrast_check.setEnabled(not is_busy)
+        self.large_text_check.setEnabled(not is_busy)
+        self.ui_scale_slider.setEnabled(not is_busy)
+        self.transparency_slider.setEnabled(not is_busy)
+        self.workspace_preset_select.setEnabled(not is_busy)
+        self.advanced_settings_btn.setEnabled(not is_busy)
         self.save_style_btn.setEnabled(not is_busy)
         self.clear_style_btn.setEnabled(not is_busy)
         self.normal_mode_btn.setEnabled(not is_busy)
@@ -7177,6 +12117,11 @@ class MoriceWindow(QWidget):
         self.access_status_btn.setEnabled(not is_busy)
         self.project_lookup_btn.setEnabled(not is_busy)
         self._refresh_send_button_state()
+        if hasattr(self, "assistant_hub"):
+            self.assistant_hub.set_tasks(self.message_queue, self.is_busy)
+        if hasattr(self, "title_bar"):
+            self._refresh_top_bar_status()
+        self._refresh_top_bar_status()
 
     def _refresh_send_button_state(self):
         queued_count = len(self.message_queue)
@@ -7210,6 +12155,8 @@ class MoriceWindow(QWidget):
         if self.message_queue:
             self.queue_list.setCurrentRow(max(0, min(current_row, len(self.message_queue) - 1)))
         self._refresh_queue_controls()
+        if hasattr(self, "assistant_hub"):
+            self.assistant_hub.set_tasks(self.message_queue, self.is_busy)
 
     def _refresh_queue_controls(self):
         if not hasattr(self, "queue_list"):
@@ -7305,7 +12252,7 @@ class MoriceWindow(QWidget):
 
     def _thinking_delayed_update(self, token: int, detail: str):
         if token == self._thinking_token and self.thinking_bubble:
-            self.thinking_update.emit(detail)
+            self._emit_background("thinking_update", detail)
 
     def _remove_thinking(self):
         if not self.thinking_bubble:
@@ -7314,12 +12261,38 @@ class MoriceWindow(QWidget):
         self.thinking_bubble.deleteLater()
         self.thinking_bubble = None
 
+    def _remove_thinking_widget(self, bubble: ThinkingBubble):
+        if self.thinking_bubble is bubble:
+            self._remove_thinking()
+
     def _finish_thinking(self):
         self._remove_thinking()
 
     def _on_message_ready(self, author: str, message: str, is_user: bool = False):
-        self._remove_thinking()
+        completed_bubble = self.thinking_bubble
+        if completed_bubble is not None:
+            completed_bubble.finish()
         self.append_message(author, message, is_user=is_user, force_scroll=True)
+        if completed_bubble is not None:
+            QTimer.singleShot(
+                220,
+                lambda bubble=completed_bubble: self._remove_thinking_widget(bubble),
+            )
+        self._record_activity(
+            "Response completed",
+            " ".join(message.split())[:240],
+            category="chat",
+        )
+        self.runtime.plugins.publish_event(
+            "chat.finished",
+            {
+                "author": author,
+                "isUser": is_user,
+                "characters": len(message),
+            },
+        )
+        self._complete_agent_ui(response_present=bool(message))
+        self._save_workspace_session()
         self._set_busy(False)
         QTimer.singleShot(120, self._send_queued_message_if_ready)
 
@@ -7366,11 +12339,13 @@ class MoriceWindow(QWidget):
             self.title_bar,
             self.title_bar.sidebar_btn,
             self.title_bar.workspace_btn,
+            self.title_bar.hub_btn,
             self.chat_container,
             self.input_frame,
             self.sidebar,
             self.mode_panel,
             self.workspace_panel,
+            self.assistant_hub,
             self.changes_panel,
             self.precision_btn,
             self.save_style_btn,
@@ -7386,6 +12361,11 @@ class MoriceWindow(QWidget):
     def _composer_widgets(self):
         return (
             self.input_frame,
+            self.attach_btn,
+            self.voice_btn,
+            self.model_selector_btn,
+            self.project_selector_btn,
+            self.quick_actions_btn,
             self.input,
             self.precision_btn,
             self.personalization_btn,
@@ -7433,6 +12413,55 @@ class MoriceWindow(QWidget):
             for widget in self._composer_widgets():
                 widget.installEventFilter(self)
             self._composer_filters_installed = True
+
+        QTimer.singleShot(0, self._update_composer_responsive_state)
+
+    def _update_composer_responsive_state(self):
+        """Keep centered composer commands legible in compact windows."""
+        if not hasattr(self, "input_frame"):
+            return
+
+        available = self.input_frame.width()
+        if available <= 0:
+            return
+
+        is_project = self.chat_mode == "project"
+        if available >= 760:
+            visible_tools = {
+                self.attach_btn,
+                self.voice_btn,
+                self.model_selector_btn,
+                self.project_selector_btn,
+                self.quick_actions_btn,
+            }
+        elif available >= 620:
+            visible_tools = {self.attach_btn, self.voice_btn}
+        elif available >= 480:
+            visible_tools = {self.attach_btn}
+        else:
+            visible_tools = set()
+
+        for tool_button in (
+            self.attach_btn,
+            self.voice_btn,
+            self.model_selector_btn,
+            self.project_selector_btn,
+            self.quick_actions_btn,
+        ):
+            tool_button.setVisible(tool_button in visible_tools)
+
+        self.precision_btn.setVisible(available >= 480)
+        self.personalization_btn.setVisible(not is_project and available >= 620)
+        self.access_status_btn.setVisible(is_project and available >= 620)
+        self.project_lookup_btn.setVisible(is_project and available >= 920)
+
+        if available >= 620:
+            self.input.setMinimumWidth(120)
+        elif available >= 480:
+            self.input.setMinimumWidth(92)
+        else:
+            self.input.setMinimumWidth(72)
+        self.send_btn.setMinimumWidth(82 if available >= 480 else 64)
 
     def _refresh_input_hover_from_cursor(self):
         if not hasattr(self, "input_frame"):
@@ -7681,7 +12710,42 @@ class MoriceWindow(QWidget):
                 max(0, self.height() - self.window_resize_grip.height() - margin),
             )
             self.window_resize_grip.raise_()
+        if hasattr(self, "notification_toast") and self.notification_toast.isVisible():
+            margin = 28
+            self.notification_toast.move(
+                max(margin, self.width() - self.notification_toast.width() - margin),
+                margin,
+            )
+            self.notification_toast.raise_()
+        if hasattr(self, "input_frame"):
+            QTimer.singleShot(0, self._update_composer_responsive_state)
         self._schedule_latest_scroll()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._open_animation_played or not self._motion_enabled:
+            return
+        self._open_animation_played = True
+        self.setWindowOpacity(0.0)
+        QTimer.singleShot(
+            0,
+            lambda: self.animation_engine.window_opacity(
+                self, 1.0, duration=180
+            ),
+        )
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() != QEvent.WindowStateChange:
+            return
+        old_state = event.oldState()
+        if (
+            old_state & Qt.WindowMinimized
+            and not self.isMinimized()
+            and self._motion_enabled
+        ):
+            self.setWindowOpacity(0.0)
+            self.animation_engine.window_opacity(self, 1.0, duration=150)
 
     def on_send(self):
         if self.is_busy:
@@ -7692,11 +12756,40 @@ class MoriceWindow(QWidget):
             return
         self.follow_latest = True
         self.input.clear()
+        self._prompt_history_index = -1
         self._dock_composer()
         self.append_message(self.user_title, user_input, is_user=True, force_scroll=True)
         self.user_messages.append(user_input)
+        self.workspace_state.add_recent_chat(user_input)
+        try:
+            self.runtime.desktop.memory.add(
+                "temporary",
+                user_input,
+                tags=("chat", "user"),
+                temporary=True,
+            )
+            self.runtime.plugins.publish_event(
+                "memory.updated",
+                {"scope": "temporary", "source": "chat"},
+            )
+        except (RuntimeError, TypeError, ValueError):
+            pass
+        self._record_activity(
+            "Message sent",
+            " ".join(user_input.split())[:240],
+            category="chat",
+        )
+        self.runtime.plugins.publish_event(
+            "chat.started",
+            {
+                "mode": self.chat_mode,
+                "characters": len(user_input),
+                "projectFolder": self.project_folder if self.chat_mode == "project" else "",
+            },
+        )
         if not self.first_user_message:
             self.first_user_message = user_input
+        self._prepare_agent_request(user_input)
 
         image_path = self.pending_image_path
         if image_path:
@@ -7705,95 +12798,131 @@ class MoriceWindow(QWidget):
 
         wake_message = wake_up_response(user_input, self.wake_phrase, self.user_title)
         if wake_message:
-            self.append_message(MORICE_NAME, wake_message)
+            self._append_direct_reply(user_input, wake_message, address=False)
             self.awake = True
+            self.runtime.plugins.publish_event(
+                "voice.activated",
+                {"source": "wake-phrase", "phrase": self.wake_phrase},
+            )
             return
 
         if not self.awake:
-            self.append_message(MORICE_NAME, f"I am asleep, {self.user_title}. Say '{self.wake_phrase}'.")
+            self._append_direct_reply(
+                user_input,
+                f"I am asleep, {self.user_title}. Say '{self.wake_phrase}'.",
+                address=False,
+            )
+            return
+
+        if self._handle_desktop_command(user_input):
+            self._save_workspace_session()
             return
 
         summon_message = summon_response(user_input, self.user_title)
         if summon_message:
-            self.append_message(MORICE_NAME, summon_message)
+            self._append_direct_reply(user_input, summon_message, address=False)
             return
 
         riddle_reply = riddle_response(user_input)
         if riddle_reply:
-            self.append_message(MORICE_NAME, self._address(riddle_reply))
+            self._append_direct_reply(user_input, riddle_reply)
             return
 
         emotional_reply = emotional_checkin_response(user_input, self.user_title)
         if emotional_reply:
-            self.append_message(MORICE_NAME, self._address(emotional_reply))
+            self._append_direct_reply(user_input, emotional_reply)
             return
 
         father_reply = father_identity_response(user_input, self.user_title)
         if father_reply:
-            self.append_message(MORICE_NAME, self._address(father_reply))
+            self._append_direct_reply(user_input, father_reply)
+            return
+
+        harmful_reply = harmful_request_response(user_input, self.user_title)
+        if harmful_reply:
+            self._append_direct_reply(user_input, harmful_reply, address=False)
             return
 
         datetime_reply = current_datetime_response(user_input)
         if datetime_reply:
-            self.append_message(MORICE_NAME, self._address(datetime_reply))
+            self._append_direct_reply(user_input, datetime_reply)
             return
 
         if wants_first_message(user_input) and self.first_user_message:
-            self.append_message(MORICE_NAME, self._address(self.first_user_message))
+            self._append_direct_reply(user_input, self.first_user_message)
+            return
+
+        prior_user_messages = self.user_messages[:-1]
+        if wants_previous_user_message(user_input):
+            previous_message = previous_user_message(prior_user_messages)
+            reply = (
+                f'Your previous message was: "{previous_message}"'
+                if previous_message
+                else "There is no previous user message in this chat yet."
+            )
+            self._append_direct_reply(user_input, reply)
             return
 
         if wants_memory_list(user_input):
-            recent = self.user_messages[-5:]
+            recent = prior_user_messages[-5:]
             if recent:
-                self.append_message(MORICE_NAME, self._address(" | ".join(recent)))
+                self._append_direct_reply(user_input, " | ".join(recent))
             else:
-                self.append_message(MORICE_NAME, self._address("No messages yet."))
+                self._append_direct_reply(user_input, "No earlier messages yet.")
             return
 
         if wants_memory_search(user_input):
             terms = extract_memory_terms(user_input)
             matches = []
-            for msg in reversed(self.user_messages):
+            for msg in reversed(prior_user_messages):
                 if all(term in msg.lower() for term in terms):
                     matches.append(msg)
                 if len(matches) >= 3:
                     break
             if matches:
-                self.append_message(MORICE_NAME, self._address(" | ".join(matches)))
+                self._append_direct_reply(user_input, " | ".join(matches))
             else:
-                self.append_message(MORICE_NAME, self._address("I do not see that in your messages."))
+                self._append_direct_reply(user_input, "I do not see that in your earlier messages.")
             return
 
         if is_acknowledgement(user_input):
-            self.append_message(MORICE_NAME, self._address("Understood."))
+            self._append_direct_reply(user_input, "Understood.")
+            return
+
+        capability_topic = detect_capability_topic(user_input)
+        if capability_topic:
+            self._append_direct_reply(
+                user_input,
+                capability_answer(capability_topic, self.emoji_level),
+            )
             return
 
         if wants_help(user_input):
-            self.append_message(MORICE_NAME, self._address(help_text()))
+            self._append_direct_reply(user_input, help_text())
             return
 
         if wants_model_identity(user_input):
-            self.append_message(MORICE_NAME, self._address(self._model_status_line()))
+            self._append_direct_reply(user_input, self._model_status_line())
             return
 
         if wants_precision_on(user_input):
             self._set_precision_state(True)
-            self.append_message(MORICE_NAME, self._address("Precision mode enabled."))
+            self._append_direct_reply(user_input, "Precision mode enabled.")
             return
 
         if wants_precision_off(user_input):
             self._set_precision_state(False)
-            self.append_message(MORICE_NAME, self._address("Precision mode disabled."))
+            self._append_direct_reply(user_input, "Precision mode disabled.")
             return
 
         if wants_math_steps_on(user_input):
             self.math_steps_mode = True
-            self.append_message(MORICE_NAME, self._address("Math steps mode enabled."))
+            self._append_direct_reply(user_input, "Math steps mode enabled.")
             return
 
         if wants_math_steps_off(user_input):
             self.math_steps_mode = False
-            self.append_message(MORICE_NAME, self._address("Math steps mode disabled."))
+            self._append_direct_reply(user_input, "Math steps mode disabled.")
             return
 
         if wants_unity_movement(user_input):
@@ -7801,11 +12930,19 @@ class MoriceWindow(QWidget):
                 script = unity_3d_movement_script()
             else:
                 script = unity_2d_movement_script()
-            self.append_message(MORICE_NAME, f"{self.user_title}, here is the script.\n{script}")
+            self._append_direct_reply(
+                user_input,
+                f"{self.user_title}, here is the script.\n{script}",
+                address=False,
+            )
             return
 
         if wants_html_cube_movement(user_input):
-            self.append_message(MORICE_NAME, f"{self.user_title}, here is the script.\n{html_cube_movement_script()}")
+            self._append_direct_reply(
+                user_input,
+                f"{self.user_title}, here is the script.\n{html_cube_movement_script()}",
+                address=False,
+            )
             return
 
         # A simulation prompt can contain a bare number (for example, "80 particles").
@@ -7813,7 +12950,7 @@ class MoriceWindow(QWidget):
         if not self.math_steps_mode and not wants_steps_detail(user_input) and not is_science_request(user_input):
             math_result = compute_math(user_input)
             if math_result is not None:
-                self.append_message(MORICE_NAME, self._address(shorten_reply(math_result)))
+                self._append_direct_reply(user_input, shorten_reply(math_result))
                 return
 
         if wants_notes_search(user_input):
@@ -7823,16 +12960,23 @@ class MoriceWindow(QWidget):
                 self.last_notes_hits = hits
                 self.last_notes_term = term
                 if hits:
-                    self.append_message(MORICE_NAME, self._address(f"Found {len(hits)} match(es) for {term}."))
-                    for hit in hits:
-                        self.append_message(MORICE_NAME, f"{hit['source']}: {hit['text']}")
+                    details = "\n".join(
+                        f"{hit['source']}: {hit['text']}" for hit in hits
+                    )
+                    self._append_direct_reply(
+                        user_input,
+                        f"Found {len(hits)} match(es) for {term}.\n\n{details}",
+                    )
                 else:
-                    self.append_message(MORICE_NAME, self._address(f"No matches for {term} in notes."))
+                    self._append_direct_reply(
+                        user_input,
+                        f"No matches for {term} in notes.",
+                    )
                 return
 
         if wants_notes_summary(user_input) and self.last_notes_hits:
             summary = summarize_notes_hits(self.last_notes_hits)
-            self.append_message(MORICE_NAME, self._address(summary))
+            self._append_direct_reply(user_input, summary)
             return
 
         if self._handle_science_request(user_input):
@@ -7844,9 +12988,9 @@ class MoriceWindow(QWidget):
         if project_build_request and not retry_project_request:
             self.last_project_request = user_input
         if project_build_request and not self._ensure_project_folder_for_build():
-            self.append_message(
-                MORICE_NAME,
-                self._address("Choose a work folder with the + button, then I can create and edit the project files there."),
+            self._append_direct_reply(
+                user_input,
+                "Choose a work folder with the + button, then I can create and edit the project files there.",
             )
             return
 
@@ -7856,9 +13000,9 @@ class MoriceWindow(QWidget):
             and not extract_web_query(user_input)
             and not project_online_lookup
         ):
-            self.append_message(
-                MORICE_NAME,
-                self._address("Offline mode is active. Start the message with @web <query> when you want web search."),
+            self._append_direct_reply(
+                user_input,
+                "Offline mode is active. Start the message with @web <query> when you want web search.",
             )
             return
 
@@ -7867,7 +13011,8 @@ class MoriceWindow(QWidget):
         self._show_thinking(
             "Received your message and started the reply pipeline."
         )
-        self.thinking_update.emit(
+        self._emit_background(
+            "thinking_update",
             "Using @web, collecting search results, then asking the selected Qwen/local engine."
             if web_query_for_status
             else (
@@ -7883,7 +13028,16 @@ class MoriceWindow(QWidget):
 
         def worker():
             try:
-                self.thinking_update.emit("Checking saved response style and local context.")
+                if project_build_request:
+                    self._prepare_agent_request(
+                        project_source_input,
+                        include_project=True,
+                    )
+                agent_request_id = self._active_agent_request_id
+                self._emit_background(
+                    "thinking_update",
+                    "Checking saved response style and local context.",
+                )
                 context_input = project_source_input if project_build_request else user_input
                 context = retrieve_context(context_input) if should_use_context(context_input) else ""
                 web_context = ""
@@ -7892,37 +13046,66 @@ class MoriceWindow(QWidget):
                 if os.getenv("MORICE_WEB", "1") == "1" and (web_query or auto_project_web):
                     search_query = web_query or project_source_input
                     if web_query:
-                        self.thinking_update.emit("Searching the web because the message used @web.")
+                        self._emit_background(
+                            "thinking_update",
+                            "Searching the web because the message used @web.",
+                        )
                     else:
-                        self.thinking_update.emit("Online+local mode: searching the web for useful project context.")
+                        self._emit_background(
+                            "thinking_update",
+                            "Online+local mode: searching the web for useful project context.",
+                        )
                     web_context = search_web(search_query)
                     if not web_context:
                         web_context = "Web lookup returned no results."
 
-                extra_system = (
-                    f"Saved name preference from the user: address the user as '{self.user_title}'. "
-                    "Do not call the user 'All Father' unless that is the saved name preference."
+                model_history = select_recent_history(
+                    self.history,
+                    max_messages=48,
+                    max_chars=48_000,
                 )
+                extra_system = saved_settings_instruction(
+                    self.user_title,
+                    self.response_style,
+                    emoji_preference_instruction(self.emoji_level),
+                    maturity_preference_instruction(self.maturity_level),
+                )
+                reference_instruction = conversation_reference_instruction(
+                    user_input,
+                    model_history,
+                    self.user_messages[:-1],
+                )
+                if reference_instruction:
+                    extra_system += "\n\n" + reference_instruction
                 if self.chat_mode == "project":
-                    self.thinking_update.emit("Project builder mode: applying workspace, access, and coding rules.")
+                    self._emit_background(
+                        "thinking_update",
+                        "Project builder mode: applying workspace, access, and coding rules.",
+                    )
                     extra_system += "\n\n" + self._project_builder_system()
                     if project_build_request:
-                        self.thinking_update.emit("Reading the work folder so edits can be applied directly.")
-                        extra_system += "\n\n" + self._project_snapshot()
-                        extra_system += "\n\n" + self._project_manifest_instruction()
-                response_style = self.response_style.strip()
-                if response_style:
-                    extra_system += (
-                        "\n\n"
-                        "Saved response style from the user. Follow it directly for this reply:\n"
-                        f"{response_style}"
-                    )
+                        self._emit_background(
+                            "thinking_update",
+                            "Reading the work folder so edits can be applied directly.",
+                        )
+                        extra_system += "\n\n" + self._agent_project_prompt_context(
+                            agent_request_id
+                        )
+                        extra_system += "\n\n" + self._project_manifest_instruction(project_source_input)
                 if image_path:
-                    self.thinking_update.emit("Reading attached image context.")
+                    self._emit_background(
+                        "thinking_update",
+                        "Reading attached image context.",
+                    )
                     image_context = describe_image(image_path)
                     lowered = image_context.lower()
                     if any(key in lowered for key in {"not available", "not found", "could not open"}):
-                        self.message_ready.emit(MORICE_NAME, self._address(image_context), False)
+                        self._emit_background(
+                            "message_ready",
+                            MORICE_NAME,
+                            self._address(image_context),
+                            False,
+                        )
                         return
                     extra_system = (
                         (extra_system + "\n\n" if extra_system else "")
@@ -7945,42 +13128,85 @@ class MoriceWindow(QWidget):
                         "Web results (may be incomplete):\n" + web_context
                     )
 
-                self.thinking_update.emit(
+                self._emit_background(
+                    "thinking_update",
                     "Asking Qwen for project files."
                     if project_build_request
                     else "Asking Qwen to compose the final answer."
                 )
                 model_user_input = user_input
-                model_history = self.history
                 if project_build_request:
-                    model_history = []
+                    model_history = model_history[-8:]
                     model_user_input = (
-                        "Create or update the project files for this request. "
+                        "Create or update the current project files for the authoritative request below. "
+                        "Use the existing project snapshot and recent project conversation to preserve prior work. "
                         "Return only the required JSON manifest with complete file contents.\n\n"
-                        f"USER_REQUEST:\n{project_source_input}"
+                        f"{project_request_contract(project_source_input, self._project_has_files())}\n\n"
+                        f"AUTHORITATIVE_USER_REQUEST:\n{project_source_input}"
                     )
-                reply = chat(
-                    model_history,
-                    model_user_input,
-                    extra_system=extra_system,
-                    model=self.model_name or None,
-                    timeout=180,
-                    precision_mode=self.precision_mode,
-                    math_steps_mode=self.math_steps_mode or wants_steps_detail(user_input),
-                    gguf_path=self.model_path,
+                completion_started = time.perf_counter()
+                with self.runtime.profiler.measure("completion", "model"):
+                    reply = chat(
+                        model_history,
+                        model_user_input,
+                        extra_system=extra_system,
+                        model=self.model_name or None,
+                        timeout=180,
+                        precision_mode=self.precision_mode,
+                        math_steps_mode=self.math_steps_mode or wants_steps_detail(user_input),
+                        gguf_path=self.model_path,
+                    )
+                model_returned_text = bool(str(reply or "").strip())
+                reply = ensure_visible_response(reply)
+                completion_ms = (time.perf_counter() - completion_started) * 1000
+                estimated_tps = self.runtime.profiler.record_model_completion(
+                    len(reply),
+                    completion_ms,
                 )
+                self.runtime.logs.log(
+                    "INFO",
+                    "Model completion finished.",
+                    category="model",
+                    metadata={
+                        "projectMode": project_build_request,
+                        "replyCharacters": len(reply),
+                        "emptyCompletion": not model_returned_text,
+                        "durationMs": completion_ms,
+                        "estimatedTokensPerSecond": estimated_tps,
+                    },
+                )
+                if agent_request_id:
+                    self.runtime.agent.record_model_result(
+                        agent_request_id,
+                        success=model_returned_text,
+                        latency_ms=completion_ms,
+                        prompt_tokens=max(1, len(model_user_input) // 4),
+                        generated_tokens=max(1, len(reply) // 4),
+                        gpu_layers=int(os.getenv("MORICE_GPU_LAYERS", "0") or 0),
+                        error="" if model_returned_text else "The selected model returned an empty completion.",
+                    )
                 visible_reply = reply
                 if project_build_request:
                     project_result = None
                     apply_error = ""
-                    self.thinking_update.emit("Applying generated files to the selected work folder.")
+                    self._emit_background(
+                        "thinking_update",
+                        "Applying generated files to the selected work folder.",
+                    )
                     try:
-                        project_result = self._apply_project_manifest(reply)
+                        project_result = self._apply_project_manifest(
+                            reply,
+                            project_source_input,
+                            preview_only=True,
+                        )
                     except Exception as exc:  # noqa: BLE001
                         apply_error = str(exc)
 
                     if not project_result:
-                        self.thinking_update.emit("Converting the model output into a safe file manifest.")
+                        self._emit_background(
+                            "thinking_update",
+                            "Converting the model output into a safe file manifest.",
+                        )
                         repair_prompt = (
                             "Turn this project request into the required JSON file manifest only. "
                             "Include complete file contents and relative paths.\n\n"
@@ -7991,23 +13217,37 @@ class MoriceWindow(QWidget):
                             repair_reply = chat(
                                 [],
                                 repair_prompt,
-                                extra_system=extra_system + "\n\n" + self._project_manifest_instruction(),
+                                extra_system=extra_system + "\n\n" + self._project_manifest_instruction(project_source_input),
                                 model=self.model_name or None,
                                 timeout=180,
                                 precision_mode=True,
                                 math_steps_mode=False,
                                 gguf_path=self.model_path,
                             )
-                            project_result = self._apply_project_manifest(repair_reply)
+                            project_result = self._apply_project_manifest(
+                                repair_reply,
+                                project_source_input,
+                                preview_only=True,
+                            )
                         except Exception as exc:  # noqa: BLE001
                             apply_error = str(exc)
 
                     if not project_result:
-                        self.thinking_update.emit("Using MORICE's local Project fallback builder.")
+                        self._emit_background(
+                            "thinking_update",
+                            "Using MORICE's local Project fallback builder.",
+                        )
                         try:
-                            fallback_manifest = build_project_fallback_manifest(project_source_input)
+                            fallback_manifest = build_project_fallback_manifest(
+                                project_source_input,
+                                self.project_folder,
+                            )
                             if fallback_manifest:
-                                project_result = self._apply_project_manifest(fallback_manifest)
+                                project_result = self._apply_project_manifest(
+                                    fallback_manifest,
+                                    project_source_input,
+                                    preview_only=True,
+                                )
                                 if project_result:
                                     project_result["summary"] = (
                                         project_result["summary"]
@@ -8021,7 +13261,11 @@ class MoriceWindow(QWidget):
 
                     if project_result:
                         visible_reply = project_result["message"]
-                        self.project_changes_ready.emit(project_result["summary"], project_result["diff_html"])
+                        self._emit_background(
+                            "project_changes_ready",
+                            project_result["summary"],
+                            project_result["diff_html"],
+                        )
                     else:
                         detail = f" Error: {apply_error}" if apply_error else ""
                         folder_hint = (
@@ -8032,13 +13276,56 @@ class MoriceWindow(QWidget):
                         visible_reply = f"I could not safely turn that request into project files yet.{detail}\n\n{folder_hint}"
                 else:
                     visible_reply = self.visualization_manager.sanitize_model_reply(visible_reply)
+                    visible_reply = ensure_visible_response(visible_reply)
                 self.history.append({"role": "user", "content": user_input})
                 self.history.append({"role": "assistant", "content": visible_reply})
-                self.message_ready.emit(MORICE_NAME, self._address(visible_reply), False)
+                try:
+                    self.runtime.platform_services.orchestrator.remember_interaction(
+                        user_input,
+                        visible_reply,
+                        project_root=(
+                            self.project_folder
+                            if self.chat_mode == "project"
+                            and os.path.isdir(self.project_folder)
+                            else ""
+                        ),
+                        metadata={
+                            "mode": self.chat_mode,
+                            "requestId": agent_request_id,
+                            "runId": self._active_platform_run_id,
+                        },
+                    )
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    pass
+                self._emit_background(
+                    "message_ready",
+                    MORICE_NAME,
+                    self._address(visible_reply),
+                    False,
+                )
             except Exception as exc:  # noqa: BLE001
-                self.message_ready.emit(MORICE_NAME, self._address(f"I hit an app error: {exc}"), False)
+                if self._active_agent_request_id:
+                    self.runtime.agent.record_model_result(
+                        self._active_agent_request_id,
+                        success=False,
+                        latency_ms=0,
+                        error=str(exc),
+                        gpu_layers=int(os.getenv("MORICE_GPU_LAYERS", "0") or 0),
+                    )
+                self.runtime.logs.log(
+                    "ERROR",
+                    f"Chat reply failed: {exc}",
+                    category="model",
+                )
+                self._complete_agent_ui(response_present=False, successful=False)
+                self._emit_background(
+                    "message_ready",
+                    MORICE_NAME,
+                    self._address(f"I hit an app error: {exc}"),
+                    False,
+                )
 
-        threading.Thread(target=worker, daemon=True).start()
+        _start_background_task("chat-reply", worker)
 
     def on_attach(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -8064,12 +13351,49 @@ class MoriceWindow(QWidget):
         self.precision_btn.style().polish(self.precision_btn)
 
     def closeEvent(self, event):
+        self._is_closing = True
+        self._save_workspace_session()
+        self._save_recovery_snapshot()
+        if (
+            self._motion_enabled
+            and self.isVisible()
+            and not self._closing_after_animation
+        ):
+            self._closing_after_animation = True
+            event.ignore()
+            self.setEnabled(False)
+            self.animation_engine.fade(
+                self,
+                False,
+                duration=160,
+                finished=self.close,
+            )
+            return
+        self.recovery_timer.stop()
+        if self.project_folder:
+            self.runtime.plugins.publish_event(
+                "project.closed",
+                {"path": self.project_folder},
+            )
+        if hasattr(self, "_monitor_callback"):
+            self.runtime.desktop.system_monitor.unsubscribe(self._monitor_callback)
+        if hasattr(self, "premium_settings_dialog"):
+            self.premium_settings_dialog.close()
+        self.plugin_center.shutdown()
+        self.diagnostics_dialog.close()
         self.visualization_manager.shutdown()
+        self.animation_engine.stop_all()
         super().closeEvent(event)
+        if self._owns_runtime_lifecycle:
+            application = QApplication.instance()
+            if application is not None:
+                QTimer.singleShot(0, application.quit)
 
 
 def run_app():
     _set_windows_app_id()
+    runtime = get_runtime_services()
+    recovery_info = runtime.start()
     app = QApplication(sys.argv)
     _load_ui_fonts()
     app.setApplicationName("MORICE")
@@ -8078,10 +13402,28 @@ def run_app():
     icon_path = _icon_path()
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
-    window = MoriceWindow()
+    window = MoriceWindow(runtime, recovery_info)
+    health_report = window._run_startup_health_check()
+    if health_report.critical_failures:
+        failure_text = "\n".join(
+            f"- {check.name}: {check.detail}"
+            for check in health_report.critical_failures
+        )
+        QMessageBox.critical(
+            window,
+            "MORICE startup health check failed",
+            "MORICE cannot start safely because required components failed:\n\n"
+            + failure_text,
+        )
+        runtime.shutdown(clean=True)
+        return 2
     window.show()
-    sys.exit(app.exec())
+    try:
+        return app.exec()
+    finally:
+        reset_model_runtime()
+        runtime.shutdown(clean=True)
 
 
 if __name__ == "__main__":
-    run_app()
+    raise SystemExit(run_app())

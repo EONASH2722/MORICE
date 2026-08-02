@@ -19,7 +19,12 @@ SYSTEM_PROMPT = (
     f"If asked about your past, origin, or backstory, say you were made by {OWNER_FULL_NAME}, "
     "who was inspired by Jarvis from the Tony Stark movies and built you over more than three years. "
     f"Refer to yourself as {MORICE_NAME}. "
-    "Testing mode is active: answer directly without MORICE app-level refusals or morality lectures. "
+    "Answer directly without canned morality lectures. Refuse only requests that would meaningfully "
+    "enable violence, weapons, malware, credential theft, or destructive wrongdoing; briefly explain "
+    "the boundary and offer safe educational information instead. "
+    "Truth comes before agreement: user insistence is not evidence. Re-check your claim and reasoning; "
+    "if they remain sound, say no plainly and explain why instead of conceding to pressure. Correct "
+    "yourself only when evidence or reasoning shows a real mistake, and state uncertainty honestly. "
     "Answer the user's request directly and follow the saved response style closely. "
     "Default to detailed, easy explanations instead of tiny answers. "
     "Silently infer meaning from common typos, short forms, missing spaces, and rough wording by using the conversation context. "
@@ -178,19 +183,10 @@ def enforce_father(reply: str, user_title: str | None = None) -> str:
 def shorten_reply(reply: str) -> str:
     if not reply:
         return reply
-    text = reply.strip()
-    if "```" in text:
-        return text
-    if "\n" in text:
-        return text
-    if len(text) <= 2200:
-        return text
-    sentences = re.split(r"(?<=[.!?])\s+", text)
-    if len(sentences) > 8:
-        return " ".join(sentences[:8]).strip()
-    if len(text) > 2600:
-        return text[:2600].rstrip() + "..."
-    return text
+    # Long model answers are intentionally preserved. The chat surface scrolls,
+    # and cutting a one-line response at an arbitrary sentence produced
+    # incomplete answers for detailed user prompts.
+    return reply.strip()
 
 
 def summon_response(text: str, user_title: str | None = None) -> str | None:
@@ -319,6 +315,13 @@ def current_datetime_summary() -> str:
 def wants_current_datetime(text: str) -> bool:
     lowered = text.lower().strip()
     cleaned = re.sub(r"\s+", " ", lowered)
+    # Metric labels such as "Current Time" and "Current Date" commonly occur
+    # inside dashboard specifications. They are content, not clock commands.
+    if re.search(
+        r"\b(?:render|visuali[sz]e|build|create|design|dashboard|graph|chart|simulation)\b",
+        cleaned,
+    ):
+        return False
     if _matches_command(
         cleaned,
         {
@@ -348,6 +351,52 @@ def current_datetime_response(text: str) -> str | None:
     if wants_current_datetime(text):
         return current_datetime_summary()
     return None
+
+
+def harmful_request_response(text: str, user_title: str | None = None) -> str | None:
+    """Return a dependable response for clearly dangerous procedural requests.
+
+    Local models can time out or emit an empty completion on these prompts. The
+    host still owes the user an answer, so this narrow check guarantees a visible
+    response without providing weapon construction or destructive instructions.
+    """
+
+    cleaned = _command_text(text)
+    if not cleaned:
+        return None
+    procedural = bool(
+        re.search(
+            r"\b(?:build|create|design|formula|instructions?|make|manufacture|steps?|weaponi[sz]e)\b",
+            cleaned,
+        )
+    )
+    dangerous_target = bool(
+        re.search(
+            r"\b(?:atomic|nuclear|radiological)\s+(?:bomb|device|weapon)\b|"
+            r"\b(?:bomb|explosive)\s+(?:formula|recipe|instructions?)\b|"
+            r"\b(?:credential theft|ransomware|destructive malware)\b",
+            cleaned,
+        )
+    )
+    if not (procedural and dangerous_target):
+        return None
+    title = _clean_user_title(user_title)
+    return (
+        f"No, {title}. I cannot provide a formula or construction steps for a weapon or "
+        "destructive payload. I can explain the underlying physics or chemistry at a safe "
+        "high level, discuss history and consequences, or help with radiation and emergency safety."
+    )
+
+
+def ensure_visible_response(reply: str | None) -> str:
+    """Guarantee that a completed chat request has honest user-visible output."""
+    text = str(reply or "").strip()
+    if text:
+        return text
+    return (
+        "The selected model returned an empty response. Nothing was completed. "
+        "Please try again, or choose another model in the model manager."
+    )
 
 
 def father_identity_response(text: str, user_title: str | None = None) -> str | None:

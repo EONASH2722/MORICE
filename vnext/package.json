@@ -2,6 +2,7 @@
   "name": "morice-vnext-science-workspace",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.9.0",
   "type": "module",
   "description": "Strict, deterministic graphing and physics renderer core for MORICE VNext.",
   "scripts": {
@@ -9,22 +10,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dimforge/rapier3d-compat": "^0.14.0",
-    "@highlightjs/cdn-assets": "11.11.1",
-    "cannon-es": "^0.20.0",
-    "highlight.js": "11.11.1",
-    "katex": "0.16.22",
-    "markdown-it": "14.3.0",
     "mathjs": "^15.2.0",
-    "matter-js": "^0.20.0",
-    "mermaid": "11.16.0",
-    "planck": "^1.5.0",
-    "plotly.js-dist-min": "^2.35.2",
-    "three": "^0.169.0"
+    "plotly.js-dist-min": "^2.35.2"
   },
   "devDependencies": {
-    "@types/matter-js": "^0.19.7",
-    "@types/three": "^0.169.0",
     "typescript": "^5.6.3",
     "vitest": "^4.1.9"
   }

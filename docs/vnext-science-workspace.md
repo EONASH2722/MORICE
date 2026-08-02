@@ -1,132 +1,75 @@
-# MORICE VNext Rendering Architecture
+# VNext Rendering Architecture
 
-VNext is MORICE's validated visualization runtime. It renders supported
-artifacts inside Normal Chat and rejects unsupported requests honestly. Project
-Mode remains a file-building workspace.
+VNext is MORICE's host-rendered artifact pipeline. Visuals appear in Normal Chat; Project Mode remains a file-building workspace.
 
-## Runtime Pipeline
+## Contract
 
 ```text
-Normal Chat prompt
-  -> deterministic intent decision
-  -> renderer registry selection
-  -> bounded background render queue
+User request
+  -> visualization decision
+  -> renderer selection
   -> typed data preparation
-  -> numeric and structural validation
-  -> real interactive chat workspace
-  -> optional Lab archive
+  -> queued resource work
+  -> artifact validation
+  -> interactive widget creation
+  -> mount inside chat
+  -> artifact-grounded completion
 ```
 
-The model can suggest intent, equations, and parameters. It is never treated as
-proof that a visualization exists. A success card appears only after a renderer
-returns a validated artifact.
+If any stage fails, the progress card becomes **Visualization unavailable** and MORICE states that nothing was rendered. Model prose cannot mark a job successful.
 
-## Implemented Renderers
+## Host Services
 
-| Renderer | Real output | Interaction | Validation |
-| --- | --- | --- | --- |
-| Function graphs | Cartesian, multiple equations, piecewise, polar, parametric, and implicit curves | Pan, zoom, hover coordinates, reset, large view, PNG/SVG/PDF | Safe expression AST, finite samples, numeric roots, extrema, intercepts, and inflection checks |
-| Surface graphs | Sampled `z=f(x,y)` mesh and matching 2D height map | 2D/3D switch, rotate, zoom, hover, PNG/SVG/PDF | Safe two-variable AST, finite grid, exact sampled min/max |
-| Physics | Particles, projectile, pendulum, spring, wave, circular motion, and orbit | Pause, resume, step, step back, reset, speed, gravity, trails, vectors, 2D/3D projection where supported, PNG/JSON | Deterministic initial state, bounded values, mass-aware collisions, finite state |
-| Molecules | Curated VSEPR structures | 2D/3D switch, rotate, zoom, atom inspection, PNG/SVG/PDF | Known topology, validated atom/bond indices, reference-angle coordinate models |
-| Diagrams | OSI, TCP/IP, TCP handshake, DNS, compiler, process lifecycle, and explicit arrow flows | Pan, zoom, node inspection, PNG/SVG/PDF | Known nodes, valid edge endpoints, deterministic layout |
-| Rich answers | Markdown, code highlighting, tables, and KaTeX math | Selection and copying inside the answer view | Local bundled assets; no network dependency |
+- **VisualizationManager:** request lifecycle, sanitization, queueing, validation, completion, and shutdown.
+- **RendererRegistry:** stable renderer IDs and deterministic implementations.
+- **RenderScheduler:** bounded asynchronous jobs and active-future tracking.
+- **ResourceManager:** artifact cache and memory cleanup.
+- **Runtime profiler:** current renderer, timing, active jobs, and resource telemetry.
+- **Inline workspaces:** graph, physics, molecule, biology, data structure, chart, diagram, scene, and document widgets.
 
-The 2D and 3D controls are projections of one validated artifact. Switching
-views does not ask the model to regenerate values.
+## Implemented Renderer IDs
 
-## Accuracy Contract
+| ID | Output |
+| --- | --- |
+| `math.graph` | Interactive graphs, special curves, Mandelbrot, and sampled surfaces |
+| `physics.simulation` | Deterministic supported physics scenes |
+| `chemistry.molecule` | Curated molecular structures |
+| `diagram.structured` | Structured technical/domain diagrams |
+| `biology.educational` | DNA, neuron, and cell educational models |
+| `computer-science.data-structures` | Interactive data-structure operations |
+| `data.chart` | Numeric bar, line, pie, scatter, and histogram charts |
+| `model.schematic-3d` | Educational 2D/3D component schematics |
+| `viewer.document` | Validated local file previews |
 
-- Equations are parsed by a restricted numeric expression evaluator.
-- Graph landmarks are calculated from the sampled function and refined
-  numerically instead of guessed from model prose.
-- Surface legends report the actual sampled extrema.
-- Particle simulations use deterministic state and fixed-step integration.
-- Molecule coordinates reproduce a reference angle where a single constrained
-  VSEPR geometry permits it. More highly distorted molecules are labeled
-  `idealized-vsepr`; measured/reference angles remain separate from the
-  schematic coordinates.
-- Unsupported SPH fluids, soft bodies, rigid-body constraint systems, arbitrary
-  molecules, arbitrary 3D objects, and embedded document viewers return a
-  capability error. MORICE never substitutes an unrelated animation.
+Explicit visual requests outside these deterministic builders resolve to an honest unavailable result.
 
-These are interactive educational and engineering visualizations, not a
-certified CFD, quantum chemistry, or finite-element solver.
+## Accuracy Rules
 
-## Runtime Ownership
+- Mathematical expressions use an allowlisted grammar and finite sampled values.
+- Graph landmarks come from the same artifact displayed by the canvas.
+- Requested particle counts, projectile speed/angle, bounds, mass, and other supported parameters are parsed into host-owned simulation state.
+- Physics bodies must have finite coordinates, positive mass, and positive radius.
+- Chemistry structures must come from the curated library and pass atom/bond topology validation.
+- Biology geometry requires finite points and real labels.
+- Data structures require declared structures and initial values; operations mutate the widget's actual state.
+- Charts require explicit finite numeric points.
+- Schematics accept only validated primitives and label themselves educational rather than CAD-certified.
+- Document preview requires an existing unchanged local file no larger than 32 MB.
 
-- `morice/visualization.py`: registry, capabilities, scheduler, cache,
-  validation boundary, progress stages, error recovery, and fake-output guard.
-- `morice/science_engine.py`: graph/surface generation and deterministic physics
-  instructions.
-- `morice/domain_engine.py`: curated chemistry and structured-diagram artifacts.
-- `morice/pyside_app.py`: in-chat workspaces, rendering, controls, exports,
-  resource cleanup, and Project Mode IDE panel.
-- `vnext/`: strict TypeScript contracts, coordinator, renderer manager, Plotly
-  adapter, cache, and deterministic 2D/3D particle-state engine.
+Where both 2D and 3D views exist, they share the same validated artifact or simulation state; switching projection must not silently rebuild different data.
 
-## Project Mode
+## Interaction And Export
 
-Project Mode is intentionally separate from VNext science rendering:
-
-- File tree and source preview.
-- Green/red unified diffs.
-- Build output and a direct-command allowlisted terminal.
-- Safe path checks and staged source writes.
-- Source validation before replacement.
-- Run and verify actions with detected entry points.
-- Folder-only or full-access policy displayed in the composer.
-- Local or online-plus-local project context.
-
-The model is asked for a strict file manifest. MORICE converts the manifest into
-editable files, validates paths and source, stages writes next to each target,
-then replaces files. If model output is unusable, the local fallback builder
-creates a real starter project rather than returning copy-paste instructions.
+Controls are renderer-specific and include zoom, pan, rotate, hover inspection, projection switch, pause/resume, step, replay, reset, time scale, vectors, trails, labels, and parameter editing. Export formats are enabled only where the active workspace implements them; graph and supported scene paths expose image/vector/PDF options, while physics can export state JSON.
 
 ## Performance
 
-- Heavy artifact generation runs on a bounded worker pool.
-- Artifacts use an LRU-style memory budget.
-- Hidden simulations stop consuming timer frames.
-- Physics uses fixed time steps and spatial collision partitioning in the
-  desktop engine.
-- 3D is projected from real depth state; unsupported GPU backends are reported
-  unavailable instead of claimed.
-- Web assets are bundled and lazy-loaded locally.
+Rendering is lazy, jobs are bounded, hidden physics canvases stop consuming frames, background work is throttled, and resources are released on workspace close/shutdown. Frame rate depends on hardware and artifact size; 60 FPS is a target for ordinary scenes, not a guarantee for every particle count or CPU-only system.
 
-Primary QA target: Windows 10/11 and the Lenovo LOQ class of hardware, including
-RTX 3050 Mobile 6 GB systems.
+## Limits
 
-## Verification
+VNext is not a general CAD, CFD, medical, quantum-chemistry, orbital ephemeris, or molecular-dynamics solver. Curated educational models do not carry laboratory or manufacturing certification. Unknown chemistry, unsupported physics, ambiguous numeric data, and nonexistent local files fail visibly.
 
-Python tests cover graph landmarks, discontinuities, repeated roots, implicit
-contours, piecewise functions, surfaces, physics configuration, replay, 2D/3D
-state, molecular angles, inline widget replacement, exports, honest failures,
-Project Mode safety, desktop identity, and long-answer continuation.
+## Adding A Renderer
 
-The TypeScript suite covers prompt coordination, piecewise parsing,
-capability selection, artifact caching, fail-closed behavior, deterministic
-particle state, bounds, and real 3D depth.
-
-Before publishing a build:
-
-```powershell
-python -m unittest discover -s tests -v
-cd vnext
-pnpm typecheck
-pnpm test
-```
-
-## Extension Rule
-
-A future renderer must implement:
-
-1. A unique capability ID.
-2. Prompt matching that does not steal unrelated requests.
-3. Typed artifact construction.
-4. Validation independent of model prose.
-5. Memory estimation and cleanup.
-6. An honest unsupported or failed state.
-7. Automated numeric and visual QA.
-
-No renderer may claim success from placeholder text.
+Add a stable ID, strict prompt predicate, typed builder, validator, memory estimate, and real inline widget. Tests must cover positive routing, negative routing, numerical/topological accuracy, progress-card replacement, interaction, export where applicable, hidden/closed cleanup, and failure honesty.

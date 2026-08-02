@@ -10,15 +10,24 @@ os.environ.setdefault("MORICE_REDUCE_MOTION", "1")
 from PySide6.QtWidgets import QApplication
 
 from morice.pyside_app import (
+    InlineBiologyWorkspace,
+    InlineChartWorkspace,
+    InlineDataStructureWorkspace,
     InlineDiagramWorkspace,
+    InlineDocumentWorkspace,
     InlineGraphWorkspace,
     InlineMoleculeWorkspace,
     InlinePhysicsWorkspace,
+    InlineSceneWorkspace,
     MoriceWindow,
     PhysicsCanvas,
     SurfaceCanvas,
     _needs_web_rich_text,
     _web_assets_path,
+)
+from morice.project_builder import (
+    ProjectIntentError,
+    build_project_fallback_manifest,
 )
 from morice.project_runtime import ProjectValidationError
 from morice.science_engine import Particle, PhysicsArtifact
@@ -75,6 +84,34 @@ class VisualizationManagerTests(unittest.TestCase):
             ["2d", "3d"],
         )
 
+    def test_data_structure_request_does_not_collapse_into_math_graph(self):
+        result = self._render(
+            "Visualize Binary Search Tree AVL Tree Graph Linked List Queue Stack "
+            "Hash Table. For every structure support Insert Delete Search, "
+            "highlight operations, animated transitions, and complexity display."
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.renderer_id, "computer-science.data-structures")
+        self.assertEqual(result.artifact.kind, "data-structures")
+        self.assertEqual(len(result.artifact.data_structures.structures), 7)
+
+    def test_biology_and_astronomy_route_to_their_own_engines(self):
+        biology = self._render("Render a DNA double helix with 2D and 3D views.")
+        astronomy = self._render(
+            "Visualize the solar system with orbital motion, labels, and play pause."
+        )
+
+        self.assertTrue(biology.ok)
+        self.assertEqual(biology.renderer_id, "biology.educational")
+        self.assertEqual(biology.artifact.biology.model_type, "dna")
+        self.assertEqual(
+            biology.artifact.biology.instruction["parameters"]["views"],
+            ["2d", "3d"],
+        )
+        self.assertTrue(astronomy.ok)
+        self.assertEqual(astronomy.renderer_id, "physics.simulation")
+
     def test_curated_chemistry_renderer_is_real_and_validated(self):
         result = self._render("Render an interactive 3D VSEPR model of SF4.")
 
@@ -106,6 +143,148 @@ class VisualizationManagerTests(unittest.TestCase):
         self.assertEqual(diagram.title, "TCP three-way handshake")
         self.assertEqual(len(diagram.nodes), 4)
         self.assertEqual(len(diagram.edges), 3)
+
+    def test_numeric_chart_preserves_prompt_values(self):
+        result = self._render(
+            "Render a bar chart of Apples: 12, Bananas: 7, Cherries: 19."
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.renderer_id, "data.chart")
+        self.assertEqual(result.artifact.chart.chart_type, "bar")
+        self.assertEqual(
+            [(point.label, point.y) for point in result.artifact.chart.points],
+            [("Apples", 12.0), ("Bananas", 7.0), ("Cherries", 19.0)],
+        )
+
+    def test_scatter_chart_preserves_coordinate_pairs(self):
+        result = self._render(
+            "Show a scatter plot of (1, 4), (2, 8), (3.5, -2)."
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(
+            [(point.x, point.y) for point in result.artifact.chart.points],
+            [(1.0, 4.0), (2.0, 8.0), (3.5, -2.0)],
+        )
+
+    def test_supported_generic_scene_has_valid_2d_and_3d_geometry(self):
+        result = self._render(
+            "Render an interactive 3D drone model with labeled components."
+        )
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.renderer_id, "model.schematic-3d")
+        scene = result.artifact.scene
+        self.assertEqual(scene.scene_type, "drone")
+        self.assertEqual(scene.instruction["parameters"]["views"], ["2d", "3d"])
+        self.assertEqual(len(scene.primitives), 5)
+        self.assertTrue(
+            all(value > 0 for primitive in scene.primitives for value in primitive.size)
+        )
+
+    def test_every_curated_scene_family_validates(self):
+        for scene_type in (
+            "robot",
+            "drone",
+            "car",
+            "aircraft",
+            "ship",
+            "building",
+            "bridge",
+            "engine",
+            "CPU",
+            "GPU",
+            "motherboard",
+            "camera",
+            "watch",
+        ):
+            with self.subTest(scene_type=scene_type):
+                result = self._render(
+                    f"Render an interactive 3D {scene_type} with labeled components."
+                )
+                self.assertTrue(result.ok)
+                self.assertEqual(
+                    result.artifact.scene.instruction["parameters"]["views"],
+                    ["2d", "3d"],
+                )
+
+    def test_domain_diagram_templates_cover_database_ai_security_and_biology(self):
+        for prompt, title in (
+            ("Show an ER diagram.", "Entity-relationship model"),
+            ("Visualize transformer architecture.", "Transformer processing path"),
+            ("Draw the AES encryption flow.", "AES round structure"),
+            ("Show protein synthesis as a diagram.", "Protein synthesis"),
+        ):
+            with self.subTest(prompt=prompt):
+                result = self._render(prompt)
+                self.assertTrue(result.ok)
+                self.assertEqual(result.artifact.diagram.title, title)
+                self.assertGreaterEqual(len(result.artifact.diagram.nodes), 5)
+
+    def test_extended_domain_diagram_matrix_validates(self):
+        prompts = (
+            "Show the TLS handshake diagram.",
+            "Visualize packet routing.",
+            "Draw firewall flow.",
+            "Show virtual memory address translation.",
+            "Visualize CPU scheduling.",
+            "Draw a deadlock resource allocation graph.",
+            "Show an SQL join diagram.",
+            "Visualize a database transaction lifecycle.",
+            "Draw a B+ tree database index.",
+            "Show gradient descent optimization steps.",
+            "Visualize RSA encryption.",
+            "Draw a digital signature verification flow.",
+            "Show the cell cycle.",
+            "Visualize a food chain.",
+            "Draw an RC circuit diagram.",
+            "Show the water cycle.",
+            "Visualize plate tectonics.",
+            "Draw the supply and demand relationships.",
+        )
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                result = self._render(prompt)
+                self.assertTrue(result.ok, result.error)
+                self.assertEqual(result.renderer_id, "diagram.structured")
+                self.assertGreaterEqual(len(result.artifact.diagram.nodes), 4)
+
+    def test_user_supplied_timeline_is_rendered_without_invented_events(self):
+        result = self._render(
+            "Render a timeline: 1991: Web released, 2007: Smartphones expand, "
+            "2022: Generative AI adoption."
+        )
+
+        self.assertTrue(result.ok)
+        labels = [node.label for node in result.artifact.diagram.nodes]
+        self.assertEqual(
+            labels,
+            [
+                "1991: Web released",
+                "2007: Smartphones expand",
+                "2022: Generative AI adoption.",
+            ],
+        )
+
+    def test_unknown_generic_3d_object_still_fails_honestly(self):
+        result = self._render("Render an interactive 3D fictional flux orb.")
+
+        self.assertFalse(result.ok)
+        self.assertIsNone(result.artifact)
+        self.assertIn("not installed", result.error)
+
+    def test_local_document_path_produces_validated_preview_artifact(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "research notes.txt")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("measured value: 42\n")
+            result = self._render(f'Show this file: "{path}"')
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.renderer_id, "viewer.document")
+        self.assertEqual(result.artifact.document.path, path)
+        self.assertGreater(result.artifact.document.size_bytes, 0)
 
     def test_invalid_expression_never_claims_success(self):
         result = self._render("Plot y = os.system(x)")
@@ -224,6 +403,51 @@ class InlineVisualizationTests(unittest.TestCase):
             [(atom.x, atom.y, atom.z) for atom in workspace.artifact.atoms],
         )
 
+    def test_biology_workspace_renders_real_geometry_and_switches_views(self):
+        self.assertTrue(
+            self.window._handle_science_request(
+                "Render a DNA double helix with animated twisting and labels."
+            )
+        )
+        self._wait_for_jobs()
+        workspace = self.window.chat_list.findChildren(InlineBiologyWorkspace)[0]
+
+        self.assertGreater(len(workspace.canvas.artifact.points), 20)
+        workspace.dimension_select.setCurrentText("2D")
+        self.assertEqual(workspace.canvas.view_mode, "2d")
+        workspace.dimension_select.setCurrentText("3D")
+        self.assertEqual(workspace.canvas.view_mode, "3d")
+
+    def test_data_structure_workspace_runs_real_operations(self):
+        prompt = (
+            "Visualize Binary Search Tree, AVL Tree, Graph, Linked List, Queue, "
+            "Stack and Hash Table with Insert Delete Search and complexity display."
+        )
+        self.assertTrue(self.window._handle_science_request(prompt))
+        self._wait_for_jobs()
+        workspace = self.window.chat_list.findChildren(InlineDataStructureWorkspace)[0]
+
+        self.assertEqual(workspace.structure_select.count(), 7)
+        workspace.value_input.setText("25")
+        workspace._operate("insert")
+        self.assertIn(25, workspace._current_values())
+        workspace._operate("search")
+        self.assertIn(25, workspace.canvas.highlighted)
+        self.assertIn("Complexity", workspace.complexity.text())
+        workspace.structure_select.setCurrentText("AVL Tree")
+        self.assertEqual(
+            workspace.canvas._balanced_tree(workspace._current_values())[0],
+            40,
+        )
+        workspace.structure_select.setCurrentText("Queue")
+        queue_before = list(workspace._current_values())
+        workspace._operate("delete")
+        self.assertEqual(workspace._current_values(), queue_before[1:])
+        workspace.structure_select.setCurrentText("Stack")
+        stack_before = list(workspace._current_values())
+        workspace._operate("delete")
+        self.assertEqual(workspace._current_values(), stack_before[:-1])
+
     def test_diagram_replaces_progress_card_inside_chat(self):
         self.assertTrue(
             self.window._handle_science_request("Show the OSI model diagram.")
@@ -233,6 +457,53 @@ class InlineVisualizationTests(unittest.TestCase):
         workspaces = self.window.chat_list.findChildren(InlineDiagramWorkspace)
         self.assertEqual(len(workspaces), 1)
         self.assertEqual(len(workspaces[0].artifact.nodes), 7)
+
+    def test_chart_replaces_progress_card_and_exports_real_files(self):
+        self.assertTrue(
+            self.window._handle_science_request(
+                "Render a pie chart of Design: 35, Code: 45, Test: 20."
+            )
+        )
+        self._wait_for_jobs()
+        workspace = self.window.chat_list.findChildren(InlineChartWorkspace)[0]
+        self.assertEqual(len(workspace.canvas.artifact.points), 3)
+
+        with tempfile.TemporaryDirectory() as folder:
+            for extension, exporter in (
+                ("png", workspace.canvas.export_png),
+                ("svg", workspace.canvas.export_svg),
+                ("pdf", workspace.canvas.export_pdf),
+            ):
+                path = os.path.join(folder, f"chart.{extension}")
+                self.assertTrue(exporter(path))
+                self.assertGreater(os.path.getsize(path), 100)
+
+    def test_scene_replaces_progress_card_and_switches_views(self):
+        self.assertTrue(
+            self.window._handle_science_request(
+                "Render a 3D robot with labeled components."
+            )
+        )
+        self._wait_for_jobs()
+        workspace = self.window.chat_list.findChildren(InlineSceneWorkspace)[0]
+        self.assertEqual(workspace.artifact.scene_type, "robot")
+        workspace.dimension_select.setCurrentText("2D")
+        self.assertEqual(workspace.canvas.view_mode, "2d")
+        workspace.dimension_select.setCurrentText("3D")
+        self.assertEqual(workspace.canvas.view_mode, "3d")
+
+    def test_document_replaces_progress_card_with_real_file_preview(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "preview.json")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write('{"status": "ready", "value": 42}')
+            self.assertTrue(
+                self.window._handle_science_request(f'Preview local file "{path}"')
+            )
+            self._wait_for_jobs()
+            workspace = self.window.chat_list.findChildren(InlineDocumentWorkspace)[0]
+            self.assertEqual(workspace.preview.current_path, path)
+            self.assertIn("loaded", workspace.status.text().lower())
 
     def test_physics_replaces_progress_card_inside_chat(self):
         self.assertTrue(
@@ -302,6 +573,11 @@ class InlineVisualizationTests(unittest.TestCase):
                 handle.write("print('ready')\n")
             self.window.project_folder = folder
             self.window._set_chat_mode("project")
+            self.app.processEvents()
+            self.assertFalse(self.window.changes_available)
+            self.assertFalse(
+                self.window._panel_target_visibility[self.window.changes_panel]
+            )
             self.window._on_project_changes_ready(
                 "Updated main.py",
                 "<p><span style='color:#7cf7b5'>+ print('ready')</span></p>",
@@ -310,12 +586,65 @@ class InlineVisualizationTests(unittest.TestCase):
 
             self.assertFalse(self.window.changes_content.isHidden())
             self.assertFalse(self.window.changes_minimized)
-            self.assertGreaterEqual(self.window.changes_panel.width(), 440)
+            self.assertGreaterEqual(self.window.changes_panel.width(), 390)
+            self.assertFalse(self.window.changes_close_btn.isHidden())
+            self.assertLessEqual(
+                self.window.changes_close_btn.geometry().right(),
+                self.window.changes_panel.contentsRect().right(),
+            )
             self.window._set_project_workspace_tab(0)
             self.assertGreaterEqual(
                 self.window.project_file_tree.topLevelItem(0).childCount(),
                 1,
             )
+
+            self.window._close_changes_panel()
+            self.app.processEvents()
+            self.assertTrue(self.window.changes_panel_dismissed)
+            self.assertFalse(
+                self.window._panel_target_visibility[self.window.changes_panel]
+            )
+
+            self.window._refresh_mode_panel()
+            self.app.processEvents()
+            self.assertFalse(
+                self.window._panel_target_visibility[self.window.changes_panel]
+            )
+
+            self.window._on_project_changes_ready(
+                "Updated main.py again",
+                "<p><span style='color:#7cf7b5'>+ print('again')</span></p>",
+            )
+            self.app.processEvents()
+            self.assertFalse(self.window.changes_panel_dismissed)
+            self.assertTrue(
+                self.window._panel_target_visibility[self.window.changes_panel]
+            )
+
+    def test_centered_composer_keeps_command_labels_readable_when_compact(self):
+        self.window.composer_centered = True
+        self.window.input_frame.resize(580, 64)
+        self.window._update_composer_responsive_state()
+
+        self.assertTrue(self.window.voice_btn.isHidden())
+        self.assertTrue(self.window.model_selector_btn.isHidden())
+        self.assertTrue(self.window.project_selector_btn.isHidden())
+        self.assertTrue(self.window.quick_actions_btn.isHidden())
+        self.assertFalse(self.window.precision_btn.isHidden())
+        self.assertTrue(self.window.personalization_btn.isHidden())
+        self.assertGreaterEqual(self.window.precision_btn.minimumWidth(), 106)
+        self.assertGreaterEqual(self.window.personalization_btn.minimumWidth(), 112)
+        self.assertGreaterEqual(self.window.send_btn.minimumWidth(), 82)
+
+        self.window.input_frame.resize(820, 64)
+        self.window._update_composer_responsive_state()
+        self.assertFalse(self.window.attach_btn.isHidden())
+        self.assertFalse(self.window.voice_btn.isHidden())
+        self.assertFalse(self.window.model_selector_btn.isHidden())
+        self.assertFalse(self.window.project_selector_btn.isHidden())
+        self.assertFalse(self.window.quick_actions_btn.isHidden())
+        self.assertFalse(self.window.precision_btn.isHidden())
+        self.assertFalse(self.window.personalization_btn.isHidden())
 
     def test_project_manifest_writes_validated_files_atomically(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -346,6 +675,53 @@ class InlineVisualizationTests(unittest.TestCase):
                 any(name.startswith(".morice-write-") for name in os.listdir(folder))
             )
 
+    def test_project_patch_review_apply_and_undo_flow_is_real(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = os.path.join(folder, "main.py")
+            with open(target, "w", encoding="utf-8") as source:
+                source.write("print('before')\n")
+            self.window.project_folder = folder
+            result = self.window._apply_project_manifest(
+                {
+                    "summary": "Update main.",
+                    "files": [
+                        {
+                            "path": "main.py",
+                            "content": "print('after')\n",
+                        }
+                    ],
+                },
+                preview_only=True,
+            )
+            self.window._on_project_changes_ready(
+                result["summary"],
+                result["diff_html"],
+            )
+
+            self.assertTrue(result["pending"])
+            self.assertTrue(self.window.changes_apply_btn.isEnabled())
+            with open(target, encoding="utf-8") as source:
+                self.assertEqual(source.read(), "print('before')\n")
+
+            self.window._apply_pending_project_patch()
+            deadline = time.monotonic() + 5
+            while self.window.pending_project_patch and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(0.01)
+            self.app.processEvents()
+            with open(target, encoding="utf-8") as source:
+                self.assertEqual(source.read(), "print('after')\n")
+            self.assertTrue(self.window.changes_undo_btn.isEnabled())
+
+            self.window._undo_last_project_patch()
+            deadline = time.monotonic() + 5
+            while self.window.last_project_undo_id and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(0.01)
+            self.app.processEvents()
+            with open(target, encoding="utf-8") as source:
+                self.assertEqual(source.read(), "print('before')\n")
+
     def test_invalid_project_manifest_cannot_replace_existing_source(self):
         with tempfile.TemporaryDirectory() as folder:
             target = os.path.join(folder, "main.py")
@@ -368,6 +744,37 @@ class InlineVisualizationTests(unittest.TestCase):
 
             with open(target, "r", encoding="utf-8") as source_file:
                 self.assertEqual(source_file.read(), original)
+
+    def test_project_manifest_semantics_are_checked_before_any_write(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.window.project_folder = folder
+            request = "Build a fully playable Flappy Bird 3D game."
+            bad_manifest = {
+                "files": [
+                    {
+                        "path": "index.html",
+                        "content": "<h1>Build a fully playable Flappy Bird 3D game</h1>",
+                    }
+                ]
+            }
+
+            with self.assertRaises(ProjectIntentError):
+                self.window._apply_project_manifest(bad_manifest, request)
+
+            self.assertEqual(os.listdir(folder), [])
+
+    def test_project_manifest_writes_validated_flappy_game(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.window.project_folder = folder
+            request = "Build a polished Flappy Bird 3D game for the browser."
+            manifest = build_project_fallback_manifest(request, folder)
+
+            result = self.window._apply_project_manifest(manifest, request)
+
+            self.assertTrue(result["validated"])
+            self.assertTrue(os.path.isfile(os.path.join(folder, "index.html")))
+            self.assertTrue(os.path.isfile(os.path.join(folder, "game.js")))
+            self.assertIn("game.js", result["changed"])
 
     def test_vnext_visualization_is_normal_chat_only(self):
         self.window._set_chat_mode("project")

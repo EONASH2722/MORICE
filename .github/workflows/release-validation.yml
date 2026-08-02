@@ -1,0 +1,62 @@
+name: Release validation
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-source-and-python-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Python tooling
+        run: python -m pip install -e ".[dev]"
+
+      - name: Validate version metadata
+        run: python scripts/validate_version.py --root .
+
+      - name: Run Python tests
+        run: python -m unittest discover -s tests
+
+      - name: Run VNext tests and typecheck
+        working-directory: vnext
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm test
+          pnpm run typecheck
+
+      - name: Build wheel and source distribution
+        shell: pwsh
+        run: |
+          Push-Location $env:RUNNER_TEMP
+          try {
+            python -m build --outdir "${{ github.workspace }}\package-dist" "${{ github.workspace }}"
+          }
+          finally {
+            Pop-Location
+          }
+
+      - name: Verify Python package metadata
+        run: python -m twine check package-dist/*
+
+      - name: Upload verified Python packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: morice-python-packages
+          path: package-dist/*
+          if-no-files-found: error

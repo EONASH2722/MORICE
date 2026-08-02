@@ -26,6 +26,20 @@ from .domain_engine import (
     wants_diagram,
     wants_molecule,
 )
+from .educational_engine import (
+    build_biology_artifact,
+    build_data_structure_artifact,
+    wants_biology,
+    wants_data_structures,
+)
+from .universal_engine import (
+    build_chart_artifact,
+    build_document_artifact,
+    build_scene_artifact,
+    wants_chart,
+    wants_document,
+    wants_scene,
+)
 
 
 ProgressCallback = Callable[[str, str, int], None]
@@ -251,6 +265,171 @@ class DiagramRendererPlugin:
         return (len(diagram.nodes) * 128 + len(diagram.edges) * 96) if diagram else 0
 
 
+class BiologyRendererPlugin:
+    renderer_id = "biology.educational"
+    label = "Interactive biology model"
+    interactive = True
+
+    def can_render(self, prompt: str) -> bool:
+        return wants_biology(prompt)
+
+    def render(self, prompt: str) -> ScienceArtifact | None:
+        return build_biology_artifact(prompt)
+
+    def validate(self, artifact: ScienceArtifact) -> tuple[bool, str]:
+        biology = artifact.biology
+        if artifact.kind != "biology" or biology is None:
+            return False, "The biology engine did not return a model artifact."
+        if len(biology.points) < 2 or not biology.labels:
+            return False, "The biology model contains no renderable geometry."
+        if any(
+            not all(_is_finite_number(value) for value in point)
+            for point in biology.points
+        ):
+            return False, "The biology model contains invalid coordinates."
+        return True, ""
+
+    def estimate_bytes(self, artifact: ScienceArtifact) -> int:
+        biology = artifact.biology
+        return len(biology.points) * 64 if biology else 0
+
+
+class DataStructureRendererPlugin:
+    renderer_id = "computer-science.data-structures"
+    label = "Interactive data-structure lab"
+    interactive = True
+
+    def can_render(self, prompt: str) -> bool:
+        return wants_data_structures(prompt)
+
+    def render(self, prompt: str) -> ScienceArtifact | None:
+        return build_data_structure_artifact(prompt)
+
+    def validate(self, artifact: ScienceArtifact) -> tuple[bool, str]:
+        data = artifact.data_structures
+        if artifact.kind != "data-structures" or data is None:
+            return False, "The data-structure engine did not return a lab artifact."
+        if not data.structures or not data.initial_values:
+            return False, "The data-structure lab has no structures or values."
+        return True, ""
+
+    def estimate_bytes(self, artifact: ScienceArtifact) -> int:
+        data = artifact.data_structures
+        return (
+            len(data.structures) * 256 + len(data.initial_values) * 16
+            if data
+            else 0
+        )
+
+
+class ChartRendererPlugin:
+    renderer_id = "data.chart"
+    label = "Interactive data chart"
+    interactive = True
+
+    def can_render(self, prompt: str) -> bool:
+        return wants_chart(prompt)
+
+    def render(self, prompt: str) -> ScienceArtifact | None:
+        return build_chart_artifact(prompt)
+
+    def validate(self, artifact: ScienceArtifact) -> tuple[bool, str]:
+        chart = artifact.chart
+        if artifact.kind != "chart" or chart is None:
+            return False, "The chart engine did not return a chart artifact."
+        if chart.chart_type not in {"bar", "pie", "scatter", "histogram", "line"}:
+            return False, "The chart type is not supported."
+        if len(chart.points) < 2:
+            return False, "The chart contains fewer than two data points."
+        for point in chart.points:
+            if not point.label.strip() or not all(
+                _is_finite_number(value) for value in (point.x, point.y)
+            ):
+                return False, "The chart contains invalid numeric data."
+        return True, ""
+
+    def estimate_bytes(self, artifact: ScienceArtifact) -> int:
+        chart = artifact.chart
+        return len(chart.points) * 64 if chart else 0
+
+
+class SceneRendererPlugin:
+    renderer_id = "model.schematic-3d"
+    label = "Interactive 2D/3D component schematic"
+    interactive = True
+
+    def can_render(self, prompt: str) -> bool:
+        return wants_scene(prompt)
+
+    def render(self, prompt: str) -> ScienceArtifact | None:
+        return build_scene_artifact(prompt)
+
+    def validate(self, artifact: ScienceArtifact) -> tuple[bool, str]:
+        scene = artifact.scene
+        if artifact.kind != "scene" or scene is None:
+            return False, "The scene engine did not return a schematic artifact."
+        if not scene.primitives:
+            return False, "The scene contains no drawable components."
+        for primitive in scene.primitives:
+            if primitive.shape not in {"box", "sphere", "cylinder"}:
+                return False, "The scene contains an unsupported primitive."
+            if not primitive.label.strip():
+                return False, "The scene contains an unlabeled component."
+            if not all(
+                _is_finite_number(value)
+                for value in (*primitive.center, *primitive.size)
+            ):
+                return False, "The scene contains invalid component geometry."
+            if any(value <= 0 for value in primitive.size):
+                return False, "The scene contains a component with invalid dimensions."
+        for connection in scene.connections:
+            if (
+                connection.first < 0
+                or connection.second < 0
+                or connection.first >= len(scene.primitives)
+                or connection.second >= len(scene.primitives)
+            ):
+                return False, "The scene contains an invalid component connection."
+        return True, ""
+
+    def estimate_bytes(self, artifact: ScienceArtifact) -> int:
+        scene = artifact.scene
+        return (
+            len(scene.primitives) * 160 + len(scene.connections) * 32
+            if scene
+            else 0
+        )
+
+
+class DocumentRendererPlugin:
+    renderer_id = "viewer.document"
+    label = "Interactive local file preview"
+    interactive = True
+
+    def can_render(self, prompt: str) -> bool:
+        return wants_document(prompt)
+
+    def render(self, prompt: str) -> ScienceArtifact | None:
+        return build_document_artifact(prompt)
+
+    def validate(self, artifact: ScienceArtifact) -> tuple[bool, str]:
+        document = artifact.document
+        if artifact.kind != "document" or document is None:
+            return False, "The document engine did not return a preview artifact."
+        if not os.path.isfile(document.path):
+            return False, "The requested local file does not exist."
+        actual_size = os.path.getsize(document.path)
+        if actual_size != document.size_bytes:
+            return False, "The local file changed while its preview was being prepared."
+        if actual_size > 32 * 1024 * 1024:
+            return False, "In-chat document previews are limited to 32 MB."
+        return True, ""
+
+    def estimate_bytes(self, artifact: ScienceArtifact) -> int:
+        document = artifact.document
+        return min(document.size_bytes, 8 * 1024 * 1024) if document else 0
+
+
 class RendererRegistry:
     def __init__(self):
         self._plugins: dict[str, RendererPlugin] = {}
@@ -386,7 +565,7 @@ class CapabilityDetector:
 
 UNAVAILABLE_RENDERERS = {
     "model.generic-3d": "The general 3D renderer is not installed yet.",
-    "viewer.document": "The requested document viewer is not installed in the chat renderer yet.",
+    "unsupported.visual": "No installed deterministic renderer supports this visual request yet.",
 }
 
 
@@ -399,6 +578,11 @@ class VisualizationManager:
     ):
         self.registry = registry or RendererRegistry()
         if registry is None:
+            self.registry.register(BiologyRendererPlugin())
+            self.registry.register(DataStructureRendererPlugin())
+            self.registry.register(ChartRendererPlugin())
+            self.registry.register(SceneRendererPlugin())
+            self.registry.register(DocumentRendererPlugin())
             self.registry.register(GraphRendererPlugin())
             self.registry.register(PhysicsRendererPlugin())
             self.registry.register(MoleculeRendererPlugin())
@@ -418,6 +602,11 @@ class VisualizationManager:
                 "physics.simulation": "The request describes a supported dynamic physical system.",
                 "chemistry.molecule": "The request names a molecule in the validated VSEPR structure library.",
                 "diagram.structured": "The request maps to a validated structured-diagram template.",
+                "biology.educational": "The request describes a supported biology model.",
+                "computer-science.data-structures": "The request asks for interactive data-structure operations.",
+                "data.chart": "The request contains explicit numeric data for a supported chart.",
+                "model.schematic-3d": "The request names a supported labeled component schematic.",
+                "viewer.document": "The request names a supported local file for in-chat preview.",
             }.get(plugin.renderer_id, "A validated renderer supports this request.")
             return VisualizationDecision(plugin.renderer_id, reason, 1.0)
 
@@ -433,6 +622,42 @@ class VisualizationManager:
         if any(
             marker in lowered
             for marker in {
+                "biology",
+                "cell",
+                "chromosome",
+                "dna",
+                "double helix",
+                "genetics",
+                "neuron",
+                "protein",
+                "rna",
+            }
+        ):
+            return VisualizationDecision(
+                "biology.educational",
+                "The request explicitly asks for a supported biology visualization.",
+                0.97,
+            )
+        if any(
+            marker in lowered
+            for marker in {
+                "avl tree",
+                "binary search tree",
+                "data structure",
+                "hash table",
+                "linked list",
+                "queue",
+                "stack",
+            }
+        ):
+            return VisualizationDecision(
+                "computer-science.data-structures",
+                "The request explicitly asks for interactive data-structure operations.",
+                0.97,
+            )
+        if any(
+            marker in lowered
+            for marker in {
                 "atom",
                 "bond",
                 "chemistry",
@@ -441,9 +666,11 @@ class VisualizationManager:
                 "lewis structure",
                 "molecule",
                 "molecular",
-                "orbital",
                 "vsepr",
             }
+        ) or (
+            "orbital" in lowered
+            and any(marker in lowered for marker in {"atom", "electron", "quantum"})
         ):
             return VisualizationDecision(
                 "chemistry.molecule",
@@ -482,13 +709,64 @@ class VisualizationManager:
                 "The request explicitly asks for a structured diagram.",
                 0.92,
             )
-        return None
+        return VisualizationDecision(
+            "unsupported.visual",
+            "The request explicitly asks for a visual, but no installed renderer claimed it.",
+            1.0,
+        )
 
     def create_request(self, prompt: str, decision: VisualizationDecision) -> VisualizationRequest:
         return VisualizationRequest(uuid.uuid4().hex, prompt.strip(), decision)
 
     def submit(self, request: VisualizationRequest, progress: ProgressCallback) -> Future:
-        return self.scheduler.submit(request.job_id, self.render, request, progress)
+        from .runtime_services import get_runtime_services
+
+        runtime = get_runtime_services()
+        if runtime.started:
+            runtime.profiler.set_current_renderer(request.decision.renderer_id)
+            runtime.logs.log(
+                "INFO",
+                f"Renderer queued: {request.decision.renderer_id}",
+                category="renderer",
+                metadata={"jobId": request.job_id},
+            )
+        future = self.scheduler.submit(request.job_id, self.render, request, progress)
+
+        def record_result(completed: Future) -> None:
+            if not runtime.started:
+                return
+            try:
+                result = completed.result()
+                runtime.profiler.record_duration(
+                    request.decision.renderer_id,
+                    result.duration_ms,
+                )
+                runtime.logs.log(
+                    "INFO" if result.status == "ready" else "ERROR",
+                    (
+                        f"Renderer {result.renderer_id} completed with "
+                        f"status {result.status} in {result.duration_ms:.1f} ms."
+                    ),
+                    category="renderer",
+                    metadata={
+                        "jobId": request.job_id,
+                        "validated": result.validated,
+                        "fromCache": result.from_cache,
+                        "error": result.error,
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001
+                runtime.logs.log(
+                    "ERROR",
+                    f"Renderer worker result failed: {exc}",
+                    category="renderer",
+                    metadata={"jobId": request.job_id},
+                )
+            finally:
+                runtime.profiler.set_current_renderer("")
+
+        future.add_done_callback(record_result)
+        return future
 
     def render(self, request: VisualizationRequest, progress: ProgressCallback) -> VisualizationResult:
         started = time.perf_counter()
