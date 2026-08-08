@@ -1,8 +1,12 @@
-# MORICE 0.7.0 (VNext)
+# MORICE 0.7.0
 
 MORICE 0.7.0 is the first production-packaged VNext release. It combines local-first
 conversation, reviewed project generation, deterministic scientific visualization, model
 management, desktop services, and a repeatable Windows release pipeline.
+
+The public documentation and release automation were refreshed for this build. Package metadata,
+release-note selection, version checks, hidden-directory auditing, and downloadable filenames are
+derived from the release version and verified before publication.
 
 ## Major New Features
 

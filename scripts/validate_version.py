@@ -14,10 +14,13 @@ def validate_version(root: Path) -> tuple[str, list[str]]:
     version = match.group(1)
     errors: list[str] = []
     checks = {
-        "README release badge": (root / "README.md", f"release-v{version}"),
-        "README installer": (
+        "README latest release link": (
             root / "README.md",
-            f"MORICE-Setup-v{version}-Windows-x64.exe",
+            "https://github.com/EONASH2722/MORICE/releases/latest",
+        ),
+        "README Python package": (
+            root / "README.md",
+            f"morice_ai-{version}-py3-none-any.whl",
         ),
         "changelog": (root / "CHANGELOG.md", f"[{version}]"),
         "installer default": (

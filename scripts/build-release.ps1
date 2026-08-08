@@ -129,8 +129,12 @@ Invoke-Checked "Python wheel and source distribution" {
     }
 }
 
+$ReleaseNotes = Join-Path $Root "docs\release-notes-$Version.md"
+if (-not (Test-Path -LiteralPath $ReleaseNotes)) {
+    throw "Release notes are missing: $ReleaseNotes"
+}
 Copy-Item `
-    -LiteralPath (Join-Path $Root "docs\release-notes-0.7.0.md") `
+    -LiteralPath $ReleaseNotes `
     -Destination (Join-Path $Release "MORICE-$TagVersion-Release-Notes.md") `
     -Force
 

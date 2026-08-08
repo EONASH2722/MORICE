@@ -10,12 +10,7 @@ import zipfile
 
 
 FORBIDDEN_PARTS = {
-    ".codex",
-    ".git",
-    ".idea",
     ".pytest_cache",
-    ".venv",
-    ".vscode",
     "__pycache__",
     "artifacts",
     "build",
@@ -42,6 +37,11 @@ def _sha256(path: Path) -> str:
 
 def _unsafe_member(name: str, *, allow_tests: bool = False) -> str | None:
     path = PurePosixPath(name)
+    hidden_directories = [
+        part for part in path.parts[:-1] if part.startswith(".") and part != ".github"
+    ]
+    if hidden_directories:
+        return f"forbidden hidden directory {hidden_directories[0]!r}"
     parts = {part.lower() for part in path.parts}
     forbidden = set(FORBIDDEN_PARTS)
     if allow_tests:

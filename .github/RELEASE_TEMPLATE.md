@@ -32,7 +32,7 @@ Download the setup executable and every adjacent numbered `.bin` slice into one 
 
 ### Portable
 
-Download every portable ZIP part, the parts manifest, and the PowerShell reassembler into one folder. Run `powershell -NoProfile -ExecutionPolicy Bypass -File .\MORICE-Portable-v0.7.0-Windows-x64-reassemble.ps1`, verify the resulting archive, extract it, and launch `MORICE.exe`.
+Download every portable ZIP part, the parts manifest, and the PowerShell reassembler into one folder. Run `powershell -NoProfile -ExecutionPolicy Bypass -File .\MORICE-Portable-vVERSION-Windows-x64-reassemble.ps1`, verify the resulting archive, extract it, and launch `MORICE.exe`.
 
 Verify all files with `checksums.json`.
 

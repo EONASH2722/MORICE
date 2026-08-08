@@ -4,8 +4,16 @@ All notable changes to MORICE are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Made release-note discovery version-driven instead of hardcoding one release filename.
+- Updated version validation for the product-focused README and release download path.
+- Generalized package auditing to reject hidden internal tooling directories while preserving
+  the public GitHub workflow directory.
+
 ### Documentation
 
+- Replaced the implementation-audit-style README with a concise product and installation guide.
 - Rebuilt the public README around verified release behavior and explicit capability boundaries.
 - Added feature, model, Project Mode, advanced configuration, developer, and screenshot-provenance guides.
 - Corrected renderer IDs and removed claims for hosted model providers and unimplemented general-purpose solvers.

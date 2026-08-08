@@ -30,8 +30,18 @@ class ReleasePackagingTests(unittest.TestCase):
         self.assertEqual(version, "0.7.0")
         self.assertEqual(errors, [])
 
+    def test_release_builder_uses_authoritative_version_for_notes(self):
+        build_script = (ROOT / "scripts" / "build-release.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"docs\\release-notes-$Version.md"', build_script)
+        self.assertNotIn('"docs\\release-notes-0.7.0.md"', build_script)
+
     def test_release_policy_rejects_private_and_cache_paths(self):
-        self.assertIsNotNone(audit_release._unsafe_member("MORICE/.codex/task.json"))
+        self.assertIsNotNone(
+            audit_release._unsafe_member("MORICE/.internal-tooling/task.json")
+        )
+        self.assertIsNone(audit_release._unsafe_member("MORICE/.github/workflows/ci.yml"))
         self.assertIsNotNone(audit_release._unsafe_member("MORICE/__pycache__/x.pyc"))
         self.assertIsNotNone(audit_release._unsafe_member("MORICE/model.gguf"))
         self.assertIsNone(audit_release._unsafe_member("MORICE/morice/assets/logo.png"))

@@ -1,14 +1,14 @@
 # MORICE 0.7.0 Release Audit
 
-Audit date: 2026-08-02
+Audit date: 2026-08-08
 
 ## Existing GitHub Releases
 
 | Tag | Finding | Required action |
 | --- | --- | --- |
-| `morice-pc-app` | Legacy May 2026 PC archive, four assets, zero downloads, replaced by the 0.7.0 installer and portable lanes | Remove after the 0.7.0 release is published and verified |
-| `model-hermes-3-llama-3.1-8b-q4-k-m` | Obsolete Hermes model; the remote release is incomplete because `part002` is missing | Remove the release and tag |
-| `v1.2` | Tag exists without a GitHub Release and does not match current application version metadata | Review and remove if it is not intentionally retained as source history |
+| `morice-pc-app` | Legacy May 2026 PC archive, replaced by the verified 0.7.0 installer and portable lanes | Delete after the 0.7.0 release is published and verified |
+| `model-hermes-3-llama-3.1-8b-q4-k-m` | Obsolete and incomplete Hermes model release | Delete the release and tag after 0.7.0 is verified |
+| `v1.2` | Orphan tag that does not match current application version metadata | Delete after 0.7.0 is verified |
 
 No existing release is a valid substitute for MORICE 0.7.0. Historical assets must not be
 renamed or reused because they were built from different source and model revisions.
@@ -29,5 +29,6 @@ Publish only from the exact verified commit after it reaches the default branch.
 release public, verify checksums, package-content report, installer install/uninstall, portable
 launch, shortcuts, taskbar icon, wheel installation, and the GitHub Actions release-validation run.
 
-The old remote releases require repository-admin deletion. This checkout can push Git data, but no
-authenticated GitHub release-management endpoint is available to this build session.
+Publication is performed as a draft first. All assets are uploaded and checked against the local
+manifest before the release is made public. Obsolete releases and tags are removed only after the
+new latest-release endpoint resolves to the verified `v0.7.0` release.
