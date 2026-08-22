@@ -35,12 +35,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
   border: 1px solid var(--line); background: rgba(5, 6, 9, .62); backdrop-filter: blur(18px);
 }
 .brand { display: inline-flex; align-items: center; gap: 13px; font-family: Manrope, sans-serif; font-size: 16px; font-weight: 500; letter-spacing: .24em; }
-.mark { position: relative; display: inline-block; width: 27px; height: 27px; }
-.mark i { position: absolute; top: 4px; width: 3px; height: 22px; background: #f7f8fb; transform-origin: center top; }
-.mark i:nth-child(1) { left: 2px; transform: rotate(-36deg); }
-.mark i:nth-child(2) { left: 10px; transform: rotate(36deg); height: 15px; }
-.mark i:nth-child(3) { right: 10px; transform: rotate(-36deg); height: 15px; }
-.mark i:nth-child(4) { right: 2px; transform: rotate(36deg); }
+.brand-logo-frame { width: 34px; height: 34px; display: grid; place-items: center; overflow: hidden; flex: 0 0 auto; }
+.brand-logo { width: 34px; height: 34px; display: block; object-fit: cover; transform: scale(1.75); }
 .site-header nav { display: flex; align-items: center; gap: clamp(18px, 2.4vw, 42px); color: #d4d7de; font-size: 13px; }
 .site-header nav a { transition: color .2s; }
 .site-header nav a:hover { color: #fff; }
@@ -157,7 +153,7 @@ footer a:last-child { color: #bcc4d1; }
 
 @media (max-width: 700px) {
   .site-header { top: 10px; width: calc(100% - 20px); height: 56px; padding: 0 13px; }
-  .brand { font-size: 13px; }.mark { transform: scale(.8); }
+  .brand { font-size: 13px; }.brand-logo-frame, .brand-logo { width: 30px; height: 30px; }
   .quality span, .button.small { display: none; }
   .statements { padding: 8vh 24px; align-items: center; }
   .statements h1 { font-size: clamp(42px, 14vw, 64px); }

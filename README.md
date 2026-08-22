@@ -1,11 +1,19 @@
 <p align="center">
-  <img src="morice/assets/morice-logo-rgb.png" alt="MORICE logo" width="148">
+  <a href="https://eonash2722.github.io/MORICE/" title="Open the MORICE website">
+    <img src="morice/assets/morice-logo-rgb.png" alt="MORICE logo" width="148">
+  </a>
 </p>
 
 <h1 align="center">MORICE</h1>
 
 <p align="center">
   <strong>A local-first Windows AI workspace for conversation, real visualizations, project building, and desktop assistance.</strong>
+</p>
+
+<p align="center">
+  <a href="https://eonash2722.github.io/MORICE/"><strong>Website</strong></a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="https://github.com/EONASH2722/MORICE/releases/latest">Releases</a>
 </p>
 
 <p align="center">

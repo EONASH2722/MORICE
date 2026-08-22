@@ -34,13 +34,9 @@ const showcase = {
   Voice: ['Your voice becomes a private local command.', 'voice'],
 } as const
 
-function Mark() {
-  return <span className="mark" aria-hidden="true"><i /><i /><i /><i /></span>
-}
-
 function Header({ quality, setQuality }: { quality: Quality; setQuality: (q: Quality) => void }) {
   return <header className="site-header">
-    <a className="brand" href="#top" aria-label="MORICE home"><Mark /> <span>MORICE</span></a>
+    <a className="brand" href="#top" aria-label="MORICE home"><span className="brand-logo-frame" aria-hidden="true"><img className="brand-logo" src="./morice-logo.png" alt="" /></span><span>MORICE</span></a>
     <nav aria-label="Main navigation">
       <a href="#features">Features</a><a href="#visualizations">Visualizations</a><a href="#privacy">Privacy</a>
       <a href={`${repo}/tree/main/docs`}>Documentation</a><a href={repo}>GitHub</a>
@@ -120,5 +116,5 @@ function Download() {
 
 export default function App() {
   const [quality, setQuality] = useState<Quality>('auto')
-  return <><a className="skip-link" href="#features">Skip cinematic introduction</a><Header quality={quality} setQuality={setQuality} /><main><Hero quality={quality} /><Intro /><Visualizations /><Privacy /><Download /></main><footer><a className="brand" href="#top"><Mark /> MORICE</a><span>Local intelligence, under your control.</span><a href={repo}>GitHub ↗</a></footer></>
+  return <><a className="skip-link" href="#features">Skip cinematic introduction</a><Header quality={quality} setQuality={setQuality} /><main><Hero quality={quality} /><Intro /><Visualizations /><Privacy /><Download /></main><footer><a className="brand" href="#top"><span className="brand-logo-frame" aria-hidden="true"><img className="brand-logo" src="./morice-logo.png" alt="" /></span>MORICE</a><span>Local intelligence, under your control.</span><a href={repo}>GitHub ↗</a></footer></>
 }
