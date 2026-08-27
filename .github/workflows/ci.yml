@@ -19,7 +19,7 @@ jobs:
           python-version: "3.12"
           cache: pip
       - name: Install Python test dependencies
-        run: python -m pip install PySide6 numpy sounddevice vosk Pillow
+        run: python -m pip install -e .
       - name: Compile Python
         run: python -m compileall -q morice
       - name: Run Python tests

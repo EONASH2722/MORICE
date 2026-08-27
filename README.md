@@ -7,7 +7,7 @@
 <h1 align="center">MORICE</h1>
 
 <p align="center">
-  <strong>A local-first Windows AI workspace for conversation, real visualizations, project building, and desktop assistance.</strong>
+  <strong>A local-first Windows AI workspace for conversation, Live Action, real visualizations, project building, and desktop assistance.</strong>
 </p>
 
 <p align="center">
@@ -32,10 +32,13 @@ MORICE combines local model inference with a desktop workspace that can answer q
 
 - **Local model support:** use a GGUF model through the bundled llama runtime or connect to a local Ollama model.
 - **Conversation memory:** contextual follow-ups can reference earlier messages, saved preferences, selected notes, and the active workspace.
-- **Real visualizations:** interactive graphs, simulations, molecules, biology models, data structures, charts, diagrams, schematics, and file previews render inside Normal Chat.
-- **Project Mode:** turn a prompt into reviewed files and diffs inside a chosen work folder, then inspect output, tests, and Git status before applying changes.
+- **Real visualizations:** interactive graphs, simulations, molecules, biology models, data structures, charts, diagrams, schematics, and file previews render inside Normal Chat and Live Action.
+- **Project Mode:** turn a prompt into validated files and diffs inside a chosen work folder; folder-limited mode stages review while Full access applies routine project writes atomically.
 - **Desktop assistance:** permission-aware file search, system information, clipboard actions, media controls, workspace tools, tasks, notes, and diagnostics.
-- **Voice activation:** configurable wake phrase, adaptive noise handling, microphone diagnostics, and weak-signal amplification.
+- **Live Action:** a separate camera-centered voice workspace that retains Chat, Lab, Tools, graphs, attachments, desktop control, and Project builds; camera access is explicit and exiting stops camera, STT, TTS, and visual work.
+- **Automatic context:** relevant local notes are selected without special commands; freshness-sensitive questions use source-linked web context when online and fall back locally when offline.
+- **Local background wake:** the packaged listener recognizes MORICE, configured magic words, or a double-clap, releases the microphone while Live Action owns it, and opens without stealing foreground focus.
+- **Adaptive execution:** goal state, capability discovery, device context, network/Bluetooth observation, and platform adapters keep execution grounded in verified host abilities.
 - **Model manager:** inspect detected GPU/VRAM, compare run plans, validate GGUF files, and switch models without editing configuration files.
 - **Extensible platform:** isolated plugins, permission manifests, renderer contributions, lifecycle controls, diagnostics, and package validation.
 - **Recovery and updates:** bounded workspace state, backups, verified update staging, rollback protection, activity history, and resumable tasks.
@@ -94,6 +97,12 @@ Project Mode is a development workspace for generating and editing real files.
 6. Inspect command output, tests, errors, and Git status.
 7. Apply, reject, continue, or undo the validated change set.
 
+## Live Action
+
+Choose **Mode > Live Action**, or use the speaker button beside the composer, to enter and wake the camera-centered workspace; no second wake phrase is required. Live Action uses offline Vosk speech-to-text for user turns and interruptible ElevenLabs streaming speech for MORICE replies. Its live transcript, glass response overlay, and typed composer retain attachments, graphs, Lab, Tools, desktop actions, and project-building. The camera remains off until explicitly enabled, frames stay in memory, and visual inference runs on demand rather than on every preview frame.
+
+Choose **Normal Chat** or **Project**, press the active speaker button again, or use **Exit Live Action** to exit. MORICE immediately stops the camera, cancels microphone capture, reply playback, and vision inference, clears temporary frames/visual memory, and ignores late callbacks. The installed build starts a lightweight local wake listener with Windows so MORICE can respond to its name, configured magic words, or a double-clap while the main window is closed. It does not activate the camera and releases the microphone whenever Live Action is already listening. Set `MORICE_ENABLE_ALWAYS_ON_WAKE=0` or disable **MORICE Wake Listener** in Windows Startup Apps to turn it off.
+
 ![MORICE Project Mode setup](docs/screenshots/morice-project-setup.png)
 
 MORICE can work with text-based languages supported by the selected model and installed toolchain. See the [Project Mode guide](docs/project-mode.md) for access boundaries and workflow details.
@@ -140,7 +149,7 @@ Download all portable `.part*` files, the `.parts.json` manifest, and the matchi
 Advanced users can install the model-free wheel included with the release:
 
 ```powershell
-python -m pip install .\morice_ai-0.7.0-py3-none-any.whl
+python -m pip install .\morice_ai-0.8.0-py3-none-any.whl
 morice
 ```
 

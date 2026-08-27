@@ -89,3 +89,35 @@ def chat(
         top_p=top_p,
     )
     return result["choices"][0]["message"]["content"].strip()
+
+
+def stream_chat(
+    messages,
+    model_path: str,
+    n_ctx: int,
+    n_gpu_layers: int,
+    chat_format: str | None,
+    n_threads: int,
+    n_batch: int,
+    temperature: float,
+    top_p: float,
+    *,
+    cancel_event=None,
+):
+    """Yield local model text as llama.cpp produces it."""
+
+    llm = _get_llm(model_path, n_ctx, n_gpu_layers, chat_format, n_threads, n_batch)
+    result = llm.create_chat_completion(
+        messages=messages,
+        temperature=temperature,
+        top_p=top_p,
+        stream=True,
+    )
+    for event in result:
+        if cancel_event is not None and cancel_event.is_set():
+            break
+        choice = (event.get("choices") or [{}])[0]
+        delta = choice.get("delta") or {}
+        text = delta.get("content") or choice.get("text") or ""
+        if text:
+            yield str(text)

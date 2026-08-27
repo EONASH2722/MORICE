@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("MORICE_DISABLE_SESSION", "1")
@@ -10,16 +10,26 @@ os.environ.setdefault("MORICE_PRELOAD", "0")
 os.environ.setdefault("MORICE_REDUCE_MOTION", "1")
 os.environ.setdefault("MORICE_START_AWAKE", "1")
 
+from PySide6.QtGui import QImage
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import QMessageBox
+from PySide6.QtTest import QTest
 
 from morice.desktop_assistant import (
     collect_system_snapshot,
     parse_desktop_command,
     search_files,
 )
-from morice.pyside_app import MoriceWindow, register_ui_font_file
-from morice.ui_workspace import FilePreview
+from morice.pyside_app import (
+    MoriceWindow,
+    _show_window_for_launch,
+    register_ui_font_file,
+)
+from morice.pc_control import ControlResult
+from morice.settings import normalize_chat_mode
+from morice.speech_runtime import TranscriptResult
+from morice.ui_workspace import DEFAULT_COMMANDS, FilePreview
+from morice.wake_runtime import WakeRequest
 from morice.workspace_state import (
     WorkspaceState,
     load_workspace_state,
@@ -29,6 +39,10 @@ from morice.workspace_state import (
 
 
 class WorkspaceStateTests(unittest.TestCase):
+    def test_voice_mode_is_registered_as_a_first_class_mode(self):
+        self.assertEqual(normalize_chat_mode("voice"), "voice")
+        self.assertIn("voice-mode", {command.key for command in DEFAULT_COMMANDS})
+
     def test_state_roundtrip_is_bounded_and_preserves_workspace_preferences(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "workspace-state.json")
@@ -157,6 +171,274 @@ class WorkspaceUiTests(unittest.TestCase):
                 "Tools",
             ],
         )
+
+    def test_direct_and_streamed_assistant_replies_speak_exactly_once(self):
+        self.window.chat_mode = "voice"
+        with patch.object(self.window, "_speak_assistant_text") as speak:
+            self.window._append_direct_reply("hello", "hello back")
+            speak.assert_called_once()
+
+        self.window._streamed_voice_reply_pending = True
+        self.window._set_busy(True)
+        with patch.object(self.window, "_speak_assistant_text") as speak:
+            self.window._on_message_ready("MORICE", "streamed reply", False)
+            speak.assert_not_called()
+        self.assertFalse(self.window._streamed_voice_reply_pending)
+        self.assertFalse(self.window.is_busy)
+
+    def test_model_delta_is_visible_before_generation_finishes(self):
+        request = self.window.runtime.realtime.begin_request(
+            "Explain latency",
+            request_id="ui-stream-test",
+        )
+        self.window._set_busy(True)
+        self.window._show_thinking("Generating.")
+
+        self.window._on_assistant_stream_delta(request.request_id, "First useful ")
+        self.window._on_assistant_stream_delta(request.request_id, "sentence.")
+
+        self.assertIsNotNone(self.window._stream_bubble)
+        self.assertIn("First useful sentence.", self.window._stream_bubble.message)
+        self.assertIsNone(self.window.thinking_bubble)
+        self.assertIn(
+            "first_visible_token",
+            request.trace.snapshot()["events"],
+        )
+
+        self.window.runtime.realtime.complete_generation(request.epoch)
+        self.window._on_assistant_stream_finished(
+            request.request_id,
+            self.window._address("First useful sentence."),
+        )
+        self.assertFalse(self.window.is_busy)
+
+    def test_new_user_turn_interrupts_audio_and_generation_before_reply(self):
+        with (
+            patch.object(self.window.runtime.voice, "interrupt") as interrupt,
+            patch.object(self.window.runtime.speech_input, "cancel") as cancel,
+            patch.object(self.window, "_speak_assistant_text"),
+        ):
+            self.window.input.setText("thanks")
+            self.window.on_send()
+
+        interrupt.assert_called_once_with("new-user-request")
+        cancel.assert_called_once_with("transcript-submitted")
+
+    def test_fast_system_tool_bypasses_agent_and_model_preparation(self):
+        result = ControlResult(
+            "fast-test",
+            "system.status",
+            True,
+            True,
+            "System state collected from the local machine.",
+            output={
+                "memoryTotalGb": 32.0,
+                "memoryAvailableGb": 12.0,
+                "memoryPercent": 62.5,
+            },
+        )
+
+        def immediate(_name, function):
+            function()
+            return None
+
+        with (
+            patch.object(self.window, "_prepare_agent_request") as prepare_agent,
+            patch.object(self.window.runtime.pc_control, "execute", return_value=result),
+            patch("morice.pyside_app._start_background_task", side_effect=immediate),
+        ):
+            self.window.input.setText("What's my RAM usage?")
+            self.window.on_send()
+            self.app.processEvents()
+
+        prepare_agent.assert_not_called()
+        self.assertTrue(
+            any("memoryTotalGb" in item["content"] for item in self.window.history)
+        )
+        self.assertFalse(self.window.is_busy)
+        self.assertIsNone(self.window.thinking_bubble)
+        self.assertEqual(self.window.send_btn.text(), "Send")
+
+    def test_hands_free_conversation_resumes_microphone_after_playback(self):
+        self.window.chat_mode = "voice"
+        self.window._voice_conversation_active = True
+        self.window._set_busy(False)
+        with patch.object(self.window, "_begin_voice_listening") as listen:
+            self.window._resume_voice_conversation()
+        listen.assert_called_once()
+
+    def test_live_action_barge_in_filters_echo_and_interrupts_new_speech(self):
+        self.window.chat_mode = "voice"
+        self.window._voice_conversation_active = True
+        self.window._barge_in_monitoring = True
+        self.window._last_spoken_text = "Here is the answer about your project files"
+        with (
+            patch.object(self.window.runtime.voice, "interrupt") as interrupt,
+            patch.object(self.window.runtime.realtime, "cancel_active") as cancel,
+            patch.object(self.window.runtime.live_vision, "cancel") as cancel_vision,
+        ):
+            self.window._on_speech_partial("the answer about your project files")
+            interrupt.assert_not_called()
+
+            self.window._on_speech_partial("stop and show me the graph")
+
+        interrupt.assert_called_once_with("barge-in")
+        cancel.assert_called_once_with("barge-in")
+        cancel_vision.assert_called_once_with("barge-in")
+        self.assertTrue(self.window._barge_in_interrupted)
+
+    def test_voice_is_explicit_mode_and_exit_stops_all_audio_io(self):
+        self.window.chat_mode = "normal"
+        self.window.awake = False
+        self.window._voice_return_mode = "normal"
+        self.window._voice_conversation_active = False
+        self.assertEqual(self.window.chat_mode, "normal")
+        self.assertFalse(self.window._voice_conversation_active)
+        with (
+            patch.object(self.window, "_begin_voice_listening") as listen,
+            patch.object(self.window.runtime.speech_input, "cancel") as cancel,
+            patch.object(self.window.runtime.voice, "interrupt") as interrupt,
+        ):
+            self.window._set_chat_mode("voice")
+            QTest.qWait(240)
+
+            self.assertEqual(self.window.chat_mode, "voice")
+            self.assertTrue(self.window.awake)
+            self.assertTrue(self.window._voice_conversation_active)
+            self.assertEqual(self.window.settings["chat_mode"], "normal")
+            self.assertEqual(self.window.voice_mode_btn.property("active"), "true")
+            listen.assert_called_once()
+
+            self.window._set_chat_mode("normal")
+
+        self.assertEqual(self.window.chat_mode, "normal")
+        self.assertFalse(self.window._voice_conversation_active)
+        cancel.assert_called_with("voice-mode-exited")
+        interrupt.assert_called_with("voice-mode-exited")
+        self.assertEqual(self.window.voice_btn.toolTip(), "Enter Live Action")
+
+    def test_external_wake_from_normal_mode_enters_voice_without_phantom_send(self):
+        self.window.chat_mode = "normal"
+        self.window._voice_return_mode = "normal"
+        self.window._voice_conversation_active = False
+        self.window.input.setText("keep this unsent draft")
+        payload = WakeRequest(
+            source="magic words: morice",
+            trigger="phrase",
+            enter_live_action=True,
+            preserve_focus=True,
+        ).to_json()
+
+        with (
+            patch.object(self.window, "on_send") as send,
+            patch.object(self.window, "_begin_voice_listening"),
+            patch("morice.pyside_app.set_voice_session_active") as lease,
+        ):
+            self.window._wake_from_external(payload)
+
+            self.assertEqual(self.window.chat_mode, "voice")
+            self.assertTrue(self.window._voice_conversation_active)
+            self.assertEqual(self.window._voice_return_mode, "normal")
+            self.assertEqual(self.window.input.text(), "keep this unsent draft")
+            send.assert_not_called()
+            lease.assert_called_with(True)
+
+            self.window._set_chat_mode("normal")
+            lease.assert_called_with(False)
+
+    def test_background_wake_launch_is_minimized_without_activation(self):
+        window = Mock()
+
+        was_background = _show_window_for_launch(
+            window,
+            {"MORICE_BACKGROUND_WAKE": "1"},
+        )
+
+        self.assertTrue(was_background)
+        window.setAttribute.assert_called_once()
+        window.showMinimized.assert_called_once_with()
+        window.show.assert_not_called()
+
+    def test_ordinary_launch_behavior_is_unchanged(self):
+        window = Mock()
+
+        was_background = _show_window_for_launch(window, {})
+
+        self.assertFalse(was_background)
+        window.show.assert_called_once_with()
+        window.showMinimized.assert_not_called()
+
+    def test_live_action_is_camera_centered_and_camera_is_explicit(self):
+        self.window.chat_mode = "normal"
+        self.window._voice_return_mode = "normal"
+        with patch.object(self.window, "_begin_voice_listening"):
+            self.window._set_chat_mode("voice")
+            self.app.processEvents()
+
+        self.assertTrue(self.window.live_action_workspace.isVisible())
+        self.assertFalse(self.window.chat_container.isVisible())
+        self.assertFalse(self.window.live_camera.desired_active)
+        self.assertIn("Live Action", self.window.voice_mode_btn.text())
+
+    def test_camera_off_clears_preview_and_rejects_a_queued_late_frame(self):
+        preview = self.window.live_action_workspace.preview
+        image = QImage(32, 32, QImage.Format_RGB32)
+        image.fill(0x336699)
+        preview.set_frame(image)
+        self.assertFalse(preview._image.isNull())
+
+        self.window.live_action_workspace.set_camera_state(
+            "off", "Camera is off. No frames are being captured."
+        )
+        self.assertTrue(preview._image.isNull())
+
+        self.window.chat_mode = "voice"
+        self.window.live_camera._desired_active = False
+        self.window._on_live_camera_frame(image)
+        self.assertTrue(preview._image.isNull())
+
+    def test_visual_request_without_camera_fails_closed_before_model(self):
+        self.window.chat_mode = "voice"
+        self.window._voice_conversation_active = True
+        with (
+            patch.object(self.window, "_prepare_agent_request") as prepare_agent,
+            patch.object(self.window, "_speak_assistant_text"),
+        ):
+            self.window.input.setText("What am I holding?")
+            self.window.on_send()
+
+        prepare_agent.assert_not_called()
+        self.assertIn("no fresh camera frame", self.window.history[-1]["content"])
+
+    def test_voice_output_and_late_transcripts_are_blocked_outside_voice_mode(self):
+        with patch.object(self.window.runtime.voice, "speak") as speak:
+            self.window._speak_assistant_text("This must stay silent.")
+        speak.assert_not_called()
+
+        self.window.input.setText("typed text")
+        self.window._on_speech_transcript(
+            TranscriptResult(
+                request_id="late",
+                text="late microphone words",
+                duration_ms=1,
+            )
+        )
+        self.assertEqual(self.window.input.text(), "typed text")
+
+    def test_voice_mode_keeps_project_and_visualization_routing(self):
+        self.window.chat_mode = "voice"
+        self.assertTrue(
+            self.window._is_project_build_request(
+                "build a complete website in the project folder"
+            )
+        )
+        with patch.object(
+            self.window.visualization_manager,
+            "decide",
+            return_value=None,
+        ) as decide:
+            self.assertFalse(self.window._handle_science_request("graph y = x"))
+        decide.assert_called_once_with("graph y = x")
 
     def test_command_palette_filters_and_theme_switches(self):
         self.window.command_palette._filter("system")
@@ -328,7 +610,7 @@ class WorkspaceUiTests(unittest.TestCase):
 
         def fake_chat(history, user_message, **kwargs):
             calls.append((history, user_message, kwargs))
-            return "I used the earlier dashboard request."
+            yield "I used the earlier dashboard request."
 
         self.window.user_title = "Captain"
         self.window.response_style = "Be concise and technical."
@@ -342,7 +624,7 @@ class WorkspaceUiTests(unittest.TestCase):
         self.window.first_user_message = "Make the dashboard teal."
 
         with patch("morice.pyside_app.threading.Thread", ImmediateThread), patch(
-            "morice.pyside_app.chat",
+            "morice.pyside_app.stream_chat",
             side_effect=fake_chat,
         ):
             self.window.input.setText(

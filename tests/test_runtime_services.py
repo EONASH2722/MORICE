@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -17,6 +18,7 @@ from PySide6.QtWidgets import QApplication
 from morice.diagnostics_ui import DiagnosticsDialog
 from morice.desktop_assistant import parse_desktop_command
 from morice.runtime_services import (
+    BackgroundTaskManager,
     CrashRecoveryManager,
     PerformanceProfiler,
     RuntimeServices,
@@ -103,6 +105,22 @@ class CrashRecoveryTests(unittest.TestCase):
             second.mark_clean()
             self.assertFalse(second.marker_path.exists())
             self.assertFalse(second.snapshot_path.exists())
+
+    def test_locked_recovery_storage_never_prevents_startup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recovery = CrashRecoveryManager(directory)
+            denied = PermissionError(5, "Access is denied", str(recovery.marker_path))
+
+            with patch(
+                "morice.runtime_services._atomic_json_write",
+                side_effect=denied,
+            ):
+                info = recovery.begin_session()
+                recovery.save_snapshot({"history": [], "draft": "safe"})
+
+            self.assertFalse(info.available)
+            self.assertIn("continued", info.reason.casefold())
+            self.assertIn("access is denied", recovery.last_write_error.casefold())
 
 
 class HealthAndRuntimeTests(unittest.TestCase):
@@ -293,8 +311,10 @@ class DiagnosticsUiTests(unittest.TestCase):
 
             self.assertEqual(
                 [dialog.tabs.tabText(index) for index in range(dialog.tabs.count())],
-                ["Overview", "Health", "Logs", "Performance", "Agent", "Components"],
+                ["Overview", "Health", "Logs", "Performance", "Agent", "Components", "Voice"],
             )
+            self.assertEqual(dialog.microphone_test_button.text(), "Test Microphone")
+            self.assertFalse(dialog.microphone_playback.isChecked())
             self.assertGreater(dialog.overview_tree.topLevelItemCount(), 0)
             self.assertGreater(dialog.health_table.rowCount(), 0)
             self.assertIn("Diagnostics UI test", dialog.log_view.toPlainText())
@@ -303,6 +323,36 @@ class DiagnosticsUiTests(unittest.TestCase):
             dialog.close()
             manager.shutdown()
             runtime.shutdown(clean=True)
+
+
+class PriorityWorkerTests(unittest.TestCase):
+    def test_interactive_task_is_not_queued_behind_background_work(self):
+        with tempfile.TemporaryDirectory() as directory:
+            logs = StructuredLogManager(directory)
+            profiler = PerformanceProfiler()
+            manager = BackgroundTaskManager(logs, profiler, max_workers=4)
+            release = threading.Event()
+            started = [threading.Event(), threading.Event()]
+
+            def occupy(index: int) -> None:
+                started[index].set()
+                release.wait(3)
+
+            background = [
+                manager.submit("index", occupy, index, priority="background")
+                for index in range(2)
+            ]
+            self.assertTrue(all(event.wait(1) for event in started))
+            interactive = manager.submit(
+                "chat-reply",
+                lambda: "ready",
+                priority="interactive",
+            )
+            self.assertEqual("ready", interactive.result(timeout=1))
+            release.set()
+            for future in background:
+                future.result(timeout=2)
+            manager.shutdown()
 
 
 if __name__ == "__main__":

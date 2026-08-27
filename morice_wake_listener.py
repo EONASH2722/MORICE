@@ -1,4 +1,5 @@
 import csv
+import ctypes
 import difflib
 import io
 import json
@@ -22,13 +23,17 @@ except Exception:  # noqa: BLE001
     Model = None
     SetLogLevel = None
 
-from morice.settings import load_settings, normalize_wake_phrase, wake_signal_path
+from morice.settings import load_settings, normalize_wake_phrase
+from morice.config import local_data_dir
+from morice.wake_runtime import app_session_active, voice_session_active, write_wake_request
 
 
-ROOT = Path(__file__).resolve().parent
-EXE_PATH = ROOT / "dist" / "MORICE" / "MORICE.exe"
-VOICE_MODELS = ROOT / "voice_models"
-LOG_PATH = ROOT / "morice_wake_listener.log"
+FROZEN = bool(getattr(sys, "frozen", False))
+ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
+PACKAGE_ROOT = Path(getattr(sys, "_MEIPASS", ROOT))
+EXE_PATH = Path(sys.executable).resolve() if FROZEN else ROOT / "dist" / "MORICE" / "MORICE.exe"
+VOICE_MODELS = PACKAGE_ROOT / "voice_models" if FROZEN else ROOT / "voice_models"
+LOG_PATH = local_data_dir() / "runtime" / "wake-listener.log"
 SAMPLE_RATE = 16000
 BLOCK_SIZE = 640
 BLOCK_DURATION_SECONDS = BLOCK_SIZE / SAMPLE_RATE
@@ -48,12 +53,40 @@ SENSITIVITY_PROFILES = {
     "balanced": {"target_rms": 1500.0, "max_gain": 10.0, "clap_scale": 1.0},
     "high": {"target_rms": 1800.0, "max_gain": 14.0, "clap_scale": 0.82},
 }
+_LISTENER_MUTEX_HANDLE = None
+
+
+def acquire_listener_instance() -> bool:
+    """Keep one packaged wake daemon per signed-in Windows user."""
+
+    global _LISTENER_MUTEX_HANDLE
+    if os.name != "nt":
+        return True
+    try:
+        handle = ctypes.windll.kernel32.CreateMutexW(
+            None,
+            False,
+            "Local\\MORICE.BackgroundWake.Listener",
+        )
+        error = ctypes.windll.kernel32.GetLastError()
+    except Exception:
+        # Audio stream ownership still prevents silent fake success if the
+        # host cannot provide the ordinary Win32 mutex API.
+        return True
+    if not handle:
+        return True
+    if error == 183:  # ERROR_ALREADY_EXISTS
+        ctypes.windll.kernel32.CloseHandle(handle)
+        return False
+    _LISTENER_MUTEX_HANDLE = handle
+    return True
 
 
 def log(message: str) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}"
     print(line, flush=True)
     try:
+        LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         if LOG_PATH.exists() and LOG_PATH.stat().st_size > LOG_MAX_BYTES:
             backup = LOG_PATH.with_suffix(".log.1")
             if backup.exists():
@@ -252,6 +285,12 @@ class RotateAudioDevice(RuntimeError):
     pass
 
 
+class PauseForVoiceSession(RuntimeError):
+    """Close the wake capture while Live Action owns the microphone."""
+
+    pass
+
+
 def find_vosk_model() -> Path | None:
     VOICE_MODELS.mkdir(exist_ok=True)
     candidates: list[Path] = []
@@ -275,22 +314,12 @@ def find_vosk_model() -> Path | None:
 
 
 def morice_is_running() -> bool:
-    exe_running = False
-    try:
-        result = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq MORICE.exe", "/FO", "CSV", "/NH"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
-        )
-    except Exception:
-        result = None
-    if result is not None:
-        rows = csv.reader(io.StringIO(result.stdout))
-        exe_running = any(row and row[0].strip('"').lower() == "morice.exe" for row in rows)
-    if exe_running or os.name != "nt":
-        return exe_running
+    # The packaged daemon is also named MORICE.exe, so process-name checks
+    # produce a false positive. The UI publishes an exact PID lease instead.
+    if app_session_active():
+        return True
+    if FROZEN or os.name != "nt":
+        return False
 
     try:
         result = subprocess.run(
@@ -315,12 +344,41 @@ def morice_is_running() -> bool:
 
 
 def write_wake_signal(source: str) -> None:
-    path = wake_signal_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    temporary_path = f"{path}.{os.getpid()}.tmp"
-    with open(temporary_path, "w", encoding="utf-8") as handle:
-        handle.write(source)
-    os.replace(temporary_path, path)
+    write_wake_request(source)
+
+
+def background_process_options() -> dict:
+    """Popen options for a cold wake that must not steal a game's focus."""
+
+    options = {
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "creationflags": subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+    }
+    if os.name == "nt" and hasattr(subprocess, "STARTUPINFO"):
+        startup_info = subprocess.STARTUPINFO()
+        startup_info.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 1)
+        # SW_SHOWMINNOACTIVE: start minimized without activating the window.
+        startup_info.wShowWindow = 7
+        options["startupinfo"] = startup_info
+    return options
+
+
+def wait_for_voice_session_release(
+    *,
+    probe=voice_session_active,
+    sleeper=time.sleep,
+    poll_seconds: float = 0.25,
+) -> bool:
+    """Wait without an open capture stream while Live Action uses the mic."""
+
+    if not probe():
+        return False
+    log("Live Action owns the microphone; wake capture paused")
+    while probe():
+        sleeper(max(0.02, float(poll_seconds)))
+    log("Live Action ended; wake capture resumed")
+    return True
 
 
 def wake_morice(source: str) -> None:
@@ -332,6 +390,7 @@ def wake_morice(source: str) -> None:
     env = os.environ.copy()
     env["MORICE_START_AWAKE"] = "1"
     env["MORICE_WAKE_SOURCE"] = source
+    env["MORICE_BACKGROUND_WAKE"] = "1"
     launchers = []
     if EXE_PATH.exists():
         launchers.append(([str(EXE_PATH)], EXE_PATH.parent, "exe"))
@@ -346,9 +405,7 @@ def wake_morice(source: str) -> None:
                 args,
                 cwd=str(cwd),
                 env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                **background_process_options(),
             )
             # A missing DLL or bad executable can exit immediately even though
             # Popen succeeded. Fall through to the next launcher in that case.
@@ -592,6 +649,13 @@ def main() -> int:
         return self_test()
     if "--list-devices" in sys.argv:
         return list_devices()
+    enabled = os.getenv("MORICE_ENABLE_ALWAYS_ON_WAKE", "1").strip().casefold()
+    if enabled in {"0", "false", "no", "off", "disabled"}:
+        log("background wake is disabled by MORICE_ENABLE_ALWAYS_ON_WAKE")
+        return 0
+    if not acquire_listener_instance():
+        log("another wake listener is already active")
+        return 0
 
     wake_phrase = configured_wake_phrase()
     log(f"listener starting; wake phrase={wake_phrase!r}")
@@ -622,6 +686,7 @@ def main() -> int:
     stream_index = 0
 
     while True:
+        wait_for_voice_session_release()
         option = stream_options[stream_index % len(stream_options)]
         source_rate = int(option["rate"])
         source_block_size = max(320, int(round(source_rate * BLOCK_DURATION_SECONDS)))
@@ -662,6 +727,9 @@ def main() -> int:
                     except queue.Empty as exc:
                         raise RotateAudioDevice("microphone stopped delivering audio") from exc
                     now = time.monotonic()
+
+                    if voice_session_active():
+                        raise PauseForVoiceSession()
 
                     if now - last_settings_refresh >= SETTINGS_REFRESH_SECONDS:
                         last_settings_refresh = now
@@ -738,6 +806,10 @@ def main() -> int:
                             transcript.reset()
                             if recognizer is not None and hasattr(recognizer, "Reset"):
                                 recognizer.Reset()
+        except PauseForVoiceSession:
+            # Do not rotate away from the user's selected microphone. The
+            # outer lease check waits with no capture stream until Voice exits.
+            continue
         except RotateAudioDevice as exc:
             stream_index = (stream_index + 1) % len(stream_options)
             log(f"switching microphone input: {exc}")

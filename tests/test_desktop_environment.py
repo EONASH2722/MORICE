@@ -109,6 +109,19 @@ class PermissionAndControlTests(unittest.TestCase):
                     image_name="demo.exe",
                 )
 
+    def test_application_discovery_never_writes_after_shutdown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            applications = ApplicationManager(
+                Path(directory), DesktopPermissionManager()
+            )
+            applications.shutdown()
+
+            with mock.patch.object(applications, "_save") as save:
+                result = applications.refresh_discovery(force=True)
+
+            self.assertEqual(result, ())
+            save.assert_not_called()
+
     def test_clipboard_is_opt_in_and_memory_only(self):
         permissions = DesktopPermissionManager()
         clipboard = ClipboardManager(permissions)

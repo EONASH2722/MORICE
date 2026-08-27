@@ -104,6 +104,12 @@ DEFAULT_COMMANDS = (
     CommandItem("workspace", "Toggle workspace hub", "Dashboard, files, tools", "panel dock"),
     CommandItem("project", "Switch to Project mode", "Build and edit a work folder", "code"),
     CommandItem("normal-chat", "Switch to Normal chat", "Conversation and VNext", "chat"),
+    CommandItem(
+        "voice-mode",
+        "Switch to Live Action",
+        "Hands-free conversation with Chat, Lab, Tools, and Project features",
+        "speech microphone talk",
+    ),
     CommandItem("open-file", "Open file", "Preview a local file", "browse"),
     CommandItem("find-files", "Find files", "Search common local folders", "search"),
     CommandItem(

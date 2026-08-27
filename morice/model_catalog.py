@@ -8,6 +8,8 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
+from .config import local_data_dir
+
 
 KNOWN_MODEL_EXTENSIONS = {
     ".gguf",
@@ -571,10 +573,7 @@ def local_model_result(path: str) -> dict:
 
 
 def default_model_download_dir() -> str:
-    base = os.getenv("LOCALAPPDATA", "").strip()
-    if base:
-        return os.path.join(base, "MORICE", "models")
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".morice", "models"))
+    return str(local_data_dir() / "models")
 
 
 def _read_prefix(path: str, size: int = 4096) -> bytes:

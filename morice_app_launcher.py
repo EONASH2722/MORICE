@@ -2,6 +2,8 @@ import os
 import subprocess
 import sys
 
+from morice.config import configure_process_temp_dir, load_environment, local_data_dir
+
 
 def _asset_path(*parts: str) -> str:
     if getattr(sys, "frozen", False):
@@ -26,10 +28,21 @@ def _configure_local_model_defaults():
         return
 
     gguf_candidates = [
+        _project_path("Parable-Qwen3-4B-Claude-Fable-5-GGUF-Q5_K_M.gguf"),
         _project_path("Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf"),
+        _asset_path("Parable-Qwen3-4B-Claude-Fable-5-GGUF-Q5_K_M.gguf"),
         _asset_path("Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf"),
     ]
-    server_path = _asset_path("llama-bin", "llama-server.exe")
+    cuda_server = str(local_data_dir() / "llama-cuda" / "llama-server.exe")
+    server_candidates = [
+        cuda_server,
+        _asset_path("llama-bin", "llama-server.exe"),
+        _project_path("third_party", "llama-win-cpu", "llama-server.exe"),
+    ]
+    server_path = next(
+        (path for path in server_candidates if path and os.path.isfile(path)),
+        "",
+    )
 
     gguf_path = next((path for path in gguf_candidates if os.path.exists(path)), "")
     stale_default_model = any(
@@ -42,7 +55,7 @@ def _configure_local_model_defaults():
         os.environ["MORICE_GGUF_PATH"] = gguf_path
         if not configured_model or stale_default_model:
             os.environ["MORICE_MODEL"] = "local-gguf"
-    if os.path.exists(server_path):
+    if server_path:
         os.environ.setdefault("MORICE_LLAMA_SERVER_PATH", server_path)
         os.environ.setdefault("MORICE_LLAMA_SERVER", "1")
 
@@ -63,6 +76,8 @@ def _fix_pyside_paths():
                 pass
 
 
+load_environment()
+configure_process_temp_dir()
 _configure_local_model_defaults()
 _fix_pyside_paths()
 
@@ -77,6 +92,11 @@ if "--morice-plugin-host" in sys.argv:
 
     sys.argv.remove("--morice-plugin-host")
     raise SystemExit(run_plugin_host())
+
+if "--morice-wake-listener" in sys.argv:
+    from morice_wake_listener import main as run_wake_listener
+
+    raise SystemExit(run_wake_listener())
 
 
 def _handoff_pending_update() -> bool:

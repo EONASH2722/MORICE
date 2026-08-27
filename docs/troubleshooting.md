@@ -34,7 +34,7 @@ The authoritative source is the active-model status and model manager, not the m
 
 ### Can I use a hosted API?
 
-General hosted-provider API-key configuration is not integrated in `0.7.0`. Use a local GGUF or local Ollama model.
+General hosted LLM-provider configuration is not integrated. Model inference remains local GGUF/Ollama. ElevenLabs is supported only for optional text-to-speech and its key is stored with Windows DPAPI or supplied through the ignored local `.env` file.
 
 ## Visualization
 
@@ -60,8 +60,8 @@ No. Supported component scenes are labeled educational. Numerical graphs and sup
 
 - Select a work folder with `+`.
 - Do not select the MORICE installation folder.
-- Wait for a proposed manifest and review the diff.
-- Press Apply; generation alone does not mutate the workspace.
+- In folder-limited mode, wait for the proposed manifest, review the diff, and press Apply.
+- In Full access, routine validated project files are written atomically and the diff becomes an audit view. Confirm the reply says the write was verified.
 - Keep folder-limited paths under the selected root.
 - Check Project output for invalid JSON, model timeout, missing toolchain, or test failure.
 
@@ -81,7 +81,27 @@ Use the close control on Project changes/Lab, then reset the workspace layout if
 python diagnose-wake-listener.py
 ```
 
-Grant Windows microphone permission, choose the intended input, reduce competing background audio, and recalibrate. Adaptive gain and noise-floor learning improve weak microphones but cannot recover clipped or absent audio.
+First enter **Mode > Live Action**. Grant Windows microphone permission, choose the intended input, reduce competing background audio, and recalibrate. Adaptive gain and noise-floor learning improve weak microphones but cannot recover clipped or absent audio. The installed background listener releases its microphone lease while Live Action is active. Disable it with `MORICE_ENABLE_ALWAYS_ON_WAKE=0` or Windows Startup Apps when diagnosing another application's exclusive microphone access.
+
+### Speech input or spoken replies do not work
+
+Enter **Mode > Live Action**, then open **Panel > Live Action voice configuration**. Speech input needs a detected Vosk model, Windows microphone permission, and a working input device. If a saved hardware endpoint is unsupported, select **System default**; MORICE also falls back to the Windows default automatically. ElevenLabs output needs **Speak MORICE replies in Live Action** enabled and a key saved through **Store API key securely**. MORICE never saves the key in `settings.json`; the field clears after storage. The local `.env` template is an alternative for development and must remain untracked. Leaving Live Action intentionally stops camera, microphone input, and spoken output.
+
+Open **Tools > Diagnostics > Voice** and run **Test Microphone**. A detected device plus a changing level confirms capture independently of recognition. The result lists the selected/default endpoint, sample rate, VAD state, and exact backend error; the temporary sample is not retained.
+
+### Camera preview or visual answers do not work
+
+Enter **Mode > Live Action** and press **Turn camera on**. If the preview stays unavailable, allow camera access in Windows **Privacy & security > Camera**, close another application that may exclusively own the camera, and reselect the device. Diagnostics > Voice lists the camera state, active device, actual resolution, preview FPS, frame conversion failures, vision-provider state, visual-model name, request latency, last failure, and temporary-memory state. A preview without a visual answer usually means the local visual model is unavailable or the frame failed the darkness, contrast, blur, or freshness gate; MORICE reports the exact condition in the glass overlay.
+
+## Amazon Music
+
+### Amazon Music is installed but MORICE says application not found
+
+Refresh or restart MORICE so its cached Windows application index is rebuilt. The index includes Start apps/Store identities, Start Menu shortcuts, App Paths, PATH, common install locations, and running processes. Confirm **Default music provider** is `Amazon Music`. MORICE should resolve `Amazon Music`, `music`, and `music app` to the Store app identity rather than treating the rest of a compound command as part of the app name.
+
+### A requested track did not start
+
+MORICE only reports a specific-song request as verified when the semantic Amazon search result and the Windows Amazon media session agree on the playing track. Account prompts such as “stream from this device” are handled during an explicit play request. An unnamed playlist remains ambiguous and requires its name. Amazon does not consistently expose playback position, so track restart can be sent without being independently verifiable.
 
 ## Performance
 

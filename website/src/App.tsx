@@ -20,11 +20,13 @@ const features = [
   ['04', 'Interactive graphs', 'Pan, zoom, inspect, reset, and export real mathematical plots.'],
   ['05', 'Scientific visuals', 'Explore chemistry, biology, data structures, and diagrams.'],
   ['06', 'Physics simulations', 'Run particles, waves, pendulums, orbits, and dynamic systems.'],
-  ['07', 'Voice activation', 'Move into a hands-free workspace with interruptible speech.'],
-  ['08', 'Optional web lookup', 'Reach online only when the task needs current information.'],
+  ['07', 'Live Action', 'Talk naturally with interruptible speech, camera context, and the full workspace.'],
+  ['08', 'Automatic web context', 'Reach online only when a request needs current information, then fall back locally offline.'],
   ['09', 'Model selection', 'Choose the local model and runtime that fit your machine.'],
   ['10', 'Prompt steering', 'Queue, redirect, cancel, and resume work while MORICE is active.'],
   ['11', 'Desktop native', 'A focused Windows workspace with tools, files, and diagnostics.'],
+  ['12', 'Background wake', 'Wake locally by name, a configured magic word, or double-clap without taking focus.'],
+  ['13', 'Adaptive execution', 'Match goals to verified tools, device context, and review boundaries before acting.'],
 ]
 
 const showcase = {
@@ -38,7 +40,7 @@ function Header({ quality, setQuality }: { quality: Quality; setQuality: (q: Qua
   return <header className="site-header">
     <a className="brand" href="#top" aria-label="MORICE home"><span className="brand-logo-frame" aria-hidden="true"><img className="brand-logo" src="./morice-logo.png" alt="" /></span><span>MORICE</span></a>
     <nav aria-label="Main navigation">
-      <a href="#features">Features</a><a href="#visualizations">Visualizations</a><a href="#privacy">Privacy</a>
+      <a href="#features">Features</a><a href="#visualizations">Visualizations</a><a href="#live-action">Live Action</a><a href="#privacy">Privacy</a>
       <a href={`${repo}/tree/main/docs`}>Documentation</a><a href={repo}>GitHub</a>
     </nav>
     <div className="header-actions">
@@ -97,12 +99,44 @@ function Visualizations() {
   </section>
 }
 
+const contextRoute = [
+  ['Local first', 'Checks local knowledge and available tools.'],
+  ['Notes when relevant', 'Brings in useful local notes automatically.'],
+  ['Web when current', 'Uses source-linked web context when freshness matters.'],
+  ['Local fallback offline', 'Keeps working without an internet connection.'],
+]
+
+function LiveAction() {
+  return <section className="live-action" id="live-action">
+    <div className="live-action-inner">
+      <div className="live-action-copy">
+        <h2>Present when <em>called.</em><br />Quiet when <em>not.</em></h2>
+        <p>Say MORICE, use a magic word, or double-clap. Live Action opens without stealing focus.</p>
+        <div className="local-listening"><i aria-hidden="true" /><span>Listening locally…</span></div>
+        <div className="live-wave" aria-hidden="true">{Array.from({ length: 34 }, (_, i) => <i key={i} style={{ '--i': i, '--h': `${6 + Math.abs(Math.sin(i * .73)) * 29}px` } as React.CSSProperties} />)}</div>
+        <div className="camera-privacy"><span aria-hidden="true">▣</span> Camera stays off until you enter Live Action.</div>
+      </div>
+      <div className="live-stage" aria-label="Live Action camera and voice workspace preview">
+        <div className="live-stage-head"><span><i /> Live Action</span><b>—　⌗</b></div>
+        <div className="focus-corners" aria-hidden="true"><i/><i/><i/><i/></div>
+        <div className="stage-pulse" aria-hidden="true" />
+        <div className="voice-dock"><b aria-hidden="true">●</b><span><i /> Listening locally</span><small>Wake word: MORICE</small></div>
+      </div>
+    </div>
+    <div className="context-route" aria-label="Automatic context routing">
+      {contextRoute.map(([title, copy], index) => <article key={title} className={index === 0 ? 'active' : ''}>
+        <span>{String(index + 1).padStart(2, '0')}</span><div><h3>{title}</h3><p>{copy}</p></div>
+      </article>)}
+    </div>
+  </section>
+}
+
 function Privacy() {
   return <section className="section privacy" id="privacy">
     <div className="privacy-title"><p>Private by design</p><h2>Your conversations belong<br />on your machine.</h2></div>
     <div className="privacy-split">
       <article><span className="mode-number">01</span><h3>Local processing</h3><strong>Private by default.</strong><p>Your prompts, files, and local model inference stay on the computer you control.</p><ul><li>Works offline</li><li>Local conversation context</li><li>Your model, your hardware</li></ul></article>
-      <article><span className="mode-number">02</span><h3>Optional online lookup</h3><strong>Only when you choose.</strong><p>Use online context for current information without making the cloud your default workspace.</p><ul><li>Explicit opt-in</li><li>Permission-aware tools</li><li>Visible activity</li></ul></article>
+      <article><span className="mode-number">02</span><h3>Automatic online context</h3><strong>Only when the answer needs it.</strong><p>MORICE recognizes freshness-sensitive questions, uses source-linked web context when online, and stays local when offline.</p><ul><li>No special command</li><li>Local fallback</li><li>Visible sources</li></ul></article>
     </div>
   </section>
 }
@@ -116,5 +150,5 @@ function Download() {
 
 export default function App() {
   const [quality, setQuality] = useState<Quality>('auto')
-  return <><a className="skip-link" href="#features">Skip cinematic introduction</a><Header quality={quality} setQuality={setQuality} /><main><Hero quality={quality} /><Intro /><Visualizations /><Privacy /><Download /></main><footer><a className="brand" href="#top"><span className="brand-logo-frame" aria-hidden="true"><img className="brand-logo" src="./morice-logo.png" alt="" /></span>MORICE</a><span>Local intelligence, under your control.</span><a href={repo}>GitHub ↗</a></footer></>
+  return <><a className="skip-link" href="#features">Skip cinematic introduction</a><Header quality={quality} setQuality={setQuality} /><main><Hero quality={quality} /><Intro /><Visualizations /><LiveAction /><Privacy /><Download /></main><footer><a className="brand" href="#top"><span className="brand-logo-frame" aria-hidden="true"><img className="brand-logo" src="./morice-logo.png" alt="" /></span>MORICE</a><span>Local intelligence, under your control.</span><a href={repo}>GitHub ↗</a></footer></>
 }

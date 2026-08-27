@@ -1,6 +1,6 @@
 #define MyAppName "MORICE"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.7.0"
+  #define MyAppVersion "0.8.0"
 #endif
 #define MyAppPublisher "EONASH2722"
 #define MyAppExeName "MORICE.exe"
@@ -30,7 +30,7 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
 AppMutex=MORICE.Desktop.Platform
-VersionInfoVersion=0.7.0.0
+VersionInfoVersion=0.8.0.0
 VersionInfoDescription=MORICE desktop AI platform
 VersionInfoProductName=MORICE
 
@@ -47,7 +47,11 @@ Source: "{#MyAppSourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesub
 Name: "{autoprograms}\MORICE"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{autodesktop}\MORICE"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MORICE Wake Listener"; ValueData: """{app}\{#MyAppExeName}"" --morice-wake-listener"; Flags: uninsdeletevalue
+
 [Run]
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--morice-wake-listener"; Description: "Start MORICE background wake listener"; Flags: nowait postinstall skipifsilent runhidden
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch MORICE"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]

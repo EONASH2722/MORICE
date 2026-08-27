@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -13,10 +14,11 @@ import threading
 import time
 import traceback
 import uuid
+import webbrowser
 from collections import defaultdict, deque
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator
@@ -26,6 +28,36 @@ from .agent_orchestrator import AgentOrchestrator
 from .platform_services import PlatformServices
 from .plugin_manager import PluginManager
 from .desktop_environment import DesktopIntegrationLayer
+from .config import load_tts_config
+from .connectivity import BluetoothManager, NetworkManager
+from .device_intelligence import (
+    DeviceAdapterRegistry,
+    DeviceController,
+    DeviceRegistry,
+    EnvironmentRegistry,
+)
+from .live_vision import LiveVisionRuntime, LlamaCppVisionProvider
+from .pc_control import (
+    DesktopContext,
+    FastActionRouter,
+    PermissionBroker,
+    PermissionCategory,
+    PolicyMode,
+    build_pc_control_registry,
+)
+from .platform_adapters import select_platform_adapter
+from .realtime_intelligence import RealtimeIntelligence
+from .settings import load_settings, normalize_boolean_setting
+from .speech_runtime import SpeechInputConfig, SpeechToTextRuntime
+from .voice_runtime import VoiceRuntime
+from .web_search import search_web
+from .unified_intelligence import (
+    CapabilityRegistry,
+    GoalExecutionOrchestrator,
+    PermissionController,
+    PermissionState,
+    WorkingMemory,
+)
 
 APP_VERSION = __version__
 MAX_LOG_RECORDS = 2_000
@@ -60,10 +92,29 @@ def _atomic_json_write(path: Path, value: Any) -> None:
             json.dump(value, stream, ensure_ascii=False, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        last_error: OSError | None = None
+        for attempt in range(3):
+            try:
+                os.replace(temporary, path)
+                last_error = None
+                break
+            except PermissionError as exc:
+                last_error = exc
+                try:
+                    if path.exists():
+                        path.chmod(path.stat().st_mode | stat.S_IWRITE)
+                except OSError:
+                    pass
+                if attempt < 2:
+                    time.sleep(0.04 * (attempt + 1))
+        if last_error is not None:
+            raise last_error
     finally:
         if os.path.exists(temporary):
-            os.unlink(temporary)
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
 
 
 @dataclass(frozen=True)
@@ -456,42 +507,67 @@ class BackgroundTaskManager:
     ):
         self.logs = logs
         self.profiler = profiler
-        self._executor = ThreadPoolExecutor(
-            max_workers=max(2, min(12, int(max_workers))),
-            thread_name_prefix="morice-worker",
+        workers = max(2, min(12, int(max_workers)))
+        # Interactive work has reserved threads so an index scan, download, or
+        # maintenance burst cannot queue ahead of the current conversation.
+        self._interactive_executor = ThreadPoolExecutor(
+            max_workers=max(2, workers - 2),
+            thread_name_prefix="morice-interactive",
+        )
+        self._background_executor = ThreadPoolExecutor(
+            max_workers=min(2, workers),
+            thread_name_prefix="morice-background",
         )
         self._futures: dict[str, tuple[str, Future]] = {}
         self._lock = threading.RLock()
         self._closed = False
 
-    def submit(self, name: str, function, *args, **kwargs) -> Future:
+    def submit(
+        self,
+        name: str,
+        function,
+        *args,
+        priority: str = "background",
+        **kwargs,
+    ) -> Future:
         with self._lock:
             if self._closed:
                 raise RuntimeError("MORICE background task manager is shut down.")
             task_id = uuid.uuid4().hex
             started = time.perf_counter()
-            future = self._executor.submit(function, *args, **kwargs)
+            executor = (
+                self._interactive_executor
+                if str(priority).casefold() in {"interactive", "foreground", "high"}
+                else self._background_executor
+            )
+            future = executor.submit(function, *args, **kwargs)
             self._futures[task_id] = (str(name), future)
 
         def completed(done: Future) -> None:
             duration_ms = (time.perf_counter() - started) * 1000
             self.profiler.record_duration(str(name), duration_ms)
-            with self._lock:
-                self._futures.pop(task_id, None)
             try:
                 error = done.exception()
             except BaseException as exc:  # cancelled futures can raise
                 error = exc
-            self.logs.log(
-                "ERROR" if error else "INFO",
-                (
-                    f"Background task '{name}' failed: {error}"
-                    if error
-                    else f"Background task '{name}' completed in {duration_ms:.1f} ms."
-                ),
-                category="worker",
-                metadata={"taskId": task_id, "durationMs": duration_ms},
-            )
+            # Future waiters are notified before callbacks necessarily finish.
+            # Keep the final log write inside the manager lock so shutdown either
+            # waits for it or closes the manager first and suppresses the write.
+            # This prevents late callbacks from touching removed runtime storage.
+            with self._lock:
+                self._futures.pop(task_id, None)
+                if self._closed:
+                    return
+                self.logs.log(
+                    "ERROR" if error else "INFO",
+                    (
+                        f"Background task '{name}' failed: {error}"
+                        if error
+                        else f"Background task '{name}' completed in {duration_ms:.1f} ms."
+                    ),
+                    category="worker",
+                    metadata={"taskId": task_id, "durationMs": duration_ms},
+                )
 
         future.add_done_callback(completed)
         return future
@@ -508,12 +584,21 @@ class BackgroundTaskManager:
                 name for name, future in self._futures.values() if not future.done()
             )
 
-    def shutdown(self) -> None:
+    def shutdown(self, *, drain_seconds: float = 2.0) -> None:
         with self._lock:
             if self._closed:
                 return
             self._closed = True
-        self._executor.shutdown(wait=False, cancel_futures=True)
+            futures = tuple(future for _name, future in self._futures.values())
+        for future in futures:
+            future.cancel()
+        if futures and drain_seconds > 0:
+            # Give short native discovery and metrics calls time to leave their
+            # subprocesses. Long-running downloads/model jobs remain bounded by
+            # this timeout and never stall application exit indefinitely.
+            wait(futures, timeout=max(0.0, min(5.0, float(drain_seconds))))
+        self._interactive_executor.shutdown(wait=False, cancel_futures=True)
+        self._background_executor.shutdown(wait=False, cancel_futures=True)
 
 
 @dataclass(frozen=True)
@@ -758,10 +843,18 @@ class CrashRecoveryManager:
         self._previous_sys_hook = None
         self._previous_thread_hook = None
         self._hooks_installed = False
+        self.last_write_error = ""
 
     def begin_session(self) -> RecoveryInfo:
         with self._lock:
-            self.directory.mkdir(parents=True, exist_ok=True)
+            try:
+                self.directory.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                self.last_write_error = str(exc)
+                return RecoveryInfo(
+                    False,
+                    "Crash recovery is temporarily unavailable; MORICE continued safely.",
+                )
             previous_unclean = self.marker_path.exists()
             payload: dict[str, Any] = {}
             crash: dict[str, Any] = {}
@@ -776,14 +869,30 @@ class CrashRecoveryManager:
                             target.update(loaded)
                     except (OSError, ValueError, json.JSONDecodeError):
                         pass
-            _atomic_json_write(
-                self.marker_path,
-                {
-                    "sessionId": self.session_id,
-                    "pid": os.getpid(),
-                    "startedAt": _utc_now(),
-                },
-            )
+            try:
+                _atomic_json_write(
+                    self.marker_path,
+                    {
+                        "sessionId": self.session_id,
+                        "pid": os.getpid(),
+                        "startedAt": _utc_now(),
+                    },
+                )
+                self.last_write_error = ""
+            except OSError as exc:
+                # Recovery is protective state, not a reason to prevent the
+                # desktop app from launching (for example after a stale locked
+                # marker from a frozen process).
+                self.last_write_error = str(exc)
+                return RecoveryInfo(
+                    available=bool(previous_unclean and payload),
+                    reason=(
+                        "The previous session may not have closed cleanly. "
+                        "Recovery storage is temporarily locked, so MORICE continued without replacing it."
+                    ),
+                    payload=payload,
+                    crash=crash,
+                )
             return RecoveryInfo(
                 available=bool(previous_unclean and payload),
                 reason=(
@@ -809,7 +918,11 @@ class CrashRecoveryManager:
         if len(encoded) > MAX_RECOVERY_BYTES:
             raise ValueError("Recovery snapshot exceeds the 8 MB safety limit.")
         with self._lock:
-            _atomic_json_write(self.snapshot_path, clean)
+            try:
+                _atomic_json_write(self.snapshot_path, clean)
+                self.last_write_error = ""
+            except OSError as exc:
+                self.last_write_error = str(exc)
 
     def record_exception(
         self,
@@ -830,7 +943,11 @@ class CrashRecoveryManager:
             )[-300_000:],
         }
         with self._lock:
-            _atomic_json_write(self.crash_path, record)
+            try:
+                _atomic_json_write(self.crash_path, record)
+                self.last_write_error = ""
+            except OSError as exc:
+                self.last_write_error = str(exc)
 
     def install_exception_hooks(self, logs: StructuredLogManager) -> None:
         if self._hooks_installed:
@@ -889,6 +1006,8 @@ class CrashRecoveryManager:
                     path.unlink()
                 except FileNotFoundError:
                     pass
+                except OSError as exc:
+                    self.last_write_error = str(exc)
 
 
 @dataclass(frozen=True)
@@ -908,6 +1027,33 @@ class RuntimeSnapshot:
     desktop: dict[str, Any]
     plugins: dict[str, Any]
     autonomous_platform: dict[str, Any]
+    voice: dict[str, Any] = field(default_factory=dict)
+    speech_input: dict[str, Any] = field(default_factory=dict)
+    live_vision: dict[str, Any] = field(default_factory=dict)
+    realtime: dict[str, Any] = field(default_factory=dict)
+    pc_control: dict[str, Any] = field(default_factory=dict)
+    unified_intelligence: dict[str, Any] = field(default_factory=dict)
+    devices: dict[str, Any] = field(default_factory=dict)
+    connectivity: dict[str, Any] = field(default_factory=dict)
+
+
+class _SystemBrowserController:
+    """Small verified bridge to the user's registered Windows browser."""
+
+    def __init__(self) -> None:
+        self._current_url = ""
+        self._lock = threading.RLock()
+
+    @property
+    def current_url(self) -> str:
+        with self._lock:
+            return self._current_url
+
+    def open(self, url: str) -> None:
+        if not webbrowser.open(str(url), new=2, autoraise=True):
+            raise RuntimeError("Windows did not accept the browser request.")
+        with self._lock:
+            self._current_url = str(url)
 
 
 class RuntimeServices:
@@ -925,7 +1071,14 @@ class RuntimeServices:
         self.recovery = CrashRecoveryManager(base / "recovery")
         self.health_checker = StartupHealthChecker(project_root, base)
         self.agent = AgentOrchestrator(base / "agent", logger=self.logs.log)
-        self.desktop = DesktopIntegrationLayer(base / "desktop")
+        settings = load_settings()
+        self.default_music_provider = str(
+            settings.get("default_music_provider", "Amazon Music")
+        ).strip() or "Amazon Music"
+        self.desktop = DesktopIntegrationLayer(
+            base / "desktop",
+            default_music_provider=self.default_music_provider,
+        )
         core_root = (
             Path(project_root).resolve()
             if project_root
@@ -946,11 +1099,174 @@ class RuntimeServices:
             application_root=core_root,
             logger=self.logs.log,
         )
+        tts_config = load_tts_config(settings, root=core_root)
+        if not tts_config.api_configured:
+            vault_key = self.platform_services.vault.get("elevenlabs.api-key", "")
+            if vault_key:
+                tts_config = replace(tts_config, api_key=vault_key)
+
+        def safe_voice_log(event: str, metadata: dict[str, Any]) -> None:
+            self.logs.log(
+                "INFO" if not event.endswith("failure") else "WARNING",
+                "Voice runtime event.",
+                category="voice",
+                metadata=dict(metadata),
+            )
+
+        self.voice = VoiceRuntime(tts_config, safe_logger=safe_voice_log)
+        raw_input_device = str(settings.get("stt_input_device", "")).strip()
+        try:
+            input_device: int | str | None = (
+                int(raw_input_device) if raw_input_device else None
+            )
+        except ValueError:
+            input_device = raw_input_device or None
+        try:
+            max_listen = float(settings.get("stt_max_listen_seconds", "30"))
+        except (TypeError, ValueError):
+            max_listen = 30.0
+        speech_config = SpeechInputConfig(
+            enabled=normalize_boolean_setting(
+                str(settings.get("stt_enabled", "true")), default=True
+            ),
+            input_device=input_device,
+            max_listen_seconds=max(5.0, min(120.0, max_listen)),
+            auto_send=normalize_boolean_setting(
+                str(settings.get("stt_auto_send", "true")), default=True
+            ),
+        )
+        self.speech_input = SpeechToTextRuntime(
+            speech_config,
+            safe_logger=safe_voice_log,
+        )
+
+        def safe_vision_log(event: str, metadata: dict[str, Any]) -> None:
+            failure = str(metadata.get("failureCode", "")).strip()
+            self.logs.log(
+                "WARNING" if failure else "INFO",
+                "Live Vision runtime event.",
+                category="vision",
+                metadata={"event": str(event), **dict(metadata)},
+            )
+
+        vision_provider = LlamaCppVisionProvider(
+            model_path=str(settings.get("vision_model_path", "")).strip() or None,
+            mmproj_path=str(settings.get("vision_mmproj_path", "")).strip() or None,
+            hf_repository=str(settings.get("vision_hf_repository", "")).strip(),
+            gpu_layers=0,
+            logger=safe_vision_log,
+        )
+        self.live_vision = LiveVisionRuntime(
+            vision_provider,
+            enabled=normalize_boolean_setting(
+                str(settings.get("vision_processing_enabled", "true")),
+                default=True,
+            ),
+            logger=safe_vision_log,
+        )
+        self.realtime = RealtimeIntelligence()
+
+        routine_pc_defaults = {
+            PermissionCategory.READ_SYSTEM_STATE: PolicyMode.ALLOW,
+            PermissionCategory.APPLICATION_CONTROL: PolicyMode.ALLOW,
+            PermissionCategory.WINDOW_CONTROL: PolicyMode.ALLOW,
+            PermissionCategory.MEDIA_CONTROL: PolicyMode.ALLOW,
+            PermissionCategory.FILE_READ: PolicyMode.ALLOW,
+            PermissionCategory.BROWSER_CONTROL: PolicyMode.ALLOW,
+            PermissionCategory.NETWORK_ACCESS: PolicyMode.ALLOW,
+            # A direct "take a screenshot" utterance is itself an explicit,
+            # one-shot capture request; the lower desktop manager still issues
+            # and consumes an exact scoped grant for the capture parameters.
+            PermissionCategory.SCREEN_ACCESS: PolicyMode.ALLOW,
+        }
+        self.pc_permissions = PermissionBroker(
+            base / "pc-control" / "permissions.json",
+            defaults=routine_pc_defaults,
+        )
+        self.pc_context = DesktopContext()
+        self.pc_browser = _SystemBrowserController()
+        file_roots = tuple(
+            str(path)
+            for path in (
+                Path.home() / "Desktop",
+                Path.home() / "Documents",
+                Path.home() / "Downloads",
+                core_root,
+            )
+            if path.is_dir()
+        )
+        open_path = None
+        reveal_path = None
+        if os.name == "nt":
+            open_path = lambda value: os.startfile(value)  # type: ignore[attr-defined]
+            reveal_path = lambda value: subprocess.Popen(
+                ["explorer.exe", "/select,", str(value)],
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        self.pc_control = build_pc_control_registry(
+            self.desktop,
+            self.pc_permissions,
+            context=self.pc_context,
+            file_roots=file_roots,
+            browser=self.pc_browser,
+            web_search=search_web,
+            open_path=open_path,
+            reveal_path=reveal_path,
+        )
+        self.pc_router = FastActionRouter(
+            self.pc_context,
+            default_music_provider=self.default_music_provider,
+        )
+        # Shared goal/device foundations are always present, even when no
+        # external hardware adapters are installed. Empty registries report
+        # unsupported capability honestly instead of fabricating control.
+        self.unified_permissions = PermissionController(
+            states={
+                "application_control": PermissionState.GRANTED,
+                "file_read": PermissionState.GRANTED,
+                "media": PermissionState.GRANTED,
+                "network": PermissionState.GRANTED,
+                "read_system_state": PermissionState.GRANTED,
+                "connected_devices": PermissionState.ASK,
+            }
+        )
+        self.unified_capabilities = CapabilityRegistry()
+        self.unified_memory = WorkingMemory()
+        self.goals = GoalExecutionOrchestrator(
+            self.unified_capabilities,
+            memory=self.unified_memory,
+            permissions=self.unified_permissions,
+        )
+        self.device_registry = DeviceRegistry(base / "devices" / "registry.json")
+        self.device_adapters = DeviceAdapterRegistry()
+        self.device_controller = DeviceController(
+            self.device_registry,
+            self.device_adapters,
+            self.unified_permissions,
+        )
+        self.environment_registry = EnvironmentRegistry()
+        self.host_adapter = select_platform_adapter()
+        self.network = NetworkManager()
+        self.bluetooth = BluetoothManager()
         self.health_report = HealthReport(_utc_now(), ())
         self.recovery_info = RecoveryInfo(False)
+        self._live_camera_diagnostics: dict[str, Any] = {}
         self._started = False
         self._shutdown = False
         self._lock = threading.RLock()
+
+    def set_default_music_provider(self, provider: str) -> None:
+        clean = " ".join(str(provider or "").split())[:120]
+        if not clean:
+            return
+        self.default_music_provider = clean
+        self.desktop.applications.set_default_music_provider(clean)
+        self.desktop.media.set_default_music_provider(clean)
+        self.pc_router.set_default_music_provider(clean)
+
+    def update_live_camera_diagnostics(self, payload: dict[str, Any]) -> None:
+        with self._lock:
+            self._live_camera_diagnostics = dict(payload or {})
 
     @property
     def started(self) -> bool:
@@ -983,6 +1299,10 @@ class RuntimeServices:
                     "pid": os.getpid(),
                     "plugins": plugin_startup,
                 },
+            )
+            self.workers.submit(
+                "application-discovery",
+                self.desktop.applications.refresh_discovery,
             )
             self._started = True
             self._shutdown = False
@@ -1050,7 +1370,15 @@ class RuntimeServices:
             for item in renderer_capabilities
         )
         dependencies: dict[str, str] = {}
-        for distribution in ("PySide6", "numpy", "Pillow", "sounddevice", "vosk"):
+        for distribution in (
+            "PySide6",
+            "numpy",
+            "Pillow",
+            "sounddevice",
+            "vosk",
+            "elevenlabs",
+            "python-dotenv",
+        ):
             try:
                 dependencies[distribution] = importlib.metadata.version(distribution)
             except importlib.metadata.PackageNotFoundError:
@@ -1122,6 +1450,50 @@ class RuntimeServices:
             desktop=self.desktop.snapshot(),
             plugins=plugin_diagnostics,
             autonomous_platform=platform_snapshot,
+            voice={
+                "state": self.voice.status().state.value,
+                "provider": self.voice.status().provider,
+                "apiConfigured": self.voice.status().api_configured,
+                "queued": self.voice.status().queued,
+                "active": self.voice.status().active,
+                "lastErrorCode": self.voice.status().last_error_code.value,
+            },
+            speech_input=self.speech_input.diagnostics(),
+            live_vision={
+                **self.live_vision.diagnostics(),
+                "camera": dict(self._live_camera_diagnostics),
+            },
+            realtime=self.realtime.snapshot(),
+            pc_control={
+                "permissions": self.pc_permissions.snapshot(),
+                "capabilities": self.pc_control.capabilities(),
+                "context": {
+                    "activeApplication": self.pc_context.active_application,
+                    "lastFile": self.pc_context.last_file,
+                    "currentUrl": self.pc_context.current_url,
+                    "lastActionId": self.pc_context.last_action_id,
+                },
+            },
+            unified_intelligence={
+                "permissions": self.unified_permissions.snapshot(),
+                "capabilities": self.unified_capabilities.snapshot(),
+                "workingMemory": self.unified_memory.snapshot(),
+            },
+            devices={
+                "registry": self.device_registry.snapshot(),
+                "environment": self.environment_registry.snapshot(),
+            },
+            connectivity={
+                "host": {
+                    "adapter": self.host_adapter.adapter_id,
+                    "profile": self.host_adapter.profile().to_dict(),
+                    "capabilities": [
+                        item.to_dict() for item in self.host_adapter.capabilities()
+                    ],
+                },
+                "network": self.network.snapshot().to_dict(),
+                "bluetooth": self.bluetooth.snapshot().to_dict(),
+            },
         )
 
     def save_recovery_snapshot(self, payload: dict[str, Any]) -> None:
@@ -1142,6 +1514,10 @@ class RuntimeServices:
                 return
             failures: list[str] = []
             shutdown_steps = (
+                ("voice", self.voice.shutdown),
+                ("speech input", self.speech_input.shutdown),
+                ("live vision", self.live_vision.shutdown),
+                ("goal orchestrator", self.goals.shutdown),
                 ("platform", self.platform_services.shutdown),
                 ("plugins", self.plugins.shutdown),
                 ("desktop", self.desktop.shutdown),

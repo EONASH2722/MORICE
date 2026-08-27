@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -113,6 +114,8 @@ class ProjectIndex:
     git: dict[str, object]
     truncated: bool = False
     warnings: tuple[str, ...] = ()
+    reused_files: int = 0
+    changed_files: int = 0
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -122,17 +125,35 @@ class ProjectIndexer:
     def __init__(self, *, max_files: int = 6_000, max_file_bytes: int = 1_000_000):
         self.max_files = max(1, int(max_files))
         self.max_file_bytes = max(4_096, int(max_file_bytes))
+        self._cache: dict[str, ProjectIndex] = {}
+        self._lock = threading.RLock()
+
+    def invalidate(self, root: str | os.PathLike[str] | None = None) -> None:
+        """Invalidate one cached project or every cached project."""
+
+        with self._lock:
+            if root is None:
+                self._cache.clear()
+            else:
+                self._cache.pop(str(Path(root).expanduser().resolve()), None)
 
     def build(self, root: str | os.PathLike[str]) -> ProjectIndex:
         base = Path(root).expanduser().resolve()
         if not base.is_dir():
             raise ValueError("Project root must be an existing directory.")
+        with self._lock:
+            previous = self._cache.get(str(base))
+        previous_files = {
+            item.path: item for item in previous.files
+        } if previous is not None else {}
         files: list[IndexedFile] = []
         languages: dict[str, int] = {}
         assets: list[str] = []
         configuration: list[str] = []
         warnings: list[str] = []
         truncated = False
+        reused_files = 0
+        changed_files = 0
         for dirpath, dirnames, filenames in os.walk(base, followlinks=False):
             dirnames[:] = [
                 name for name in sorted(dirnames)
@@ -167,7 +188,19 @@ class ProjectIndexer:
                 digest = ""
                 symbols: tuple[IndexedSymbol, ...] = ()
                 imports: tuple[str, ...] = ()
-                if extension in TEXT_EXTENSIONS and stat.st_size <= self.max_file_bytes:
+                cached = previous_files.get(relative)
+                if (
+                    cached is not None
+                    and cached.size == stat.st_size
+                    and cached.modified_ns == stat.st_mtime_ns
+                    and cached.language == language
+                ):
+                    digest = cached.digest
+                    symbols = cached.symbols
+                    imports = cached.imports
+                    reused_files += 1
+                elif extension in TEXT_EXTENSIONS and stat.st_size <= self.max_file_bytes:
+                    changed_files += 1
                     try:
                         data = path.read_bytes()
                         digest = hashlib.sha256(data).hexdigest()[:16]
@@ -189,7 +222,7 @@ class ProjectIndexer:
             if truncated:
                 break
         names = {item.path.lower() for item in files}
-        return ProjectIndex(
+        index = ProjectIndex(
             root=str(base),
             files=tuple(files),
             languages=dict(sorted(languages.items(), key=lambda item: (-item[1], item[0]))),
@@ -202,7 +235,12 @@ class ProjectIndexer:
             git=self._git_context(base),
             truncated=truncated,
             warnings=tuple(warnings[:100]),
+            reused_files=reused_files,
+            changed_files=changed_files,
         )
+        with self._lock:
+            self._cache[str(base)] = index
+        return index
 
     def search(
         self,

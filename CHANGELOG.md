@@ -4,12 +4,44 @@ All notable changes to MORICE are documented here.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-08-27
+
+### Added
+
+- Added Live Action as a separate camera-centered voice workspace with offline Vosk input,
+  interruptible ElevenLabs output, barge-in, glass response overlays, typed input, visual
+  rendering, desktop tools, and Project builds.
+- Added explicit, memory-only camera capture and on-demand local multimodal inference with
+  freshness, quality, and truthful-failure gates.
+- Added an installed local background wake listener for MORICE, configured magic words, and
+  double-clap, including foreground-safe minimized launch and microphone lease coordination.
+- Added deterministic fast routing for Windows applications, system state, media controls,
+  Amazon Music search/play, network observation, and Windows Bluetooth discovery.
+- Added typed goal state, capability inference, adaptive context selection, device intelligence,
+  and cross-platform adapter contracts without claiming unimplemented remote control.
+- Added automatic relevant-note selection and freshness-sensitive source-linked web context with
+  a local offline fallback; special chat commands are no longer required.
+- Added the SmolVLM2 500M vision model/projector pair to packaged Windows builds.
+
+### Changed
+
+- Reduced local reply latency with model prewarm, fast-tool bypasses, bounded context, streaming
+  response milestones, and speech prewarm.
+- Full-access Project Mode now applies validated routine files atomically instead of presenting a
+  success message while leaving the work folder unchanged. Folder-limited mode keeps review.
+- Reworked the public site with a responsive Live Action section and accurate automatic-context
+  and privacy language.
+
 ### Fixed
 
 - Made release-note discovery version-driven instead of hardcoding one release filename.
 - Updated version validation for the product-focused README and release download path.
 - Generalized package auditing to reject hidden internal tooling directories while preserving
   the public GitHub workflow directory.
+- Prevented short background discovery subprocesses from leaking beyond runtime shutdown.
+- Made packaged vision use the shared bundled llama resolver and an enforced JSON response format.
+- Fixed packaged wake-listener startup, runtime paths, single-instance behavior, and UI-process
+  detection.
 
 ### Documentation
 

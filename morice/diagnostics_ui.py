@@ -9,6 +9,7 @@ from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QComboBox,
+    QCheckBox,
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -141,12 +142,14 @@ class DiagnosticsDialog(QDialog):
         self.performance_page = self._build_performance()
         self.agent_page = self._build_agent()
         self.components_page = self._build_components()
+        self.voice_page = self._build_voice()
         self.tabs.addTab(self.overview_page, "Overview")
         self.tabs.addTab(self.health_page, "Health")
         self.tabs.addTab(self.logs_page, "Logs")
         self.tabs.addTab(self.performance_page, "Performance")
         self.tabs.addTab(self.agent_page, "Agent")
         self.tabs.addTab(self.components_page, "Components")
+        self.tabs.addTab(self.voice_page, "Voice")
         root.addLayout(header)
         root.addWidget(self.tabs, stretch=1)
 
@@ -252,6 +255,51 @@ class DiagnosticsDialog(QDialog):
         layout.addWidget(self.components_tree, stretch=1)
         return page
 
+    def _build_voice(self) -> QWidget:
+        page, layout = self._page()
+        hint = QLabel(
+            "Live STT diagnostics. Microphone tests keep only level/result metadata; audio is discarded."
+        )
+        hint.setWordWrap(True)
+        controls = QHBoxLayout()
+        self.microphone_test_button = QPushButton("Test Microphone")
+        self.microphone_test_button.clicked.connect(self._test_microphone)
+        self.microphone_playback = QCheckBox("Play sample back")
+        self.microphone_test_status = QLabel("No microphone test run yet.")
+        self.microphone_test_status.setWordWrap(True)
+        controls.addWidget(self.microphone_test_button)
+        controls.addWidget(self.microphone_playback)
+        controls.addWidget(self.microphone_test_status, stretch=1)
+        self.voice_tree = QTreeWidget()
+        self.voice_tree.setObjectName("DiagnosticsVoiceTree")
+        self.voice_tree.setHeaderLabels(["Voice diagnostic", "Value"])
+        self.voice_tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.voice_tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
+        layout.addWidget(hint)
+        layout.addLayout(controls)
+        layout.addWidget(self.voice_tree, stretch=1)
+        return page
+
+    def _test_microphone(self) -> None:
+        self.microphone_test_button.setEnabled(False)
+        self.microphone_test_status.setText("Testing the selected microphone...")
+        try:
+            result = self.runtime.speech_input.test_microphone(
+                duration_seconds=0.8,
+                playback=self.microphone_playback.isChecked(),
+            )
+            self.microphone_test_status.setText(str(result.get("message", "")))
+        except Exception as exc:  # noqa: BLE001
+            self.microphone_test_status.setText(f"Microphone test failed: {exc}")
+        finally:
+            self.microphone_test_button.setEnabled(True)
+        if self.last_snapshot is not None:
+            self._refresh_voice_values(
+                self.runtime.speech_input.diagnostics(),
+                self.last_snapshot.voice,
+                self.last_snapshot.live_vision,
+            )
+
     def _build_agent(self) -> QWidget:
         page, layout = self._page()
         self.agent_tree = QTreeWidget()
@@ -312,6 +360,29 @@ class DiagnosticsDialog(QDialog):
         self._refresh_performance(snapshot)
         self._refresh_agent(snapshot)
         self._refresh_components(snapshot)
+        self._refresh_voice_values(
+            snapshot.speech_input,
+            snapshot.voice,
+            snapshot.live_vision,
+        )
+
+    def _refresh_voice_values(
+        self,
+        speech: dict[str, Any],
+        voice: dict[str, Any],
+        live_vision: dict[str, Any] | None = None,
+    ) -> None:
+        self.voice_tree.clear()
+        sections = {
+            "Speech input": speech,
+            "Speech output": voice,
+            "Live Vision": dict(live_vision or {}),
+        }
+        for name, values in sections.items():
+            root = QTreeWidgetItem([name, ""])
+            self.voice_tree.addTopLevelItem(root)
+            self._append_mapping(root, dict(values))
+            root.setExpanded(True)
 
     def _append_mapping(
         self, parent: QTreeWidgetItem, mapping: dict[str, Any]

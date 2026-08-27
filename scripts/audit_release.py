@@ -24,6 +24,7 @@ SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     "GitHub token": re.compile(r"\b(?:ghp|github_pat)_[A-Za-z0-9_]{20,}\b"),
     "OpenAI-style key": re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    "ElevenLabs-style key": re.compile(r"\bsk_[A-Za-z0-9_-]{20,}\b"),
 }
 
 
@@ -37,6 +38,8 @@ def _sha256(path: Path) -> str:
 
 def _unsafe_member(name: str, *, allow_tests: bool = False) -> str | None:
     path = PurePosixPath(name)
+    if path.name.casefold() == ".env":
+        return "runtime secret file '.env'"
     hidden_directories = [
         part for part in path.parts[:-1] if part.startswith(".") and part != ".github"
     ]

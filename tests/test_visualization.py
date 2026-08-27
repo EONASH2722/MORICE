@@ -2,10 +2,13 @@ import os
 import tempfile
 import time
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("MORICE_START_AWAKE", "1")
 os.environ.setdefault("MORICE_REDUCE_MOTION", "1")
+os.environ["MORICE_DISABLE_SESSION"] = "1"
 
 from PySide6.QtWidgets import QApplication
 
@@ -322,7 +325,18 @@ class VisualizationManagerTests(unittest.TestCase):
 class InlineVisualizationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls._test_appdata = tempfile.TemporaryDirectory()
+        cls._settings_patch = patch(
+            "morice.settings._settings_dir",
+            return_value=cls._test_appdata.name,
+        )
+        cls._settings_patch.start()
         cls.app = QApplication.instance() or QApplication([])
+
+    @classmethod
+    def tearDownClass(cls):
+        cls._settings_patch.stop()
+        cls._test_appdata.cleanup()
 
     def setUp(self):
         self.window = MoriceWindow()
@@ -721,6 +735,93 @@ class InlineVisualizationTests(unittest.TestCase):
             self.app.processEvents()
             with open(target, encoding="utf-8") as source:
                 self.assertEqual(source.read(), "print('before')\n")
+
+    def test_full_access_applies_project_files_instead_of_only_staging_them(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.window.project_folder = folder
+            self.window.project_access = "full"
+
+            result = self.window._apply_project_manifest(
+                {
+                    "summary": "Built a runnable website.",
+                    "files": [
+                        {
+                            "path": "index.html",
+                            "content": "<!doctype html><html><body>ready</body></html>\n",
+                        }
+                    ],
+                },
+                preview_only=self.window._project_patch_requires_review(),
+            )
+
+            self.assertFalse(result["pending"])
+            self.assertTrue(result["verified"])
+            self.assertIsNone(self.window.pending_project_patch)
+            self.assertTrue(os.path.isfile(os.path.join(folder, "index.html")))
+            self.assertNotIn("Patch ready for review", result["message"])
+
+    def test_folder_access_still_requires_review_before_writing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.window.project_folder = folder
+            self.window.project_access = "folder"
+
+            result = self.window._apply_project_manifest(
+                {
+                    "summary": "Built a runnable website.",
+                    "files": [
+                        {
+                            "path": "index.html",
+                            "content": "<!doctype html><html><body>ready</body></html>\n",
+                        }
+                    ],
+                },
+                preview_only=self.window._project_patch_requires_review(),
+            )
+
+            self.assertTrue(result["pending"])
+            self.assertFalse(os.path.exists(os.path.join(folder, "index.html")))
+            self.assertIn("Apply patch", result["message"])
+
+    def test_timeout_reply_skips_a_second_project_model_attempt(self):
+        self.assertFalse(
+            self.window._project_output_worth_repairing(
+                "(MORICE) Qwen took too long on that one."
+            )
+        )
+        self.assertTrue(
+            self.window._project_output_worth_repairing(
+                "I created files, but here is malformed JSON with useful content."
+            )
+        )
+
+    def test_full_access_project_send_falls_back_and_writes_real_files(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.window.project_folder = folder
+            self.window.project_access = "full"
+            self.window.project_lookup_mode = "local"
+            self.window._set_chat_mode("project")
+            self.window.input.setText(
+                "Build a fully playable Flappy Bird HTML game with visuals."
+            )
+
+            with patch(
+                "morice.pyside_app.stream_chat",
+                side_effect=lambda *args, **kwargs: iter(
+                    ["The model did not return a JSON manifest."]
+                ),
+            ):
+                self.window.on_send()
+                deadline = time.monotonic() + 8
+                while self.window.is_busy and time.monotonic() < deadline:
+                    self.app.processEvents()
+                    time.sleep(0.01)
+                self.app.processEvents()
+
+            self.assertFalse(self.window.is_busy)
+            self.assertIsNone(self.window.pending_project_patch)
+            for name in ("index.html", "styles.css", "game.js", "README.md"):
+                self.assertTrue(os.path.isfile(os.path.join(folder, name)), name)
+            self.assertIn("flappy", Path(os.path.join(folder, "index.html")).read_text(encoding="utf-8").lower())
 
     def test_invalid_project_manifest_cannot_replace_existing_source(self):
         with tempfile.TemporaryDirectory() as folder:

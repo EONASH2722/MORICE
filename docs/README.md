@@ -1,6 +1,6 @@
 # MORICE Documentation
 
-This documentation describes the current `0.7.0` Windows application. Claims are tied to source code, tests, or a packaged-build UI check; planned capabilities are not presented as shipped features.
+This documentation describes the current `0.8.0` Windows application. Claims are tied to source code, tests, real hardware checks, or packaged-build UI inspection; planned capabilities are not presented as shipped features.
 
 ## Start Here
 
@@ -26,8 +26,8 @@ This documentation describes the current `0.7.0` Windows application. Claims are
 
 ## Project Information
 
-- [Release notes](release-notes-0.7.0.md)
-- [Release audit](release-audit-0.7.0.md)
+- [Release notes](release-notes-0.8.0.md)
+- [Release audit](release-audit-0.8.0.md)
 - [Changelog](../CHANGELOG.md)
 - [Contributing](../CONTRIBUTING.md)
 - [Security](../SECURITY.md)

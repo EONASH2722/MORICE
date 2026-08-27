@@ -27,7 +27,7 @@ validate_version = _load_script("validate_version.py")
 class ReleasePackagingTests(unittest.TestCase):
     def test_version_metadata_is_consistent(self):
         version, errors = validate_version.validate_version(ROOT)
-        self.assertEqual(version, "0.7.0")
+        self.assertEqual(version, "0.8.0")
         self.assertEqual(errors, [])
 
     def test_release_builder_uses_authoritative_version_for_notes(self):
@@ -35,7 +35,7 @@ class ReleasePackagingTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('"docs\\release-notes-$Version.md"', build_script)
-        self.assertNotIn('"docs\\release-notes-0.7.0.md"', build_script)
+        self.assertNotIn('"docs\\release-notes-0.8.0.md"', build_script)
 
     def test_release_policy_rejects_private_and_cache_paths(self):
         self.assertIsNotNone(
@@ -45,6 +45,13 @@ class ReleasePackagingTests(unittest.TestCase):
         self.assertIsNotNone(audit_release._unsafe_member("MORICE/__pycache__/x.pyc"))
         self.assertIsNotNone(audit_release._unsafe_member("MORICE/model.gguf"))
         self.assertIsNone(audit_release._unsafe_member("MORICE/morice/assets/logo.png"))
+        self.assertIsNotNone(audit_release._unsafe_member("MORICE/.env"))
+
+    def test_frozen_build_declares_voice_runtime_without_bundling_dotenv(self):
+        spec = (ROOT / "MORICE.spec").read_text(encoding="utf-8")
+        self.assertIn("collect_submodules('elevenlabs')", spec)
+        self.assertIn("vosk-model-small-en-us-0.15", spec)
+        self.assertNotIn("project_dir, '.env'", spec)
 
     def test_zip_audit_reports_secret_material(self):
         with tempfile.TemporaryDirectory() as temporary:

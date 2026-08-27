@@ -4,14 +4,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
-KB_DIR = os.getenv("MORICE_KB_DIR", r"D:\FOOD FOR MORICE")
+from .config import local_data_dir
+
+
+KB_DIR = os.getenv("MORICE_KB_DIR", str(local_data_dir() / "notes"))
 KB_TOPK = int(os.getenv("MORICE_KB_TOPK", "3"))
 CHUNK_SIZE = int(os.getenv("MORICE_KB_CHUNK", "1000"))
 CHUNK_OVERLAP = int(os.getenv("MORICE_KB_OVERLAP", "120"))
 MAX_FILE_MB = int(os.getenv("MORICE_KB_MAX_MB", "10"))
 MAX_CHUNKS = int(os.getenv("MORICE_KB_MAX_CHUNKS", "200"))
 KB_DISABLED = os.getenv("MORICE_KB_DISABLE", "0") == "1"
-KB_REQUIRE_TAG = os.getenv("MORICE_KB_REQUIRE_TAG", "1") == "1"
+# Kept only as an opt-in compatibility switch. Automatic relevance is the
+# default; users no longer need to remember an @notes command.
+KB_REQUIRE_TAG = os.getenv("MORICE_KB_REQUIRE_TAG", "0") == "1"
 KB_PRELOAD = os.getenv("MORICE_KB_PRELOAD", "0") == "1"
 
 
@@ -125,7 +130,7 @@ def should_use_context(query: str) -> bool:
     if KB_DISABLED:
         return False
     if not KB_REQUIRE_TAG:
-        return True
+        return bool(_tokenize(query))
     cleaned = query.lower()
     return "notes" in cleaned or "from my notes" in cleaned or "@notes" in cleaned
 

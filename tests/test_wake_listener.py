@@ -10,10 +10,13 @@ from morice_wake_listener import (
     RollingTranscript,
     audio_stream_options,
     detect_clap,
+    magic_phrases,
+    morice_is_running,
     normalize_sensitivity,
     phrase_matches,
     resample_pcm16,
     self_test,
+    wait_for_voice_session_release,
 )
 
 
@@ -97,6 +100,30 @@ class WakeAudioFrontendTests(unittest.TestCase):
         self.assertEqual(normalize_sensitivity("poor mic"), "high")
         self.assertEqual(normalize_sensitivity("normal"), "balanced")
         self.assertEqual(self_test(), 0)
+
+    def test_morice_and_configured_magic_words_are_in_recognizer_grammar(self):
+        phrases = magic_phrases("computer awaken")
+
+        self.assertIn("morice", phrases)
+        self.assertIn("hey morice", phrases)
+        self.assertIn("computer awaken", phrases)
+
+    def test_listener_releases_microphone_until_live_action_exits(self):
+        states = iter((True, True, False))
+        sleeps = []
+
+        paused = wait_for_voice_session_release(
+            probe=lambda: next(states),
+            sleeper=sleeps.append,
+            poll_seconds=0.04,
+        )
+
+        self.assertTrue(paused)
+        self.assertEqual(sleeps, [0.04])
+
+    def test_listener_uses_ui_lease_instead_of_its_own_process_name(self):
+        with patch("morice_wake_listener.app_session_active", return_value=True):
+            self.assertTrue(morice_is_running())
 
 
 if __name__ == "__main__":

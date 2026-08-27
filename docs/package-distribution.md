@@ -1,6 +1,6 @@
 # Package Distribution
 
-MORICE 0.7.0 is built from one source revision and one authoritative version in
+MORICE 0.8.0 is built from one source revision and one authoritative version in
 `morice/version.py`. The release pipeline stops if tests, type checking, package integrity,
 version consistency, secret scanning, archive policy, split-part hashes, or final checksums fail.
 
@@ -25,14 +25,14 @@ package-manager commands must be added only after the corresponding listing is a
 Package name: `morice-ai`
 
 ```powershell
-python -m pip install .\morice_ai-0.7.0-py3-none-any.whl
+python -m pip install .\morice_ai-0.8.0-py3-none-any.whl
 morice
 ```
 
 Upgrade and removal:
 
 ```powershell
-python -m pip install --upgrade .\morice_ai-0.7.0-py3-none-any.whl
+python -m pip install --upgrade .\morice_ai-0.8.0-py3-none-any.whl
 python -m pip uninstall morice-ai
 ```
 
@@ -53,7 +53,7 @@ Generated release metadata includes:
 
 - `SHA256SUMS.txt` and `checksums.json`;
 - a split-asset manifest with per-part and combined hashes;
-- `MORICE-v0.7.0-Package-Contents.json` with archive inventory and policy results;
+- `MORICE-v0.8.0-Package-Contents.json` with archive inventory and policy results;
 - versioned release notes, documentation, source archive, wheel, and sdist.
 
 ## Signing

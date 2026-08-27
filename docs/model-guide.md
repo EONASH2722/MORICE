@@ -10,13 +10,15 @@ Use **Panel > Change model** and select a `.gguf` file. MORICE checks that the s
 
 The local llama server exposes an OpenAI-compatible loopback endpoint internally. This is a local runtime detail, not a hosted-provider integration.
 
+On supported NVIDIA systems, MORICE prefers its installed CUDA llama runtime and automatically fits GPU layers/context to available VRAM. The selected GGUF is prewarmed in the background after the window opens, so the first user turn does not pay the full cold-load delay. Set `MORICE_DISABLE_MODEL_PREWARM=1` only when startup model loading is undesirable.
+
 ### Local Ollama
 
 Enter an installed Ollama model tag in the model control. MORICE queries the local Ollama service and uses its chat/generate endpoints. Install and pull models with Ollama itself before selecting them in MORICE.
 
 ### Cloud Providers
 
-General hosted OpenAI, Anthropic, Gemini, or third-party API-key configuration is not part of `0.7.0`. Do not document or depend on it as a release feature.
+General hosted OpenAI, Anthropic, Gemini, or third-party conversational LLM configuration is not part of `0.8.0`. ElevenLabs reply speech and source-linked web retrieval are separate optional network features, not hosted reasoning providers.
 
 ## GPU Detection
 

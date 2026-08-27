@@ -59,6 +59,24 @@ class IntentRouterTests(unittest.TestCase):
 
 
 class ProjectIndexerTests(unittest.TestCase):
+    def test_incremental_index_reuses_unchanged_files_and_refreshes_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "app.py"
+            source.write_text("def before():\n    return 1\n", encoding="utf-8")
+            indexer = ProjectIndexer()
+
+            first = indexer.build(root)
+            second = indexer.build(root)
+            source.write_text("def after():\n    return 2\n", encoding="utf-8")
+            third = indexer.build(root)
+
+            self.assertEqual(first.reused_files, 0)
+            self.assertEqual(second.reused_files, 1)
+            self.assertEqual(second.changed_files, 0)
+            self.assertEqual(third.changed_files, 1)
+            self.assertIn("after", {symbol.name for symbol in third.files[0].symbols})
+
     def test_indexer_extracts_project_facts_symbols_and_relevant_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -1,5 +1,6 @@
 import unittest
 
+from morice.core import extract_web_query
 from morice.conversation import (
     conversation_reference_instruction,
     previous_user_message,
@@ -11,6 +12,16 @@ from morice.conversation import (
 
 
 class ConversationContextTests(unittest.TestCase):
+    def test_natural_web_requests_no_longer_require_at_web_prefix(self):
+        self.assertEqual(
+            extract_web_query("Search the web for current CUDA drivers"),
+            "current CUDA drivers",
+        )
+        self.assertEqual(
+            extract_web_query("look up today's weather in Delhi"),
+            "today's weather in Delhi",
+        )
+
     def test_typo_heavy_previous_message_references_are_detected(self):
         self.assertTrue(references_prior_context("in the previus msg i said so"))
         self.assertTrue(references_prior_context("use what I mentioned earlier"))

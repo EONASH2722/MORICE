@@ -12,6 +12,8 @@ import difflib
 import time
 import subprocess
 import tempfile
+import queue
+from dataclasses import replace
 from ctypes import wintypes
 from datetime import datetime
 
@@ -128,8 +130,9 @@ from .core import (
     ensure_visible_response,
 )
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload, search_notes
-from .llm_client import chat
+from .llm_client import chat, prewarm_local_model, prime_local_chat_prefix, stream_chat
 from .llm_client import reset_model_runtime
+from .realtime_intelligence import LatencyStage, ModelTier
 from .model_catalog import (
     GpuProfile,
     default_model_download_dir,
@@ -146,6 +149,7 @@ from .model_catalog import (
     verify_ai_model_file,
 )
 from .project_builder import (
+    analyze_project_request,
     build_project_fallback_manifest,
     project_request_contract,
     validate_project_manifest_intent,
@@ -216,6 +220,17 @@ from .premium_experience import (
 from .premium_ui import PremiumSettingsDialog
 from .platform_ui import FirstRunWizard
 from .runtime_services import RecoveryInfo, RuntimeServices, get_runtime_services
+from .config import load_tts_config
+from .live_action_ui import LiveActionWorkspace
+from .live_camera import LiveCameraController
+from .live_vision import VisionResult, visual_follow_up, visual_intent
+from .speech_runtime import SpeechInputConfig, TranscriptResult
+from .voice_runtime import BoundedSpeechStream
+from .wake_runtime import (
+    parse_wake_request,
+    set_app_session_active,
+    set_voice_session_active,
+)
 from .workspace_state import (
     WorkspaceState,
     load_workspace_state,
@@ -239,16 +254,25 @@ from .settings import (
     normalize_animation_speed,
     normalize_boolean_setting,
     normalize_settings_profile,
+    normalize_music_provider,
     normalize_transparency,
     normalize_ui_scale,
     normalize_workspace_preset,
     normalize_user_title,
     normalize_wake_phrase,
     normalize_response_style,
+    normalize_tts_model_id,
+    normalize_tts_output_device,
+    normalize_tts_output_format,
+    normalize_tts_provider,
+    normalize_tts_speed,
+    normalize_tts_voice_id,
+    normalize_stt_input_device,
+    normalize_stt_max_listen_seconds,
     save_settings,
     wake_signal_path,
 )
-from .web_search import search_web
+from .web_search import infer_web_need, internet_available, search_web
 from .vision import describe_image
 
 
@@ -259,7 +283,22 @@ def _tokenize_for_ui_search(value: str) -> tuple[str, ...]:
 def _start_background_task(name: str, target):
     runtime = get_runtime_services()
     if runtime.started:
-        return runtime.workers.submit(name, target)
+        interactive = {
+            "chat-reply",
+            "conversation-turn",
+            "voice-trace",
+            "pc-control",
+            "desktop-action",
+            "close-application",
+            "system-snapshot",
+            "file-search",
+            "project-command",
+        }
+        return runtime.workers.submit(
+            name,
+            target,
+            priority="interactive" if name in interactive else "background",
+        )
     try:
         thread = threading.Thread(
             target=target,
@@ -1629,6 +1668,7 @@ class ChatBubble(QFrame):
         self.author = str(author or "")
         self.message = str(message or "")
         self.is_user = bool(is_user)
+        self._message_label: QLabel | None = None
         self._reaction = ""
         self.setObjectName("ChatBubble")
         self.setMaximumWidth(16777215)
@@ -1686,10 +1726,19 @@ class ChatBubble(QFrame):
                 Qt.TextSelectableByMouse | Qt.TextSelectableByKeyboard
             )
             message_label.setFocusPolicy(Qt.StrongFocus)
+            self._message_label = message_label
             layout.addWidget(message_label)
 
         self.setProperty("user", "true" if is_user else "false")
         self.setAccessibleName(f"{self.author} message")
+
+    def set_message(self, message: str) -> None:
+        """Update an in-progress response without rebuilding the chat row."""
+
+        self.message = str(message or "")
+        if self._message_label is not None:
+            self._message_label.setText(_message_to_rich_text(self.message))
+            self._message_label.adjustSize()
 
     @staticmethod
     def _action_button(icon: QIcon, tooltip: str, callback) -> QPushButton:
@@ -5827,6 +5876,9 @@ class TitleBar(QFrame):
 
 class MoriceWindow(QWidget):
     message_ready = Signal(str, str, bool)
+    assistant_stream_delta = Signal(str, str)
+    assistant_stream_finished = Signal(str, str)
+    response_cancelled = Signal(str)
     thinking_update = Signal(str)
     project_changes_ready = Signal(str, str)
     project_output_ready = Signal(str)
@@ -5841,6 +5893,11 @@ class MoriceWindow(QWidget):
     premium_metrics_ready = Signal(object)
     plugin_catalog_changed = Signal()
     plugin_notification_received = Signal(str, str)
+    speech_partial_ready = Signal(str)
+    speech_transcript_ready = Signal(object)
+    speech_playback_finished = Signal(object)
+    pc_control_ready = Signal(str, object)
+    live_vision_ready = Signal(str, object)
 
     def _emit_background(self, signal_name: str, *arguments) -> bool:
         if getattr(self, "_is_closing", False):
@@ -5968,6 +6025,9 @@ class MoriceWindow(QWidget):
         self.settings_profile = normalize_settings_profile(
             self.settings.get("settings_profile", "")
         )
+        self.default_music_provider = normalize_music_provider(
+            self.settings.get("default_music_provider", "")
+        )
         self._motion_enabled = not self.reduced_motion
         self.animation_engine.configure(
             enabled=self._motion_enabled,
@@ -6011,7 +6071,11 @@ class MoriceWindow(QWidget):
                     max(8, round(self._base_font_point_size * scale)),
                 )
             )
-        self.chat_mode = normalize_chat_mode(self.settings.get("chat_mode", ""))
+        loaded_chat_mode = normalize_chat_mode(self.settings.get("chat_mode", ""))
+        # Voice is an explicit, session-only mode. Never reopen a microphone
+        # merely because the previous process closed while Voice mode was active.
+        self.chat_mode = "normal" if loaded_chat_mode == "voice" else loaded_chat_mode
+        self._voice_return_mode = self.chat_mode
         self.project_folder = normalize_project_folder(self.settings.get("project_folder", ""))
         self.project_access = normalize_project_access(self.settings.get("project_access", ""))
         self.project_lookup_mode = normalize_project_lookup_mode(self.settings.get("project_lookup_mode", ""))
@@ -6022,6 +6086,28 @@ class MoriceWindow(QWidget):
         legacy_model_path = os.path.basename(self.model_path).lower()
         legacy_model_name = self.model_name.lower()
         migrated_legacy_model = False
+        if self.model_path and not os.path.isfile(self.model_path):
+            relocated_candidates = (
+                os.path.join(
+                    os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+                    os.path.basename(self.model_path),
+                ),
+                os.path.join(
+                    os.path.dirname(sys.executable),
+                    os.path.basename(self.model_path),
+                ),
+            )
+            relocated = next(
+                (
+                    normalize_model_path(path)
+                    for path in relocated_candidates
+                    if os.path.isfile(path)
+                ),
+                "",
+            )
+            if relocated:
+                self.model_path = relocated
+                migrated_legacy_model = True
         if "hermes-3-llama" in legacy_model_path:
             self.model_path = ""
             migrated_legacy_model = True
@@ -6049,9 +6135,28 @@ class MoriceWindow(QWidget):
         self.last_project_undo_id = ""
         self._active_project_command_id = ""
         self._last_external_wake_notice = 0.0
+        self._speech_base_text = ""
+        self._streamed_voice_reply_pending = False
+        self._stream_request_id = ""
+        self._stream_text = ""
+        self._stream_bubble: ChatBubble | None = None
+        self._pending_transcript: TranscriptResult | None = None
+        self._voice_conversation_active = False
+        self._live_microphone_paused = False
+        self._barge_in_monitoring = False
+        self._barge_in_interrupted = False
+        self._last_spoken_text = ""
+        self._pending_live_vision_result: tuple[
+            str, VisionResult, int, int
+        ] | None = None
+        self._live_vision_started_ns: int | None = None
+        self._last_awareness_publish = 0.0
 
         self.wake_signal_path = wake_signal_path()
         self.message_ready.connect(self._on_message_ready)
+        self.assistant_stream_delta.connect(self._on_assistant_stream_delta)
+        self.assistant_stream_finished.connect(self._on_assistant_stream_finished)
+        self.response_cancelled.connect(self._on_response_cancelled)
         self.thinking_update.connect(self._on_thinking_update)
         self.project_changes_ready.connect(self._on_project_changes_ready)
         self.project_output_ready.connect(self._append_project_output)
@@ -6066,6 +6171,13 @@ class MoriceWindow(QWidget):
         self.file_search_ready.connect(self._on_file_search_ready)
         self.desktop_action_ready.connect(self._on_desktop_action_ready)
         self.premium_metrics_ready.connect(self._on_premium_metrics)
+        self.speech_partial_ready.connect(self._on_speech_partial)
+        self.speech_transcript_ready.connect(self._on_speech_transcript)
+        self.speech_playback_finished.connect(
+            self._on_speech_playback_finished
+        )
+        self.pc_control_ready.connect(self._on_pc_control_ready)
+        self.live_vision_ready.connect(self._on_live_vision_ready)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(24, 24, 24, 24)
@@ -6111,6 +6223,13 @@ class MoriceWindow(QWidget):
         self.project_mode_btn.setObjectName("ModeOption")
         self.project_mode_btn.clicked.connect(lambda: self._set_chat_mode("project"))
 
+        self.voice_mode_btn = QPushButton("Live Action")
+        self.voice_mode_btn.setObjectName("ModeOption")
+        self.voice_mode_btn.setToolTip(
+            "Camera-centered voice conversation with all Chat, Lab, Tools, and Project features"
+        )
+        self.voice_mode_btn.clicked.connect(lambda: self._set_chat_mode("voice"))
+
         model_label = QLabel("AI model")
         model_label.setObjectName("ModeSectionLabel")
 
@@ -6154,6 +6273,32 @@ class MoriceWindow(QWidget):
         self.detect_gpu_btn = QPushButton("Detect GPU")
         self.detect_gpu_btn.setObjectName("ProjectModelButton")
         self.detect_gpu_btn.clicked.connect(lambda _checked=False: self._detect_gpu_profile(auto=False))
+
+        music_provider_label = QLabel("Default music provider")
+        music_provider_label.setObjectName("ModeSectionLabel")
+
+        self.music_provider_select = QComboBox()
+        self.music_provider_select.setObjectName("ProjectFolderInput")
+        self.music_provider_select.setEditable(True)
+        for provider in ("Amazon Music", "Spotify", "YouTube Music"):
+            self.music_provider_select.addItem(provider)
+        if self.music_provider_select.findText(self.default_music_provider) < 0:
+            self.music_provider_select.addItem(self.default_music_provider)
+        self.music_provider_select.setCurrentText(self.default_music_provider)
+        self.music_provider_select.setToolTip(
+            "Generic commands such as 'play music' use this installed application."
+        )
+        self.music_provider_select.activated.connect(
+            lambda _index: self._save_default_music_provider(
+                self.music_provider_select.currentText()
+            )
+        )
+        if self.music_provider_select.lineEdit() is not None:
+            self.music_provider_select.lineEdit().editingFinished.connect(
+                lambda: self._save_default_music_provider(
+                    self.music_provider_select.currentText()
+                )
+            )
 
         self.project_details = QFrame()
         self.project_details.setObjectName("ProjectDetails")
@@ -6212,6 +6357,7 @@ class MoriceWindow(QWidget):
         mode_layout.addSpacing(6)
         mode_layout.addWidget(self.normal_mode_btn)
         mode_layout.addWidget(self.project_mode_btn)
+        mode_layout.addWidget(self.voice_mode_btn)
         mode_layout.addSpacing(4)
         mode_layout.addWidget(model_label)
         mode_layout.addWidget(self.model_name_input)
@@ -6220,6 +6366,8 @@ class MoriceWindow(QWidget):
         mode_layout.addWidget(hardware_label)
         mode_layout.addWidget(self.gpu_status_input)
         mode_layout.addWidget(self.detect_gpu_btn)
+        mode_layout.addWidget(music_provider_label)
+        mode_layout.addWidget(self.music_provider_select)
         mode_layout.addWidget(self.project_details)
         mode_layout.addWidget(self.mode_status)
         mode_layout.addStretch(1)
@@ -6419,6 +6567,60 @@ class MoriceWindow(QWidget):
 
         content_layout.addWidget(chat_container, stretch=1)
         chat_container.setVisible(False)
+
+        self.live_action_workspace = LiveActionWorkspace()
+        self.live_action_workspace.setVisible(False)
+        self.live_action_workspace.cameraRequested.connect(
+            self._on_live_camera_requested
+        )
+        self.live_action_workspace.cameraConfigurationChanged.connect(
+            self._on_live_camera_configuration_changed
+        )
+        self.live_action_workspace.awarenessRequested.connect(
+            self._on_live_awareness_requested
+        )
+        self.live_action_workspace.microphoneRequested.connect(
+            self._on_live_microphone_requested
+        )
+        self.live_action_workspace.textSubmitted.connect(
+            self._submit_live_action_text
+        )
+        self.live_action_workspace.analyzeRequested.connect(
+            lambda: self._submit_live_action_text("Analyze the current camera view.")
+        )
+        self.live_action_workspace.exitRequested.connect(
+            lambda: self._set_chat_mode(self._voice_return_mode)
+        )
+        content_layout.addWidget(self.live_action_workspace, stretch=1)
+
+        self.live_camera = LiveCameraController(self)
+        self.live_camera.devicesChanged.connect(
+            self.live_action_workspace.set_devices
+        )
+        self.live_camera.frameReady.connect(self._on_live_camera_frame)
+        self.live_camera.stateChanged.connect(
+            self.live_action_workspace.set_camera_state
+        )
+        self.live_camera.diagnosticsChanged.connect(
+            self.runtime.update_live_camera_diagnostics
+        )
+        self.live_action_workspace.set_devices(self.live_camera.options())
+        try:
+            saved_camera_fps = float(self.settings.get("camera_fps", "30"))
+        except (TypeError, ValueError):
+            saved_camera_fps = 30.0
+        self.live_action_workspace.apply_preferences(
+            device_id=str(self.settings.get("camera_device_id", "")),
+            resolution=str(self.settings.get("camera_resolution", "1280x720")),
+            fps=saved_camera_fps,
+            mirror=normalize_boolean_setting(
+                self.settings.get("camera_mirror", "true"), default=True
+            ),
+            continuous_awareness=normalize_boolean_setting(
+                self.settings.get("continuous_visual_awareness", "false")
+            ),
+        )
+        self.runtime.update_live_camera_diagnostics(self.live_camera.diagnostics())
 
         # Keep the live graph/simulation workspace beside the conversation instead of hiding it in the chat flow.
         self.workspace_splitter.addWidget(self.workspace_panel)
@@ -6847,6 +7049,126 @@ class MoriceWindow(QWidget):
         )
         self.advanced_settings_btn.clicked.connect(self.open_premium_settings)
 
+        voice_label = QLabel("Live Action voice configuration")
+        voice_label.setObjectName("SidebarSectionLabel")
+        self.tts_enabled_check = QCheckBox("Speak MORICE replies in Live Action")
+        self.tts_enabled_check.setChecked(
+            normalize_boolean_setting(
+                self.settings.get("tts_enabled", "true"), default=True
+            )
+        )
+        self.tts_streaming_check = QCheckBox("Stream speech while replying")
+        self.tts_streaming_check.setChecked(
+            normalize_boolean_setting(
+                self.settings.get("tts_streaming", "true"), default=True
+            )
+        )
+        self.tts_fallback_check = QCheckBox("Fall back to text safely")
+        self.tts_fallback_check.setChecked(
+            normalize_boolean_setting(
+                self.settings.get("tts_automatic_fallback", "true"),
+                default=True,
+            )
+        )
+        self.stt_enabled_check = QCheckBox("Enable microphone in Live Action")
+        self.stt_enabled_check.setChecked(
+            normalize_boolean_setting(
+                self.settings.get("stt_enabled", "true"), default=True
+            )
+        )
+        self.stt_auto_send_check = QCheckBox("Send recognized speech automatically")
+        self.stt_auto_send_check.setChecked(
+            normalize_boolean_setting(
+                self.settings.get("stt_auto_send", "true"), default=True
+            )
+        )
+
+        tts_voice_label = QLabel("ElevenLabs voice ID")
+        tts_voice_label.setObjectName("StyleLabel")
+        self.tts_voice_id_input = QLineEdit()
+        self.tts_voice_id_input.setObjectName("TitleInput")
+        self.tts_voice_id_input.setText(
+            normalize_tts_voice_id(self.settings.get("tts_voice_id", ""))
+        )
+
+        tts_model_label = QLabel("ElevenLabs model")
+        tts_model_label.setObjectName("StyleLabel")
+        self.tts_model_id_input = QLineEdit()
+        self.tts_model_id_input.setObjectName("TitleInput")
+        self.tts_model_id_input.setText(
+            normalize_tts_model_id(self.settings.get("tts_model_id", ""))
+        )
+
+        tts_speed_label = QLabel("Speech speed")
+        tts_speed_label.setObjectName("StyleLabel")
+        self.tts_speed_slider = QSlider(Qt.Horizontal)
+        self.tts_speed_slider.setRange(70, 120)
+        self.tts_speed_slider.setValue(
+            round(normalize_tts_speed(self.settings.get("tts_speech_speed", "1")) * 100)
+        )
+        self.tts_speed_slider.setAccessibleName("ElevenLabs speech speed")
+
+        devices = self.runtime.desktop.voice.devices()
+        tts_output_label = QLabel("Reply audio output")
+        tts_output_label.setObjectName("StyleLabel")
+        stt_input_label = QLabel("Conversation microphone")
+        stt_input_label.setObjectName("StyleLabel")
+        self.tts_output_device_select = QComboBox()
+        self.tts_output_device_select.setObjectName("AppearanceSelect")
+        self.tts_output_device_select.addItem("Default output device", "")
+        self.stt_input_device_select = QComboBox()
+        self.stt_input_device_select.setObjectName("AppearanceSelect")
+        self.stt_input_device_select.addItem("Default microphone", "")
+        for device in devices:
+            index = str(device.get("index", ""))
+            name = str(device.get("name", "Device"))
+            if int(device.get("outputs", 0) or 0) > 0:
+                self.tts_output_device_select.addItem(name, index)
+            if int(device.get("inputs", 0) or 0) > 0:
+                self.stt_input_device_select.addItem(name, index)
+        self.tts_output_device_select.setCurrentIndex(
+            max(
+                0,
+                self.tts_output_device_select.findData(
+                    normalize_tts_output_device(
+                        self.settings.get("tts_output_device", "")
+                    )
+                ),
+            )
+        )
+        self.stt_input_device_select.setCurrentIndex(
+            max(
+                0,
+                self.stt_input_device_select.findData(
+                    normalize_stt_input_device(
+                        self.settings.get("stt_input_device", "")
+                    )
+                ),
+            )
+        )
+
+        api_key_label = QLabel("ElevenLabs API key (stored with Windows DPAPI)")
+        api_key_label.setObjectName("StyleLabel")
+        self.elevenlabs_api_key_input = QLineEdit()
+        self.elevenlabs_api_key_input.setObjectName("TitleInput")
+        self.elevenlabs_api_key_input.setEchoMode(QLineEdit.Password)
+        self.elevenlabs_api_key_input.setPlaceholderText("Paste a new rotated key locally")
+        self.elevenlabs_api_status = QLabel()
+        self.elevenlabs_api_status.setObjectName("StyleStatus")
+        self.elevenlabs_api_status.setText(
+            "ElevenLabs API: Configured"
+            if self.runtime.voice.status().api_configured
+            else "ElevenLabs API: Not configured"
+        )
+        save_api_key_btn = QPushButton("Store API key securely")
+        save_api_key_btn.setObjectName("QueueButton")
+        save_api_key_btn.clicked.connect(self._store_elevenlabs_key)
+        self.save_api_key_btn = save_api_key_btn
+        save_voice_btn = QPushButton("Save voice settings")
+        save_voice_btn.setObjectName("StyleSaveButton")
+        save_voice_btn.clicked.connect(self._save_voice_settings)
+        self.save_voice_btn = save_voice_btn
+
         queue_label = QLabel("Message queue")
         queue_label.setObjectName("StyleLabel")
 
@@ -6918,6 +7240,28 @@ class MoriceWindow(QWidget):
         sidebar_layout.addWidget(self.workspace_preset_select)
         sidebar_layout.addWidget(self.advanced_settings_btn)
         sidebar_layout.addSpacing(8)
+        sidebar_layout.addWidget(voice_label)
+        sidebar_layout.addWidget(self.tts_enabled_check)
+        sidebar_layout.addWidget(self.tts_streaming_check)
+        sidebar_layout.addWidget(self.tts_fallback_check)
+        sidebar_layout.addWidget(self.stt_enabled_check)
+        sidebar_layout.addWidget(self.stt_auto_send_check)
+        sidebar_layout.addWidget(tts_voice_label)
+        sidebar_layout.addWidget(self.tts_voice_id_input)
+        sidebar_layout.addWidget(tts_model_label)
+        sidebar_layout.addWidget(self.tts_model_id_input)
+        sidebar_layout.addWidget(tts_speed_label)
+        sidebar_layout.addWidget(self.tts_speed_slider)
+        sidebar_layout.addWidget(tts_output_label)
+        sidebar_layout.addWidget(self.tts_output_device_select)
+        sidebar_layout.addWidget(stt_input_label)
+        sidebar_layout.addWidget(self.stt_input_device_select)
+        sidebar_layout.addWidget(api_key_label)
+        sidebar_layout.addWidget(self.elevenlabs_api_key_input)
+        sidebar_layout.addWidget(self.save_api_key_btn)
+        sidebar_layout.addWidget(self.elevenlabs_api_status)
+        sidebar_layout.addWidget(self.save_voice_btn)
+        sidebar_layout.addSpacing(8)
         sidebar_layout.addWidget(queue_label)
         sidebar_layout.addWidget(self.queue_list)
         sidebar_layout.addLayout(queue_buttons)
@@ -6976,9 +7320,9 @@ class MoriceWindow(QWidget):
         self.voice_btn.setIcon(
             QApplication.style().standardIcon(QStyle.SP_MediaVolume)
         )
-        self.voice_btn.setToolTip("Voice and wake-listener status")
-        self.voice_btn.setAccessibleName("Voice input and wake-listener status")
-        self.voice_btn.clicked.connect(self._show_voice_status)
+        self.voice_btn.setToolTip("Enter Live Action")
+        self.voice_btn.setAccessibleName("Enter or exit Live Action")
+        self.voice_btn.clicked.connect(self._toggle_voice_input)
 
         self.model_selector_btn = QPushButton()
         self.model_selector_btn.setObjectName("ComposerToolButton")
@@ -8000,7 +8344,7 @@ class MoriceWindow(QWidget):
                 else:
                     self.append_message(MORICE_NAME, f"No knowledge files loaded from {KB_DIR}.")
             else:
-                self.append_message(MORICE_NAME, "Knowledge is on-demand. Use @notes to include your files.")
+                    self.append_message(MORICE_NAME, "Relevant local notes are selected automatically when available.")
             if self.awake:
                 self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {self.user_title}.")
             else:
@@ -8026,6 +8370,101 @@ class MoriceWindow(QWidget):
             _enable_acrylic(hwnd)
         except Exception:
             pass
+        model_path = self.model_path or os.getenv("MORICE_GGUF_PATH", "")
+        headless = os.getenv("QT_QPA_PLATFORM", "").strip().casefold() in {
+            "offscreen",
+            "minimal",
+        }
+        prewarm_disabled = os.getenv(
+            "MORICE_DISABLE_MODEL_PREWARM", "0"
+        ).strip().casefold() in {"1", "true", "yes"}
+        if (
+            not headless
+            and not prewarm_disabled
+            and model_path
+            and os.path.isfile(model_path)
+        ):
+            stable_system = saved_settings_instruction(
+                self.user_title,
+                self.response_style,
+                emoji_preference_instruction(self.emoji_level),
+                maturity_preference_instruction(self.maturity_level),
+            )
+
+            def prewarm() -> None:
+                started = time.perf_counter()
+                try:
+                    endpoint = prewarm_local_model(model_path)
+                except (OSError, RuntimeError, ValueError) as exc:
+                    self.runtime.logs.log(
+                        "WARNING",
+                        "Selected local model could not be prewarmed.",
+                        category="model",
+                        metadata={"errorType": type(exc).__name__},
+                    )
+                    return
+                prime_started = time.perf_counter()
+                try:
+                    prime_result = prime_local_chat_prefix(
+                        model_path,
+                        extra_system=stable_system,
+                    )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    prime_result = {
+                        "ready": False,
+                        "errorType": type(exc).__name__,
+                    }
+                self.runtime.logs.log(
+                    "INFO",
+                    "Selected local model prewarmed.",
+                    category="model",
+                    metadata={
+                        "durationMs": (
+                            time.perf_counter() - started
+                        )
+                        * 1000,
+                        "endpoint": endpoint,
+                        "prefixPrimeMs": (
+                            time.perf_counter() - prime_started
+                        )
+                        * 1000,
+                        "prefixPrime": prime_result,
+                    },
+                )
+
+            _start_background_task("model-prewarm", prewarm)
+        _start_background_task("stt-prewarm", self.runtime.speech_input.prewarm)
+        if self.runtime.voice.config.enabled:
+            # Keep the first ElevenLabs/Pydantic import on Qt's main thread.
+            # Frozen Python 3.14 builds can fault inside python314.dll when the
+            # SDK is imported for the first time from ThreadPoolExecutor while
+            # Qt and Vosk are also finishing their startup imports.  Provider
+            # prewarm creates a reusable HTTP client but performs no request,
+            # so the main-thread cost is small and avoids that native race.
+            started = time.perf_counter()
+            warmed = self.runtime.voice.prewarm()
+            self.runtime.logs.log(
+                "INFO",
+                "Voice provider prewarm completed.",
+                category="voice",
+                metadata={
+                    "warmed": warmed,
+                    "durationMs": (time.perf_counter() - started) * 1000,
+                    "provider": self.runtime.voice.config.provider,
+                },
+            )
+
+        def refresh_application_index() -> None:
+            try:
+                self.runtime.desktop.applications.refresh_discovery(force=True)
+            except (OSError, RuntimeError, ValueError):
+                return
+
+        if self._session_enabled and os.getenv("QT_QPA_PLATFORM", "").strip().lower() not in {
+            "offscreen",
+            "minimal",
+        }:
+            _start_background_task("application-index", refresh_application_index)
         if self.recovery_info.available:
             QTimer.singleShot(350, self._offer_crash_recovery)
         if (
@@ -8075,7 +8514,7 @@ class MoriceWindow(QWidget):
             "renderer_cache_bytes": self.visualization_manager.resources.used_bytes,
             "project_root": (
                 self.project_folder
-                if self.chat_mode == "project"
+                if self._project_capable_mode()
                 and os.path.isdir(self.project_folder)
                 else ""
             ),
@@ -8128,7 +8567,7 @@ class MoriceWindow(QWidget):
                 project_root=(
                     self.project_folder
                     if include_project
-                    and self.chat_mode == "project"
+                    and self._project_capable_mode()
                     and os.path.isdir(self.project_folder)
                     else ""
                 ),
@@ -8346,22 +8785,39 @@ class MoriceWindow(QWidget):
         self._wake_from_external(source)
 
     def _wake_from_external(self, source: str = ""):
+        request = parse_wake_request(source)
+        if request.enter_live_action and self.chat_mode != "voice":
+            # A wake trigger is an explicit request to enter Live Action. This
+            # changes only MORICE's internal workspace; it never raises or
+            # activates the top-level window, so a game keeps keyboard focus.
+            self._set_chat_mode("voice")
+            self.awake = True
+            return
+        if self.chat_mode != "voice":
+            return
+        self.runtime.voice.interrupt("wake-phrase")
+        self.runtime.realtime.cancel_active("wake-phrase")
         now = time.monotonic()
         if self.awake:
             if now - self._last_external_wake_notice >= 4.0:
-                detail = f" from {source}" if source else ""
+                detail = f" from {request.source}" if request.source else ""
                 self.append_message(MORICE_NAME, self._address(f"I heard the wake signal{detail}. I am already awake."))
                 self._last_external_wake_notice = now
+            if not self.runtime.speech_input.status().listening:
+                QTimer.singleShot(180, self._begin_voice_listening)
             return
         self.awake = True
         self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {self.user_title}.")
         self._last_external_wake_notice = now
+        QTimer.singleShot(180, self._begin_voice_listening)
 
     def _address(self, reply: str) -> str:
         addressed = enforce_father(reply, self.user_title)
         return apply_emoji_presentation(addressed, self.emoji_level)
 
     def _input_placeholder(self) -> str:
+        if self.chat_mode == "voice":
+            return f"{self.user_title}: speak naturally or type here..."
         return f"{self.user_title}: type here..."
 
     def _experience_profile(self) -> ExperienceProfile:
@@ -8486,7 +8942,7 @@ class MoriceWindow(QWidget):
     def _apply_workspace_preset(self, name: str, *, notify: bool = True) -> None:
         preset = workspace_layout(name)
         self.workspace_preset = preset.name
-        if preset.project_panel and self.chat_mode != "project":
+        if preset.project_panel and not self._project_capable_mode():
             self._set_chat_mode("project")
         self._animate_panel_visibility(self.mode_panel, preset.mode_panel)
         self._animate_panel_visibility(self.workspace_panel, preset.science_panel)
@@ -8541,11 +8997,15 @@ class MoriceWindow(QWidget):
             + len(self.message_queue)
             + (1 if self.is_busy else 0)
         )
-        workspace = "Project" if self.chat_mode == "project" else "Chat"
+        workspace = {
+            "normal": "Chat",
+            "project": "Project",
+            "voice": "Live Action",
+        }.get(self.chat_mode, "Chat")
         if self.workspace_panel.isVisible():
-            workspace = "Science"
+            workspace = "Live · Lab" if self.chat_mode == "voice" else "Science"
         elif self.assistant_hub.isVisible():
-            workspace = "Tools"
+            workspace = "Live · Tools" if self.chat_mode == "voice" else "Tools"
         self.title_bar.set_runtime_status(
             workspace=workspace,
             model=model,
@@ -8559,15 +9019,412 @@ class MoriceWindow(QWidget):
         self._refresh_top_bar_status(sample)
 
     def _show_voice_status(self) -> None:
-        state = "awake" if self.awake else "listening for the wake line"
+        if self.chat_mode != "voice":
+            self._show_notification(
+                "Live Action is off. Camera, microphone input, and spoken replies are stopped.",
+                "info",
+                5000,
+            )
+            return
+        wake_state = "awake" if self.awake else "listening for the wake line"
+        speech = self.runtime.speech_input.status()
+        voice = self.runtime.voice.status()
         self._show_notification(
-            f"Voice service is {state}. Wake line: \"{self.wake_phrase}\".",
+            (
+                f"Wake service is {wake_state}. Microphone: {speech.state.value}. "
+                f"Reply voice: {voice.state.value}. Wake line: \"{self.wake_phrase}\"."
+            ),
             "info",
             6500,
         )
 
+    def _toggle_voice_input(self) -> None:
+        if self.chat_mode == "voice":
+            self._set_chat_mode(self._voice_return_mode)
+        else:
+            self._set_chat_mode("voice")
+
+    def _begin_voice_listening(self) -> None:
+        if (
+            self.chat_mode != "voice"
+            or not self._voice_conversation_active
+            or self._live_microphone_paused
+            or self._is_closing
+        ):
+            return
+        barge_in = bool(self.is_busy or self.runtime.voice.status().active)
+        status = self.runtime.speech_input.status()
+        if status.listening:
+            return
+        if not status.model_configured:
+            self._show_notification(status.message, "error", 6500)
+            return
+        self._barge_in_monitoring = barge_in
+        if not barge_in:
+            self.runtime.voice.interrupt("user-speaking")
+            self.runtime.realtime.cancel_active("user-speaking")
+            self.runtime.live_vision.cancel("user-speaking")
+        self._speech_base_text = self.input.text().strip()
+        self.voice_btn.setProperty("active", "true")
+        self.voice_btn.style().unpolish(self.voice_btn)
+        self.voice_btn.style().polish(self.voice_btn)
+        self.voice_btn.setToolTip("Live Action listening — click to exit")
+        self._show_notification("Listening… speak naturally.", "info", 3500)
+        if hasattr(self, "live_action_workspace"):
+            self.live_action_workspace.set_microphone_state(
+                True, "Listening… speak naturally."
+            )
+        self.runtime.speech_input.listen_once(
+            on_partial=lambda text: self._emit_background(
+                "speech_partial_ready", text
+            ),
+            on_complete=lambda result: self._emit_background(
+                "speech_transcript_ready", result
+            ),
+        )
+
+    def _on_speech_partial(self, text: str) -> None:
+        if self.chat_mode != "voice" or not self._voice_conversation_active:
+            return
+        partial = " ".join(str(text or "").split())
+        if not partial:
+            return
+        if self._barge_in_monitoring:
+            if self._is_likely_voice_echo(partial):
+                return
+            self._barge_in_monitoring = False
+            self._barge_in_interrupted = True
+            self.runtime.voice.interrupt("barge-in")
+            self.runtime.realtime.cancel_active("barge-in")
+            self.runtime.live_vision.cancel("barge-in")
+            self._remove_thinking()
+        combined = " ".join(
+            part for part in (self._speech_base_text, partial) if part
+        )
+        self.input.setText(combined)
+        if hasattr(self, "live_action_workspace"):
+            self.live_action_workspace.set_transcript(combined, partial=True)
+        cursor = self.input.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.input.setTextCursor(cursor)
+
+    def _on_speech_transcript(self, payload: object) -> None:
+        result = payload if isinstance(payload, TranscriptResult) else None
+        barge_in = self._barge_in_monitoring or self._barge_in_interrupted
+        self.voice_btn.setProperty(
+            "active", "true" if self.chat_mode == "voice" else "false"
+        )
+        self.voice_btn.style().unpolish(self.voice_btn)
+        self.voice_btn.style().polish(self.voice_btn)
+        self.voice_btn.setToolTip(
+            "Exit Live Action" if self.chat_mode == "voice" else "Enter Live Action"
+        )
+        if self.chat_mode != "voice" or not self._voice_conversation_active:
+            return
+        if result is None or not result.text:
+            self._barge_in_monitoring = False
+            self._barge_in_interrupted = False
+            message = result.message if result is not None else "Speech input returned no result."
+            if result is None or not result.cancelled:
+                self._show_notification(message, "error", 5000)
+            if result is not None and result.error_code == "no-speech":
+                QTimer.singleShot(450, self._begin_voice_listening)
+            if hasattr(self, "live_action_workspace"):
+                self.live_action_workspace.set_microphone_state(
+                    not self._live_microphone_paused,
+                    message,
+                )
+            return
+        if barge_in and self._is_likely_voice_echo(result.text):
+            self._barge_in_monitoring = False
+            self._barge_in_interrupted = False
+            self._speech_base_text = ""
+            QTimer.singleShot(180, self._resume_voice_conversation)
+            return
+        if barge_in and not self._barge_in_interrupted:
+            self.runtime.voice.interrupt("barge-in")
+            self.runtime.realtime.cancel_active("barge-in")
+            self.runtime.live_vision.cancel("barge-in")
+        self._barge_in_monitoring = False
+        self._barge_in_interrupted = False
+        combined = " ".join(
+            part for part in (self._speech_base_text, result.text) if part
+        )
+        self.input.setText(combined)
+        if hasattr(self, "live_action_workspace"):
+            self.live_action_workspace.set_transcript(combined, partial=False)
+        self._pending_transcript = result
+        self._speech_base_text = ""
+        if self.runtime.speech_input.config.auto_send:
+            if barge_in:
+                self._remove_thinking()
+                self._set_busy(False)
+            QTimer.singleShot(80, self.on_send)
+        else:
+            self._show_notification("Speech transcribed. Review it, then press Send.", "success")
+
+    def _runtime_tts_config(self):
+        config = load_tts_config(self.settings)
+        if not config.api_configured:
+            key = self.runtime.platform_services.vault.get(
+                "elevenlabs.api-key", ""
+            )
+            if key:
+                config = replace(config, api_key=key)
+        return config
+
+    def _save_voice_settings(self) -> None:
+        self.settings["tts_enabled"] = str(
+            self.tts_enabled_check.isChecked()
+        ).lower()
+        self.settings["tts_provider"] = "elevenlabs"
+        self.settings["tts_voice_id"] = normalize_tts_voice_id(
+            self.tts_voice_id_input.text()
+        )
+        self.settings["tts_model_id"] = normalize_tts_model_id(
+            self.tts_model_id_input.text()
+        )
+        self.settings["tts_streaming"] = str(
+            self.tts_streaming_check.isChecked()
+        ).lower()
+        self.settings["tts_speech_speed"] = str(
+            normalize_tts_speed(self.tts_speed_slider.value() / 100.0)
+        )
+        self.settings["tts_automatic_fallback"] = str(
+            self.tts_fallback_check.isChecked()
+        ).lower()
+        self.settings["tts_output_device"] = normalize_tts_output_device(
+            self.tts_output_device_select.currentData() or ""
+        )
+        self.settings["tts_output_format"] = normalize_tts_output_format(
+            self.settings.get("tts_output_format", "pcm_24000")
+        )
+        self.settings["stt_enabled"] = str(
+            self.stt_enabled_check.isChecked()
+        ).lower()
+        self.settings["stt_auto_send"] = str(
+            self.stt_auto_send_check.isChecked()
+        ).lower()
+        self.settings["stt_input_device"] = normalize_stt_input_device(
+            self.stt_input_device_select.currentData() or ""
+        )
+        self.settings["stt_max_listen_seconds"] = str(
+            normalize_stt_max_listen_seconds(
+                self.settings.get("stt_max_listen_seconds", "30")
+            )
+        )
+        save_settings(self.settings)
+        voice_status = self.runtime.voice.configure(self._runtime_tts_config())
+        raw_device = self.settings["stt_input_device"]
+        try:
+            input_device: int | str | None = int(raw_device) if raw_device else None
+        except ValueError:
+            input_device = raw_device or None
+        speech_status = self.runtime.speech_input.configure(
+            SpeechInputConfig(
+                enabled=self.stt_enabled_check.isChecked(),
+                input_device=input_device,
+                max_listen_seconds=float(
+                    self.settings["stt_max_listen_seconds"]
+                ),
+                auto_send=self.stt_auto_send_check.isChecked(),
+            )
+        )
+        self.elevenlabs_api_status.setText(
+            "ElevenLabs API: Configured"
+            if voice_status.api_configured
+            else "ElevenLabs API: Not configured"
+        )
+        self._show_notification(
+            f"Voice settings saved. Microphone: {speech_status.state.value}.",
+            "success",
+            5000,
+        )
+
+    def _store_elevenlabs_key(self) -> None:
+        key = self.elevenlabs_api_key_input.text().strip()
+        self.elevenlabs_api_key_input.clear()
+        if len(key) < 12 or any(character.isspace() for character in key):
+            self._show_notification(
+                "Enter a valid new ElevenLabs API key. It is never stored in settings.",
+                "error",
+                6000,
+            )
+            return
+        try:
+            self.runtime.platform_services.vault.set("elevenlabs.api-key", key)
+            config = replace(load_tts_config(self.settings), api_key=key)
+            self.runtime.voice.configure(config)
+        except (OSError, RuntimeError, ValueError):
+            self.elevenlabs_api_status.setText("ElevenLabs API: Not configured")
+            self._show_notification(
+                "Windows secure storage could not save the API key.",
+                "error",
+                6500,
+            )
+            return
+        finally:
+            key = ""
+        self.elevenlabs_api_status.setText("ElevenLabs API: Configured")
+        self._show_notification(
+            "ElevenLabs API key stored with Windows DPAPI.",
+            "success",
+            5500,
+        )
+
+    @staticmethod
+    def _voice_trace_callback(realtime_request):
+        if realtime_request is None:
+            return None
+
+        def on_event(event: str, metadata) -> None:
+            details = dict(metadata or {})
+            at_ns = int(
+                float(details.pop("atMonotonic", time.perf_counter()))
+                * 1_000_000_000
+            )
+            realtime_request.trace.mark_event(
+                f"tts_{event}",
+                at_ns=at_ns,
+                metadata=details,
+            )
+            if event == "first_audio_generated":
+                realtime_request.trace.mark(
+                    LatencyStage.FIRST_AUDIO_GENERATED,
+                    at_ns=at_ns,
+                )
+                realtime_request.trace.mark_event(
+                    "first_audio_generated",
+                    at_ns=at_ns,
+                    metadata=details,
+                )
+            elif event == "playback_started":
+                realtime_request.trace.mark(
+                    LatencyStage.FIRST_AUDIO_AUDIBLE,
+                    at_ns=at_ns,
+                )
+                realtime_request.trace.mark_event(
+                    "first_audio_audible",
+                    at_ns=at_ns,
+                    metadata=details,
+                )
+
+        return on_event
+
+    def _speak_assistant_text(
+        self,
+        text: str,
+        *,
+        request_id: str | None = None,
+    ):
+        if self.chat_mode != "voice" or self._is_closing:
+            return None
+        spoken = str(text or "").strip()
+        if spoken:
+            self._last_spoken_text = spoken
+            active_request = self.runtime.realtime.active_request
+            traced_request = (
+                active_request
+                if active_request is not None
+                and (not request_id or active_request.request_id == request_id)
+                else None
+            )
+            submitted_ns = time.perf_counter_ns()
+            if traced_request is not None:
+                traced_request.trace.mark(LatencyStage.TTS_CHUNK_RECEIVED, at_ns=submitted_ns)
+                traced_request.trace.mark_event("tts_submitted", at_ns=submitted_ns)
+            handle = self.runtime.voice.speak(
+                spoken,
+                request_id=request_id,
+                on_event=self._voice_trace_callback(traced_request),
+            )
+
+            def wait_for_playback() -> None:
+                result = handle.wait()
+                if traced_request is not None and result is not None:
+                    metrics = result.metrics
+                    traced_request.trace.annotate(
+                        ttsMetrics={
+                            "queueWaitMs": metrics.queue_wait_ms,
+                            "providerToFirstAudioMs": metrics.provider_to_first_audio_ms,
+                            "playbackStartupMs": metrics.playback_startup_ms,
+                            "streamedBeforeTextComplete": (
+                                metrics.streamed_before_text_complete
+                            ),
+                        }
+                    )
+                    if metrics.request_to_first_audio_ms is not None:
+                        first_audio_ns = submitted_ns + int(
+                            metrics.request_to_first_audio_ms * 1_000_000
+                        )
+                        traced_request.trace.mark(
+                            LatencyStage.FIRST_AUDIO_GENERATED,
+                            at_ns=first_audio_ns,
+                        )
+                        traced_request.trace.mark_event(
+                            "first_audio_generated",
+                            at_ns=first_audio_ns,
+                        )
+                        audible_ns = first_audio_ns + int(
+                            (metrics.playback_startup_ms or 0.0) * 1_000_000
+                        )
+                        traced_request.trace.mark(
+                            LatencyStage.FIRST_AUDIO_AUDIBLE,
+                            at_ns=audible_ns,
+                        )
+                        traced_request.trace.mark_event(
+                            "first_audio_audible",
+                            at_ns=audible_ns,
+                        )
+                    self.runtime.realtime.finish_speech(traced_request.epoch)
+                self._emit_background("speech_playback_finished", result)
+
+            _start_background_task(
+                "conversation-turn",
+                wait_for_playback,
+            )
+            QTimer.singleShot(220, self._begin_voice_listening)
+            return handle
+        return None
+
+    def _on_speech_playback_finished(self, _result: object) -> None:
+        if (
+            self.chat_mode != "voice"
+            or not self._voice_conversation_active
+            or self._is_closing
+        ):
+            return
+        QTimer.singleShot(180, self._resume_voice_conversation)
+
+    def _resume_voice_conversation(self) -> None:
+        if (
+            self.chat_mode != "voice"
+            or not self._voice_conversation_active
+            or self._is_closing
+        ):
+            return
+        if self.is_busy or self.runtime.voice.status().active:
+            QTimer.singleShot(180, self._resume_voice_conversation)
+            return
+        if not self.runtime.speech_input.status().listening:
+            self._begin_voice_listening()
+
+    def _is_likely_voice_echo(self, text: str) -> bool:
+        heard = " ".join(str(text or "").casefold().split())
+        spoken = " ".join(
+            str(self._stream_text or self._last_spoken_text or "").casefold().split()
+        )
+        if not heard or not spoken:
+            return False
+        if len(heard) >= 8 and heard in spoken:
+            return True
+        return difflib.SequenceMatcher(None, heard, spoken).ratio() >= 0.72
+
     def _toggle_composer_project_mode(self) -> None:
-        self._set_chat_mode("normal" if self.chat_mode == "project" else "project")
+        if self.chat_mode == "voice":
+            self._set_chat_mode(self._voice_return_mode)
+        else:
+            self._set_chat_mode("normal" if self.chat_mode == "project" else "project")
 
     def _navigate_prompt_history(self, direction: int) -> None:
         if not self.user_messages:
@@ -8855,7 +9712,7 @@ class MoriceWindow(QWidget):
         platform_state = self.runtime.platform_services.snapshot(
             project_root=(
                 self.project_folder
-                if self.chat_mode == "project"
+                if self._project_capable_mode()
                 and os.path.isdir(self.project_folder)
                 else ""
             ),
@@ -9192,6 +10049,9 @@ class MoriceWindow(QWidget):
             return
         if command == "normal-chat":
             self._set_chat_mode("normal")
+            return
+        if command == "voice-mode":
+            self._set_chat_mode("voice")
             return
         if command == "open-file":
             self._choose_workspace_file()
@@ -9800,7 +10660,7 @@ class MoriceWindow(QWidget):
             self._show_notification("The screenshot could not be saved.", "error")
             return
         self.workspace_state.add_recent_file(target)
-        if self.chat_mode == "project" and self.project_folder:
+        if self._project_capable_mode() and self.project_folder:
             try:
                 project = self.runtime.desktop.workspaces.register(
                     self.project_folder
@@ -9936,6 +10796,180 @@ class MoriceWindow(QWidget):
         self._execute_desktop_action_async(action)
         return True
 
+    def _handle_natural_pc_control(self, user_input: str) -> bool:
+        decision = self.runtime.pc_router.route(user_input)
+        action = decision.action
+        realtime_request = self.runtime.realtime.active_request
+        if realtime_request is not None and realtime_request.text == user_input.strip():
+            realtime_request.trace.mark_event(
+                "fast_route_completed",
+                metadata={
+                    "routeType": decision.route_type,
+                    "modelInvocations": decision.model_invocations,
+                    "toolId": action.tool_id if action is not None else "",
+                    "durationMs": decision.duration_ms,
+                },
+            )
+        route_metadata = {
+            "route": decision.route_type,
+            "tool": action.tool_id if action is not None else "",
+            "durationMs": decision.duration_ms,
+            "modelInvocations": decision.model_invocations,
+            "escalateToModel": decision.escalate_to_model,
+            "reason": decision.reason,
+        }
+        _start_background_task(
+            "routing-log",
+            lambda: self.runtime.logs.log(
+                "INFO",
+                "PC route selected.",
+                category="routing",
+                metadata=route_metadata,
+            ),
+        )
+        if action is None:
+            if not decision.escalate_to_model and decision.clarification:
+                self._append_direct_reply(user_input, decision.clarification)
+                return True
+            return False
+        authorization = self.runtime.pc_permissions.authorize(action)
+        confirmation_token = ""
+        if not authorization.allowed and authorization.confirmation_required:
+            choice = QMessageBox.question(
+                self,
+                "Confirm PC action",
+                (
+                    f"MORICE wants to perform: {action.tool_id}\n"
+                    f"Target: {action.target or 'current context'}\n\n"
+                    "Approve this exact action once?"
+                ),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if choice != QMessageBox.Yes:
+                self._append_direct_reply(
+                    user_input,
+                    "PC action cancelled. Nothing was changed.",
+                )
+                return True
+            grant = self.runtime.pc_permissions.request_confirmation(
+                action,
+                description=f"Approve {action.tool_id} for {action.target}",
+            )
+            confirmation_token = grant.token
+        elif not authorization.allowed:
+            self._append_direct_reply(user_input, authorization.reason)
+            return True
+
+        self._set_busy(True)
+        work_state = (
+            "Opening and verifying."
+            if action.tool_id == "application.open"
+            else "Checking system state."
+            if action.tool_id == "system.status"
+            else "Running and verifying."
+        )
+        self._show_thinking(work_state)
+
+        def worker():
+            started_ns = time.perf_counter_ns()
+            if realtime_request is not None:
+                realtime_request.trace.mark_event(
+                    "tool_execution_started",
+                    at_ns=started_ns,
+                    metadata={"toolId": action.tool_id},
+                )
+            result = self.runtime.pc_control.execute(
+                action,
+                confirmation_token=confirmation_token,
+            )
+            if realtime_request is not None:
+                realtime_request.trace.mark_event(
+                    "tool_execution_finished",
+                    metadata={
+                        "toolId": action.tool_id,
+                        "success": result.success,
+                        "verified": result.verified,
+                        "timingsMs": dict(result.timings_ms),
+                    },
+                )
+            self._emit_background("pc_control_ready", user_input, result)
+
+        _start_background_task("pc-control", worker)
+        return True
+
+    def _on_pc_control_ready(self, user_input: str, result: object) -> None:
+        message = str(getattr(result, "message", "PC action returned no result."))
+        output = dict(getattr(result, "output", {}) or {})
+        tool_id = str(getattr(result, "tool_id", ""))
+        succeeded = bool(getattr(result, "success", False))
+        verified = bool(getattr(result, "verified", False))
+        compact_ack = False
+        if succeeded and verified:
+            short_ack = {
+                "application.open": "Opened.",
+                "application.close": "Closed.",
+                "application.focus": "Focused.",
+                "application.minimize": "Minimized.",
+                "application.maximize": "Maximized.",
+                "media.pause": "Paused.",
+                "media.resume": "Playing.",
+                "media.next": "Skipped.",
+                "media.previous": "Previous track.",
+                "media.restart": "Restarted.",
+                "media.set_volume": "Done.",
+                "media.adjust_volume": "Done.",
+            }.get(tool_id)
+            if short_ack:
+                message = short_ack
+                compact_ack = True
+            elif tool_id == "system.status":
+                available = output.get("memoryAvailableGb")
+                gpu = output.get("gpu_percent", output.get("gpuPercent"))
+                if available is not None:
+                    message = f"{float(available):.1f} GB RAM free."
+                    compact_ack = True
+                elif gpu is not None:
+                    message = f"GPU usage is {float(gpu):.0f}%."
+                    compact_ack = True
+            elif tool_id == "screenshot.capture":
+                path = str(output.get("path", "") or "")
+                message = f"Captured: {path}" if path else "Captured."
+                compact_ack = True
+        if output.get("results") and not compact_ack:
+            rows = []
+            for item in list(output["results"])[:8]:
+                if not isinstance(item, dict):
+                    continue
+                label = str(
+                    item.get("title") or item.get("name") or item.get("path") or "Result"
+                )
+                target = str(item.get("url") or item.get("path") or "")
+                rows.append(f"- {label}" + (f": {target}" if target else ""))
+            if rows:
+                message += "\n\n" + "\n".join(rows)
+        elif output and (not compact_ack or tool_id == "system.status"):
+            useful = []
+            for key, value in list(output.items())[:8]:
+                if isinstance(value, (str, int, float, bool)):
+                    useful.append(f"- {key}: {value}")
+            if useful:
+                message += "\n\n" + "\n".join(useful)
+        self._append_direct_reply(user_input, message)
+        # PC actions are asynchronous, so their completion must close the
+        # processing state explicitly.  Without this cleanup the verified
+        # tool result was visible while the stale bubble later claimed that
+        # Qwen was still generating, even though the fast route invoked no
+        # model at all.
+        self._remove_thinking()
+        self._set_busy(False)
+        QTimer.singleShot(120, self._send_queued_message_if_ready)
+        self._record_activity(
+            "PC action completed" if succeeded else "PC action failed",
+            message[:240],
+            category="desktop",
+        )
+
     def _track_animation(self, animation):
         """Keep transient Qt animations alive until their finished signal fires."""
         if not hasattr(self, "_anims"):
@@ -10024,17 +11058,296 @@ class MoriceWindow(QWidget):
         clean_mode = normalize_chat_mode(mode)
         if clean_mode == self.chat_mode:
             self._refresh_mode_panel()
+            if clean_mode == "voice" and not self._voice_conversation_active:
+                self._activate_voice_mode_io()
             return
-        self.chat_mode = clean_mode
-        self.settings["chat_mode"] = self.chat_mode
+        previous_mode = self.chat_mode
+        if previous_mode == "voice":
+            self._stop_voice_mode_io("voice-mode-exited")
+        if clean_mode == "voice":
+            if previous_mode in {"normal", "project"}:
+                self._voice_return_mode = previous_mode
+            self.chat_mode = "voice"
+            # Persist the non-listening return mode, never an active microphone.
+            self.settings["chat_mode"] = self._voice_return_mode
+        else:
+            self.chat_mode = clean_mode
+            self._voice_return_mode = clean_mode
+            self.settings["chat_mode"] = self.chat_mode
         self._save_project_settings()
+        self._refresh_live_action_surface()
         self._refresh_mode_panel()
-        mode_name = "Project" if self.chat_mode == "project" else "Normal chat"
+        mode_name = {
+            "normal": "Normal chat",
+            "project": "Project",
+            "voice": "Live Action",
+        }[self.chat_mode]
         if self.chat_container.isVisible():
-            self.append_message(MORICE_NAME, self._address(f"{mode_name} mode enabled."))
+            detail = (
+                "Live Action enabled. Speak naturally or type; camera vision, Chat, Lab, Tools, graphs, PC control, and Project builds remain available."
+                if self.chat_mode == "voice"
+                else f"{mode_name} mode enabled."
+            )
+            self.append_message(MORICE_NAME, self._address(detail))
         elif self.chat_mode == "normal":
             self.mode_status.setText(f"{mode_name} mode is ready for the next message.")
+        if self.chat_mode == "voice":
+            self._activate_voice_mode_io()
         self._refresh_top_bar_status()
+
+    def _activate_voice_mode_io(self) -> None:
+        if self.chat_mode != "voice" or self._is_closing:
+            return
+        # Choosing the explicit Voice workspace is itself an activation gesture;
+        # it must not require a second spoken wake phrase before normal chat works.
+        self.awake = True
+        self.runtime.voice.configure(self._runtime_tts_config())
+        self._voice_conversation_active = True
+        set_voice_session_active(True)
+        self._live_microphone_paused = False
+        self.voice_btn.setProperty("active", "true")
+        self.voice_btn.setToolTip("Exit Live Action")
+        self.voice_btn.style().unpolish(self.voice_btn)
+        self.voice_btn.style().polish(self.voice_btn)
+        if hasattr(self, "live_action_workspace"):
+            self.live_action_workspace.set_microphone_state(
+                True, "Listening for your voice…"
+            )
+            self.live_action_workspace.show_response(
+                "Live Action is ready. The camera stays off until you press Turn camera on.",
+                state="MORICE",
+            )
+        QTimer.singleShot(180, self._begin_voice_listening)
+
+    def _stop_voice_mode_io(self, reason: str = "voice-mode-exited") -> None:
+        self._voice_conversation_active = False
+        set_voice_session_active(False)
+        if hasattr(self, "input") and self.runtime.speech_input.status().listening:
+            self.input.setText(self._speech_base_text)
+        self._speech_base_text = ""
+        self._barge_in_monitoring = False
+        self._barge_in_interrupted = False
+        self.runtime.speech_input.cancel(reason)
+        self.runtime.voice.interrupt(reason)
+        self.runtime.live_vision.cancel(reason)
+        self.runtime.live_vision.frames.clear()
+        self.runtime.live_vision.memory.clear()
+        if hasattr(self, "live_camera"):
+            self.live_camera.stop("Camera is off outside Live Action.")
+        if hasattr(self, "live_action_workspace"):
+            self.live_action_workspace.set_microphone_state(
+                False, "Live Action is off."
+            )
+        self.voice_btn.setProperty("active", "false")
+        self.voice_btn.setToolTip("Enter Live Action")
+        self.voice_btn.style().unpolish(self.voice_btn)
+        self.voice_btn.style().polish(self.voice_btn)
+
+    def _refresh_live_action_surface(self) -> None:
+        if not hasattr(self, "live_action_workspace"):
+            return
+        is_live = self.chat_mode == "voice"
+        self.live_action_workspace.setVisible(is_live)
+        self.chat_container.setVisible(not is_live and not self.composer_centered)
+        if hasattr(self, "composer_stage"):
+            self.composer_stage.setVisible(not is_live and self.composer_centered)
+        if hasattr(self, "bottom_input_host"):
+            self.bottom_input_host.setVisible(not is_live and not self.composer_centered)
+        if is_live:
+            self.live_action_workspace.raise_()
+
+    def _submit_live_action_text(self, text: str) -> None:
+        clean = str(text or "").strip()
+        if not clean:
+            return
+        self.input.setText(clean)
+        self.on_send()
+
+    def _on_live_camera_requested(self, enabled: bool) -> None:
+        if self.chat_mode != "voice":
+            return
+        if not enabled:
+            self.live_camera.stop("Camera is off. No frames are being captured.")
+            self.runtime.live_vision.cancel("camera-off")
+            self.runtime.live_vision.frames.clear()
+            return
+        device_id, resolution, fps, mirror = (
+            self.live_action_workspace.selected_configuration()
+        )
+        self._save_live_camera_preferences(device_id, resolution, fps, mirror)
+        self.live_camera.start(
+            device_id=device_id,
+            resolution=resolution,
+            fps=fps,
+            mirror=mirror,
+        )
+
+    def _on_live_camera_frame(self, image: object) -> None:
+        # A final queued frame can arrive after QCamera.stop().  The camera
+        # controller clears its in-memory image during teardown, and the UI
+        # must also refuse that stale delivery so Camera Off is visibly and
+        # semantically immediate.
+        if self.chat_mode != "voice" or not self.live_camera.desired_active:
+            return
+        self.live_action_workspace.preview.set_frame(image)
+        if (
+            not self.live_action_workspace.awareness_check.isChecked()
+        ):
+            return
+        now = time.monotonic()
+        if now - self._last_awareness_publish < 0.75:
+            return
+        self._last_awareness_publish = now
+        snapshot = self.live_camera.snapshot_jpeg(quality=78)
+        if snapshot is None:
+            return
+        jpeg, metadata = snapshot
+        try:
+            self.runtime.live_vision.publish_frame(jpeg, **metadata)
+        except (RuntimeError, ValueError):
+            return
+
+    def _on_live_awareness_requested(self, enabled: bool) -> None:
+        self.settings["continuous_visual_awareness"] = str(bool(enabled)).lower()
+        self._save_project_settings()
+        self._last_awareness_publish = 0.0
+        if not enabled:
+            self.runtime.live_vision.frames.clear()
+        self.live_action_workspace.show_response(
+            (
+                "Lightweight scene awareness is on. It tracks scene changes in memory without continuously running the visual model."
+                if enabled
+                else "Scene awareness is off. Vision runs only when you ask."
+            ),
+            state="VISION",
+        )
+
+    def _on_live_camera_configuration_changed(
+        self,
+        device_id: str,
+        resolution: str,
+        fps: float,
+        mirror: bool,
+    ) -> None:
+        self._save_live_camera_preferences(device_id, resolution, fps, mirror)
+        if self.live_camera.desired_active:
+            self.live_camera.start(
+                device_id=device_id,
+                resolution=resolution,
+                fps=fps,
+                mirror=mirror,
+            )
+        else:
+            self.live_camera.update_mirror(mirror)
+
+    def _save_live_camera_preferences(
+        self,
+        device_id: str,
+        resolution: str,
+        fps: float,
+        mirror: bool,
+    ) -> None:
+        self.settings["camera_device_id"] = str(device_id or "")
+        self.settings["camera_resolution"] = str(resolution or "1280x720")
+        self.settings["camera_fps"] = str(int(round(float(fps))))
+        self.settings["camera_mirror"] = str(bool(mirror)).lower()
+        self._save_project_settings()
+
+    def _on_live_microphone_requested(self, enabled: bool) -> None:
+        if self.chat_mode != "voice":
+            return
+        self._live_microphone_paused = not bool(enabled)
+        if enabled:
+            self._voice_conversation_active = True
+            self.live_action_workspace.set_microphone_state(
+                True, "Listening… speak naturally."
+            )
+            QTimer.singleShot(0, self._begin_voice_listening)
+        else:
+            self.runtime.speech_input.cancel("microphone-paused")
+            self.live_action_workspace.set_microphone_state(
+                False, "Microphone paused. Typed requests still work."
+            )
+
+    def _prepare_live_vision_request(
+        self, user_input: str
+    ) -> tuple[bool, VisionResult | None, tuple[int, int] | None]:
+        pending = self._pending_live_vision_result
+        if pending is not None and pending[0] == user_input:
+            self._pending_live_vision_result = None
+            return False, pending[1], (pending[2], pending[3])
+        should_capture = visual_intent(user_input)
+        if not should_capture:
+            recalled = self.runtime.live_vision.memory.recall()
+            cross_modal = bool(
+                re.search(
+                    r"\b(?:search|look up|copy)\s+(?:it|this|that|the text)\b",
+                    user_input.casefold(),
+                )
+            )
+            if cross_modal and recalled is not None and visual_follow_up(user_input):
+                return False, recalled, None
+            return False, None, None
+        self._live_vision_started_ns = time.perf_counter_ns()
+        snapshot = self.live_camera.snapshot_jpeg()
+        if snapshot is None:
+            return False, VisionResult.failure(
+                "live-action-no-frame",
+                None,
+                "camera-off",
+                "I cannot inspect the view because there is no fresh camera frame. Turn the camera on and keep the item visible.",
+            ), None
+        jpeg, metadata = snapshot
+        try:
+            self.runtime.live_vision.publish_frame(jpeg, **metadata)
+        except (RuntimeError, ValueError) as exc:
+            return False, VisionResult.failure(
+                "live-action-publish-failed",
+                None,
+                "camera-frame-failed",
+                f"I could not use the current camera frame: {exc}",
+            ), None
+        self.live_action_workspace.show_response(
+            "Inspecting the latest real camera frame…",
+            streaming=True,
+            state="VISION",
+        )
+        self.live_action_workspace.set_regions(())
+        self.runtime.live_vision.analyze_latest(
+            user_input,
+            on_complete=lambda result, prompt=user_input: self._emit_background(
+                "live_vision_ready", prompt, result
+            ),
+        )
+        return True, None, None
+
+    def _on_live_vision_ready(self, prompt: str, payload: object) -> None:
+        if self.chat_mode != "voice" or not isinstance(payload, VisionResult):
+            return
+        completed_ns = time.perf_counter_ns()
+        started_ns = self._live_vision_started_ns or completed_ns
+        self._pending_live_vision_result = (
+            str(prompt),
+            payload,
+            started_ns,
+            completed_ns,
+        )
+        self._live_vision_started_ns = None
+        self.input.setText(str(prompt))
+        if payload.success:
+            self.live_action_workspace.set_regions(payload.regions)
+            self.live_action_workspace.show_response(
+                "Visual processing finished. Composing the response…",
+                streaming=True,
+                state="VISION",
+            )
+        else:
+            self.live_action_workspace.set_regions(())
+            self.live_action_workspace.show_response(payload.message, state="VISION")
+        QTimer.singleShot(0, self.on_send)
+
+    def _project_capable_mode(self) -> bool:
+        return self.chat_mode in {"project", "voice"}
 
     def _choose_project_folder(self):
         start_dir = (
@@ -10112,7 +11425,11 @@ class MoriceWindow(QWidget):
         self.settings["maturity_level"] = self.maturity_level
         self.settings["font_family"] = self.font_family
         self.settings["custom_font_path"] = self.custom_font_path
-        self.settings["chat_mode"] = self.chat_mode
+        self.settings["chat_mode"] = (
+            self._voice_return_mode
+            if self.chat_mode == "voice"
+            else self.chat_mode
+        )
         self.settings["project_folder"] = self.project_folder
         self.settings["project_access"] = self.project_access
         self.settings["project_lookup_mode"] = self.project_lookup_mode
@@ -10120,7 +11437,22 @@ class MoriceWindow(QWidget):
         self.settings["model_name"] = self.model_name
         self.settings["gpu_name"] = self.gpu_name
         self.settings["gpu_vram_mb"] = self.gpu_vram_mb
+        self.settings["default_music_provider"] = self.default_music_provider
+        if not self._session_enabled:
+            return
         save_settings(self.settings)
+
+    def _save_default_music_provider(self, provider: str) -> None:
+        clean = normalize_music_provider(provider)
+        if clean == self.default_music_provider:
+            return
+        self.default_music_provider = clean
+        self.runtime.set_default_music_provider(clean)
+        self._save_project_settings()
+        if hasattr(self, "mode_status"):
+            self.mode_status.setText(
+                f"{clean} is now the default music provider."
+            )
 
     def _refresh_gpu_profile_ui(self):
         if not hasattr(self, "gpu_status_input"):
@@ -10344,15 +11676,17 @@ class MoriceWindow(QWidget):
         if not hasattr(self, "normal_mode_btn"):
             return
         is_project = self.chat_mode == "project"
-        self._set_project_details_visible(is_project)
-        if is_project and self.changes_available and not self.changes_panel_dismissed:
+        is_voice = self.chat_mode == "voice"
+        project_capable = is_project or is_voice
+        self._set_project_details_visible(project_capable)
+        if project_capable and self.changes_available and not self.changes_panel_dismissed:
             self._animate_panel_visibility(self.changes_panel, True)
             self._refresh_project_tree()
         else:
             self._animate_panel_visibility(self.changes_panel, False)
         self.personalization_btn.setVisible(not is_project)
-        self.access_status_btn.setVisible(is_project)
-        self.project_lookup_btn.setVisible(is_project)
+        self.access_status_btn.setVisible(project_capable)
+        self.project_lookup_btn.setVisible(project_capable)
         self.access_status_btn.setText("Full access" if self.project_access == "full" else "Folder only")
         self.access_status_btn.setToolTip("Open Project access settings")
         self.project_lookup_btn.setText("Online+local" if self.project_lookup_mode == "online" else "Local mode")
@@ -10365,8 +11699,9 @@ class MoriceWindow(QWidget):
             self.model_path_input.setToolTip("Using bundled Qwen2.5 Coder 7B GGUF unless an Ollama name is set")
         self._refresh_gpu_profile_ui()
         for button, active in (
-            (self.normal_mode_btn, not is_project),
+            (self.normal_mode_btn, self.chat_mode == "normal"),
             (self.project_mode_btn, is_project),
+            (self.voice_mode_btn, is_voice),
         ):
             button.setProperty("active", "true" if active else "false")
             button.style().unpolish(button)
@@ -10381,6 +11716,24 @@ class MoriceWindow(QWidget):
             button.style().unpolish(button)
             button.style().polish(button)
         QTimer.singleShot(0, self._update_composer_responsive_state)
+        if is_voice:
+            voice_status = self.runtime.voice.status()
+            speech_status = self.runtime.speech_input.status()
+            api_line = (
+                "ElevenLabs reply audio is configured."
+                if voice_status.api_configured
+                else "ElevenLabs is not configured; microphone conversation remains available but replies stay text-only."
+            )
+            self.mode_status.setText(
+                "Live Action is camera-centered and uses the complete MORICE voice/chat pipeline.\n"
+                "Vision, graphs, Lab renderers, Tools, PC control, attachments, and Project builds remain available.\n"
+                "The camera stays off until you explicitly turn it on, and frames are not saved.\n"
+                f"Microphone: {speech_status.state.value}. {api_line}\n"
+                f"Project folder: {self.project_folder or 'Quick Build will be prepared when needed.'}\n"
+                + self._model_status_line()
+            )
+            self._refresh_send_button_state()
+            return
         if not is_project:
             self.mode_status.setText(
                 "Normal chat is for everyday questions, quick replies, and casual work.\n"
@@ -10454,7 +11807,7 @@ class MoriceWindow(QWidget):
         )
 
     def _is_project_build_request(self, text: str) -> bool:
-        if self.chat_mode != "project":
+        if not self._project_capable_mode():
             return False
         lowered = " ".join((text or "").lower().split())
         if not lowered:
@@ -10548,7 +11901,7 @@ class MoriceWindow(QWidget):
         return False
 
     def _is_project_retry_request(self, text: str) -> bool:
-        if self.chat_mode != "project" or not self.last_project_request:
+        if not self._project_capable_mode() or not self.last_project_request:
             return False
         lowered = " ".join((text or "").lower().split())
         retry_phrases = {
@@ -10981,6 +12334,36 @@ class MoriceWindow(QWidget):
             ),
         }
 
+    def _project_patch_requires_review(self) -> bool:
+        """Folder-limited mode stages a diff; Full access writes requested files.
+
+        The mode panel promises that ordinary project work is pre-approved when
+        Full access is selected.  Keeping every build as a preview broke that
+        promise and made a successful response point at an empty work folder.
+        """
+
+        return self.project_access != "full"
+
+    @staticmethod
+    def _project_output_worth_repairing(reply: str) -> bool:
+        text = str(reply or "").strip()
+        if len(text) < 24:
+            return False
+        lowered = text.lower()
+        if text.startswith("(MORICE)") and any(
+            marker in lowered
+            for marker in (
+                "error",
+                "timed out",
+                "too long",
+                "not set",
+                "not found",
+                "could not",
+            )
+        ):
+            return False
+        return True
+
     def _on_project_changes_ready(self, summary: str, diff_html: str):
         self._set_changes_minimized(False)
         self.changes_available = True
@@ -10990,7 +12373,7 @@ class MoriceWindow(QWidget):
             diff_html
             or "<span style='color:rgba(255,255,255,0.64)'>No visible file diff for this action.</span>"
         )
-        if self.chat_mode == "project":
+        if self._project_capable_mode():
             self._animate_panel_visibility(self.changes_panel, True)
         else:
             self._animate_panel_visibility(self.changes_panel, False)
@@ -11760,7 +13143,9 @@ class MoriceWindow(QWidget):
                 "Nothing was displayed, and I will not substitute a fake placeholder."
             )
             self.history.append({"role": "assistant", "content": reply})
-            self.append_message(MORICE_NAME, self._address(reply))
+            visible_reply = self._address(reply)
+            self.append_message(MORICE_NAME, visible_reply)
+            self._speak_assistant_text(visible_reply)
             self._record_activity(
                 "Visualization failed", message, category="visualization"
             )
@@ -11805,7 +13190,9 @@ class MoriceWindow(QWidget):
             message = "The renderer returned an unsupported artifact type, so nothing was displayed."
             card.set_error(message)
             self.history.append({"role": "assistant", "content": message})
-            self.append_message(MORICE_NAME, self._address(message))
+            visible_message = self._address(message)
+            self.append_message(MORICE_NAME, visible_message)
+            self._speak_assistant_text(visible_message)
             self._record_activity(
                 "Visualization rejected", message, category="visualization"
             )
@@ -11816,7 +13203,9 @@ class MoriceWindow(QWidget):
         self._replace_chat_widget(card, workspace)
         reply = self._science_ready_reply(artifact, result)
         self.history.append({"role": "assistant", "content": reply})
-        self.append_message(MORICE_NAME, self._address(reply))
+        visible_reply = self._address(reply)
+        self.append_message(MORICE_NAME, visible_reply)
+        self._speak_assistant_text(visible_reply)
         self._record_activity(
             "Visualization rendered",
             f"{artifact.kind}: {artifact.title}",
@@ -12047,6 +13436,11 @@ class MoriceWindow(QWidget):
         self._refresh_archive_notice()
 
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
+        if self.chat_mode == "voice" and hasattr(self, "live_action_workspace"):
+            if is_user:
+                self.live_action_workspace.set_transcript(message, partial=False)
+            elif author == MORICE_NAME:
+                self.live_action_workspace.show_response(message, state="MORICE")
         should_follow = self.follow_latest or self._is_at_bottom()
         if force_scroll is None:
             force_scroll = is_user or should_follow
@@ -12073,9 +13467,23 @@ class MoriceWindow(QWidget):
         *,
         address: bool = True,
     ):
+        realtime_request = self.runtime.realtime.active_request
+        if realtime_request is not None and realtime_request.text != str(user_input or "").strip():
+            realtime_request = None
         visible_reply = self._address(reply) if address else str(reply or "").strip()
         self._remember_conversation_turn(user_input, visible_reply)
         self.append_message(MORICE_NAME, visible_reply)
+        if realtime_request is not None:
+            realtime_request.trace.mark_event("first_visible_token")
+            realtime_request.trace.mark_event("fast_response_visible")
+        voice_handle = self._speak_assistant_text(
+            visible_reply,
+            request_id=(realtime_request.request_id if realtime_request else None),
+        )
+        if realtime_request is not None:
+            self.runtime.realtime.complete_generation(realtime_request.epoch)
+            if voice_handle is None:
+                self.runtime.realtime.finish_speech(realtime_request.epoch)
         self._complete_agent_ui(response_present=bool(visible_reply))
         self._save_workspace_session()
 
@@ -12103,8 +13511,10 @@ class MoriceWindow(QWidget):
         self.advanced_settings_btn.setEnabled(not is_busy)
         self.save_style_btn.setEnabled(not is_busy)
         self.clear_style_btn.setEnabled(not is_busy)
-        self.normal_mode_btn.setEnabled(not is_busy)
-        self.project_mode_btn.setEnabled(not is_busy)
+        allow_voice_exit = self.chat_mode == "voice"
+        self.normal_mode_btn.setEnabled(not is_busy or allow_voice_exit)
+        self.project_mode_btn.setEnabled(not is_busy or allow_voice_exit)
+        self.voice_mode_btn.setEnabled(not is_busy or allow_voice_exit)
         self.model_name_input.setEnabled(not is_busy)
         self.model_path_input.setEnabled(not is_busy)
         self.change_model_btn.setEnabled(not is_busy)
@@ -12219,6 +13629,10 @@ class MoriceWindow(QWidget):
 
     def _show_thinking(self, detail: str):
         self._remove_thinking()
+        if self.chat_mode == "voice" and hasattr(self, "live_action_workspace"):
+            self.live_action_workspace.show_response(
+                detail, streaming=True, state="WORKING"
+            )
         self._thinking_token += 1
         token = self._thinking_token
         self.thinking_bubble = ThinkingBubble(detail)
@@ -12268,11 +13682,162 @@ class MoriceWindow(QWidget):
     def _finish_thinking(self):
         self._remove_thinking()
 
+    def _on_assistant_stream_delta(self, request_id: str, delta: str) -> None:
+        clean_delta = str(delta or "")
+        if not clean_delta:
+            return
+        if request_id != self._stream_request_id:
+            self._stream_request_id = request_id
+            self._stream_text = ""
+            self._stream_bubble = None
+        self._stream_text += clean_delta
+        visible = self._address(self._stream_text)
+        if self.chat_mode == "voice" and hasattr(self, "live_action_workspace"):
+            self._remove_thinking()
+            self.live_action_workspace.show_response(
+                visible, streaming=True, state="MORICE"
+            )
+            if not self.runtime.speech_input.status().listening:
+                QTimer.singleShot(0, self._begin_voice_listening)
+            self.runtime.realtime.mark_event(
+                request_id,
+                "first_visible_token",
+                metadata={"surface": "live-action"},
+            )
+            self.runtime.realtime.mark_event(
+                request_id,
+                "ui_delta_displayed",
+                metadata={"surface": "live-action"},
+            )
+            return
+        if self._stream_bubble is None:
+            # The first model token replaces the work-state bubble immediately;
+            # this is the actual time-to-first-visible-response milestone.
+            self._remove_thinking()
+            row = self._create_message_row(MORICE_NAME, visible, False)
+            self._stream_bubble = row.findChild(ChatBubble)
+            self._virtualize_chat_widgets()
+            self.runtime.realtime.mark_event(
+                request_id,
+                "first_visible_token",
+                metadata={"surface": "chat"},
+            )
+        elif self._stream_bubble is not None:
+            self._stream_bubble.set_message(visible)
+        self.runtime.realtime.mark_event(
+            request_id,
+            "ui_delta_displayed",
+            metadata={"surface": "chat"},
+        )
+        self._schedule_latest_scroll(force=True)
+
+    def _on_assistant_stream_finished(
+        self,
+        request_id: str,
+        message: str,
+    ) -> None:
+        final_message = str(message or "").strip()
+        if (
+            self.chat_mode == "voice"
+            and request_id == self._stream_request_id
+            and hasattr(self, "live_action_workspace")
+        ):
+            self._last_spoken_text = final_message
+            self.live_action_workspace.finish_response(final_message)
+            self._stream_request_id = ""
+            self._stream_text = ""
+            self._stream_bubble = None
+            active_request = self.runtime.realtime.active_request
+            if (
+                not self._streamed_voice_reply_pending
+                and active_request is not None
+                and active_request.request_id == request_id
+            ):
+                self.runtime.realtime.finish_speech(active_request.epoch)
+            self.append_message(MORICE_NAME, final_message, force_scroll=False)
+            self._finish_response_delivery(
+                MORICE_NAME,
+                final_message,
+                False,
+                already_visible=True,
+            )
+            return
+        if request_id != self._stream_request_id or self._stream_bubble is None:
+            active_request = self.runtime.realtime.active_request
+            if (
+                not self._streamed_voice_reply_pending
+                and active_request is not None
+                and active_request.request_id == request_id
+            ):
+                self.runtime.realtime.finish_speech(active_request.epoch)
+            self._on_message_ready(MORICE_NAME, final_message, False)
+            return
+        self._stream_bubble.set_message(final_message)
+        self._stream_request_id = ""
+        self._stream_text = ""
+        self._stream_bubble = None
+        active_request = self.runtime.realtime.active_request
+        if (
+            not self._streamed_voice_reply_pending
+            and active_request is not None
+            and active_request.request_id == request_id
+        ):
+            self.runtime.realtime.finish_speech(active_request.epoch)
+        self._finish_response_delivery(
+            MORICE_NAME,
+            final_message,
+            False,
+            already_visible=True,
+        )
+
+    def _on_response_cancelled(self, request_id: str) -> None:
+        active_request = self.runtime.realtime.active_request
+        superseded = bool(
+            active_request is not None
+            and active_request.request_id != request_id
+            and not active_request.cancellation.cancelled
+        )
+        if request_id == self._stream_request_id:
+            if self._stream_bubble is not None and self._stream_text.strip():
+                self._stream_bubble.set_message(
+                    self._address(self._stream_text).rstrip() + "\n\n[Stopped]"
+                )
+            self._stream_request_id = ""
+            self._stream_text = ""
+            self._stream_bubble = None
+        if superseded:
+            return
+        self._remove_thinking()
+        self._complete_agent_ui(response_present=False, successful=False)
+        self._set_busy(False)
+        QTimer.singleShot(0, self._send_queued_message_if_ready)
+
     def _on_message_ready(self, author: str, message: str, is_user: bool = False):
         completed_bubble = self.thinking_bubble
         if completed_bubble is not None:
             completed_bubble.finish()
         self.append_message(author, message, is_user=is_user, force_scroll=True)
+        self._finish_response_delivery(
+            author,
+            message,
+            is_user,
+            completed_bubble=completed_bubble,
+        )
+
+    def _finish_response_delivery(
+        self,
+        author: str,
+        message: str,
+        is_user: bool,
+        *,
+        completed_bubble: ThinkingBubble | None = None,
+        already_visible: bool = False,
+    ) -> None:
+        if not is_user and author == MORICE_NAME:
+            if self._streamed_voice_reply_pending:
+                self._streamed_voice_reply_pending = False
+            else:
+                self._speak_assistant_text(message)
         if completed_bubble is not None:
             QTimer.singleShot(
                 220,
@@ -12299,6 +13864,10 @@ class MoriceWindow(QWidget):
     def _on_thinking_update(self, detail: str):
         if self.thinking_bubble:
             self.thinking_bubble.set_detail(detail)
+        if self.chat_mode == "voice" and hasattr(self, "live_action_workspace"):
+            self.live_action_workspace.show_response(
+                detail, streaming=True, state="WORKING"
+            )
 
     def _update_style_badge(self):
         if not hasattr(self, "current_style_value"):
@@ -12426,6 +13995,8 @@ class MoriceWindow(QWidget):
             return
 
         is_project = self.chat_mode == "project"
+        is_voice = self.chat_mode == "voice"
+        project_capable = is_project or is_voice
         if available >= 760:
             visible_tools = {
                 self.attach_btn,
@@ -12452,8 +14023,8 @@ class MoriceWindow(QWidget):
 
         self.precision_btn.setVisible(available >= 480)
         self.personalization_btn.setVisible(not is_project and available >= 620)
-        self.access_status_btn.setVisible(is_project and available >= 620)
-        self.project_lookup_btn.setVisible(is_project and available >= 920)
+        self.access_status_btn.setVisible(project_capable and available >= 760)
+        self.project_lookup_btn.setVisible(project_capable and available >= 920)
 
         if available >= 620:
             self.input.setMinimumWidth(120)
@@ -12481,6 +14052,8 @@ class MoriceWindow(QWidget):
         button.style().polish(button)
 
     def _dock_composer(self):
+        if self.chat_mode == "voice":
+            return
         if not self.composer_centered:
             return
 
@@ -12748,53 +14321,178 @@ class MoriceWindow(QWidget):
             self.animation_engine.window_opacity(self, 1.0, duration=150)
 
     def on_send(self):
+        ui_received_ns = time.perf_counter_ns()
+        self.runtime.voice.interrupt("new-user-request")
+        self.runtime.speech_input.cancel("transcript-submitted")
+        self.runtime.live_vision.cancel("new-user-request")
+        user_input = self.input.text().strip()
         if self.is_busy:
+            if re.fullmatch(
+                r"(?:stop|cancel|never mind|nevermind|stop that|cancel that)[.!? ]*",
+                user_input.casefold(),
+            ):
+                active_request = self.runtime.realtime.active_request
+                self.runtime.realtime.cancel_active("user stop")
+                self.input.clear()
+                self.append_message(
+                    self.user_title,
+                    user_input,
+                    is_user=True,
+                    force_scroll=True,
+                )
+                self.append_message(MORICE_NAME, self._address("Stopped."))
+                if active_request is not None:
+                    active_request.trace.mark_event("user_interrupt")
+                    active_request.trace.mark_event("fast_response_visible")
+                    self.runtime.realtime.finish_speech(active_request.epoch)
+                self._remove_thinking()
+                self._set_busy(False)
+                return
+            self.runtime.realtime.cancel_active("superseded by user")
             self._queue_steer_message()
             return
-        user_input = self.input.text().strip()
         if not user_input:
             return
+        live_vision_waiting = False
+        live_vision_result: VisionResult | None = None
+        live_vision_timing: tuple[int, int] | None = None
+        if self.chat_mode == "voice":
+            live_vision_waiting, live_vision_result, live_vision_timing = (
+                self._prepare_live_vision_request(user_input)
+            )
+            if live_vision_waiting:
+                return
+        submitted_ns = time.perf_counter_ns()
         self.follow_latest = True
         self.input.clear()
         self._prompt_history_index = -1
         self._dock_composer()
         self.append_message(self.user_title, user_input, is_user=True, force_scroll=True)
+        transcript = self._pending_transcript
+        self._pending_transcript = None
+        initial_marks = {}
+        request_started_ns = (
+            live_vision_timing[0] if live_vision_timing is not None else ui_received_ns
+        )
+        request_source = "typed"
+        if (
+            transcript is not None
+            and transcript.text.strip()
+            and transcript.started_monotonic > 0
+        ):
+            request_source = "speech"
+            request_started_ns = int(transcript.started_monotonic * 1_000_000_000)
+            if transcript.speech_detected_ms is not None:
+                initial_marks[LatencyStage.SPEECH_DETECTED] = request_started_ns + int(
+                    transcript.speech_detected_ms * 1_000_000
+                )
+            if transcript.first_partial_ms is not None:
+                initial_marks[LatencyStage.STT_FIRST_PARTIAL] = request_started_ns + int(
+                    transcript.first_partial_ms * 1_000_000
+                )
+            initial_marks[LatencyStage.STT_FINAL] = request_started_ns + int(
+                transcript.duration_ms * 1_000_000
+            )
+        realtime_request = self.runtime.realtime.begin_request(
+            user_input,
+            override_model=self.model_path or self.model_name,
+            started_ns=request_started_ns,
+            initial_marks=initial_marks,
+            metadata={
+                "projectMode": self._is_project_build_request(user_input),
+                "source": request_source,
+                "visionUsed": live_vision_result is not None,
+                "modelUsed": False,
+            },
+            input_event="input_received",
+        )
+        realtime_request.trace.mark_event(
+            "ui_request_received",
+            at_ns=(
+                live_vision_timing[0]
+                if live_vision_timing is not None
+                else ui_received_ns
+            ),
+        )
+        realtime_request.trace.mark_event("text_submitted", at_ns=submitted_ns)
+        if live_vision_timing is not None:
+            realtime_request.trace.mark_event(
+                "vision_started",
+                at_ns=live_vision_timing[0],
+            )
+            realtime_request.trace.mark_event(
+                "vision_completed",
+                at_ns=live_vision_timing[1],
+                metadata={
+                    "durationMs": max(
+                        0.0,
+                        (live_vision_timing[1] - live_vision_timing[0])
+                        / 1_000_000.0,
+                    ),
+                },
+            )
+        if request_source == "speech" and transcript is not None:
+            if transcript.speech_end_ms is not None:
+                realtime_request.trace.mark_event(
+                    "speech_end",
+                    at_ns=request_started_ns
+                    + int(transcript.speech_end_ms * 1_000_000),
+                )
+            realtime_request.trace.mark_event(
+                "transcript_final",
+                at_ns=request_started_ns + int(transcript.duration_ms * 1_000_000),
+                metadata={
+                    "speechEndToFinalMs": transcript.speech_end_to_final_ms,
+                },
+            )
         self.user_messages.append(user_input)
         self.workspace_state.add_recent_chat(user_input)
-        try:
-            self.runtime.desktop.memory.add(
-                "temporary",
-                user_input,
-                tags=("chat", "user"),
-                temporary=True,
-            )
-            self.runtime.plugins.publish_event(
-                "memory.updated",
-                {"scope": "temporary", "source": "chat"},
-            )
-        except (RuntimeError, TypeError, ValueError):
-            pass
-        self._record_activity(
-            "Message sent",
-            " ".join(user_input.split())[:240],
-            category="chat",
-        )
-        self.runtime.plugins.publish_event(
-            "chat.started",
-            {
-                "mode": self.chat_mode,
-                "characters": len(user_input),
-                "projectFolder": self.project_folder if self.chat_mode == "project" else "",
-            },
+        submission_metadata = {
+            "mode": self.chat_mode,
+            "characters": len(user_input),
+            "projectFolder": self.project_folder if self._project_capable_mode() else "",
+        }
+
+        def record_submission() -> None:
+            try:
+                self.runtime.desktop.memory.add(
+                    "temporary",
+                    user_input,
+                    tags=("chat", "user"),
+                    temporary=True,
+                )
+                self.runtime.plugins.publish_event(
+                    "memory.updated",
+                    {"scope": "temporary", "source": "chat"},
+                )
+                self.runtime.plugins.publish_event("chat.started", submission_metadata)
+            except (RuntimeError, TypeError, ValueError):
+                return
+
+        _start_background_task("chat-bookkeeping", record_submission)
+        QTimer.singleShot(
+            0,
+            lambda text=" ".join(user_input.split())[:240]: self._record_activity(
+                "Message sent",
+                text,
+                category="chat",
+            ),
         )
         if not self.first_user_message:
             self.first_user_message = user_input
-        self._prepare_agent_request(user_input)
-
         image_path = self.pending_image_path
         if image_path:
             self.pending_image_path = ""
             self.append_message(self.user_title, f"Attached image: {os.path.basename(image_path)}", is_user=True)
+
+        if live_vision_result is not None and not live_vision_result.success:
+            self._append_direct_reply(
+                user_input,
+                live_vision_result.message
+                or "I could not safely analyze the current camera frame.",
+                address=False,
+            )
+            return
 
         wake_message = wake_up_response(user_input, self.wake_phrase, self.user_title)
         if wake_message:
@@ -12815,6 +14513,40 @@ class MoriceWindow(QWidget):
             return
 
         if self._handle_desktop_command(user_input):
+            realtime_request.trace.mark_event("first_visible_token")
+            realtime_request.trace.mark_event("fast_response_visible")
+            self.runtime.realtime.complete_generation(realtime_request.epoch)
+            self.runtime.realtime.finish_speech(realtime_request.epoch)
+            self._save_workspace_session()
+            return
+
+        if live_vision_result is not None and live_vision_result.success:
+            lower_input = user_input.casefold()
+            visual_subject = (
+                live_vision_result.extracted_text.strip()
+                or live_vision_result.summary.strip()
+            )
+            if re.search(r"\bcopy\s+(?:it|this|that|the text)\b", lower_input):
+                QApplication.clipboard().setText(visual_subject)
+                self._append_direct_reply(
+                    user_input,
+                    "Copied the processed visual text to the clipboard."
+                    if live_vision_result.extracted_text.strip()
+                    else "Copied the processed visual description to the clipboard.",
+                    address=False,
+                )
+                return
+            if visual_subject and re.search(
+                r"\b(?:search|look up)\s+(?:it|this|that|the text)\b",
+                lower_input,
+            ):
+                if self._handle_natural_pc_control(
+                    f"search the web for {visual_subject}"
+                ):
+                    self._save_workspace_session()
+                    return
+
+        if self._handle_natural_pc_control(user_input):
             self._save_workspace_session()
             return
 
@@ -12980,6 +14712,9 @@ class MoriceWindow(QWidget):
             return
 
         if self._handle_science_request(user_input):
+            realtime_request.trace.mark_event("first_visible_token")
+            self.runtime.realtime.complete_generation(realtime_request.epoch)
+            self.runtime.realtime.finish_speech(realtime_request.epoch)
             return
 
         retry_project_request = self._is_project_retry_request(user_input)
@@ -12995,45 +14730,90 @@ class MoriceWindow(QWidget):
             return
 
         project_online_lookup = project_build_request and self.project_lookup_mode == "online"
-        if (
-            wants_web_capability(user_input)
-            and not extract_web_query(user_input)
-            and not project_online_lookup
-        ):
-            self._append_direct_reply(
-                user_input,
-                "Offline mode is active. Start the message with @web <query> when you want web search.",
-            )
-            return
-
-        web_query_for_status = extract_web_query(user_input)
+        web_decision_for_status = infer_web_need(user_input)
         self._set_busy(True)
         self._show_thinking(
             "Received your message and started the reply pipeline."
         )
         self._emit_background(
             "thinking_update",
-            "Using @web, collecting search results, then asking the selected Qwen/local engine."
-            if web_query_for_status
+            "Collecting live web context, then asking the selected local engine."
+            if web_decision_for_status.required
             else (
                 "Online+local Project mode: collecting web context, then building files."
                 if project_online_lookup
                 else (
                     "Local Project mode: using the selected folder and local model to build files."
                     if project_build_request
-                    else "Full offline mode: asking the bundled Qwen engine only."
+                    else "Using the fastest relevant local context path."
                 )
             )
         )
 
         def worker():
             try:
-                if project_build_request:
-                    self._prepare_agent_request(
+                realtime_request.trace.mark_event("worker_started")
+                realtime_request.trace.mark_event("context_started")
+                agent_request_id = self._prepare_agent_request(
+                    project_source_input if project_build_request else user_input,
+                    include_project=project_build_request,
+                )
+                request_spec = (
+                    analyze_project_request(
                         project_source_input,
-                        include_project=True,
+                        self._project_has_files(),
                     )
-                agent_request_id = self._active_agent_request_id
+                    if project_build_request
+                    else None
+                )
+                if request_spec is not None and request_spec.subject == "flappy bird":
+                    fast_manifest = build_project_fallback_manifest(
+                        project_source_input,
+                        self.project_folder,
+                    )
+                    if fast_manifest:
+                        self._emit_background(
+                            "thinking_update",
+                            "Building the verified Flappy Bird project locally.",
+                        )
+                        project_result = self._apply_project_manifest(
+                            fast_manifest,
+                            project_source_input,
+                            preview_only=self._project_patch_requires_review(),
+                        )
+                        visible_reply = project_result["message"]
+                        self.history.append(
+                            {"role": "user", "content": user_input}
+                        )
+                        self.history.append(
+                            {"role": "assistant", "content": visible_reply}
+                        )
+                        self.runtime.realtime.mark(
+                            realtime_request.request_id,
+                            LatencyStage.CONTEXT_ASSEMBLED,
+                        )
+                        self.runtime.realtime.mark(
+                            realtime_request.request_id,
+                            LatencyStage.INFERENCE_BEGAN,
+                        )
+                        self.runtime.realtime.complete_generation(
+                            realtime_request.epoch
+                        )
+                        self.runtime.realtime.finish_speech(
+                            realtime_request.epoch
+                        )
+                        self._emit_background(
+                            "project_changes_ready",
+                            project_result["summary"],
+                            project_result["diff_html"],
+                        )
+                        self._emit_background(
+                            "message_ready",
+                            MORICE_NAME,
+                            self._address(visible_reply),
+                            False,
+                        )
+                        return
                 self._emit_background(
                     "thinking_update",
                     "Checking saved response style and local context.",
@@ -13041,28 +14821,30 @@ class MoriceWindow(QWidget):
                 context_input = project_source_input if project_build_request else user_input
                 context = retrieve_context(context_input) if should_use_context(context_input) else ""
                 web_context = ""
-                web_query = extract_web_query(user_input)
+                web_decision = infer_web_need(user_input)
                 auto_project_web = project_build_request and self.project_lookup_mode == "online"
-                if os.getenv("MORICE_WEB", "1") == "1" and (web_query or auto_project_web):
-                    search_query = web_query or project_source_input
-                    if web_query:
+                web_offline = False
+                if os.getenv("MORICE_WEB", "1") == "1" and (web_decision.required or auto_project_web):
+                    search_query = web_decision.query or project_source_input
+                    if internet_available():
                         self._emit_background(
                             "thinking_update",
-                            "Searching the web because the message used @web.",
+                            "Searching live sources because the answer needs current or external information.",
                         )
+                        web_context = search_web(search_query)
+                        if not web_context:
+                            web_context = "Web lookup returned no results."
                     else:
+                        web_offline = True
                         self._emit_background(
                             "thinking_update",
-                            "Online+local mode: searching the web for useful project context.",
+                            "Internet is unavailable; continuing with local model, notes, and tools.",
                         )
-                    web_context = search_web(search_query)
-                    if not web_context:
-                        web_context = "Web lookup returned no results."
 
                 model_history = select_recent_history(
                     self.history,
-                    max_messages=48,
-                    max_chars=48_000,
+                    max_messages=24 if project_build_request else 16,
+                    max_chars=24_000 if project_build_request else 12_000,
                 )
                 extra_system = saved_settings_instruction(
                     self.user_title,
@@ -13077,7 +14859,11 @@ class MoriceWindow(QWidget):
                 )
                 if reference_instruction:
                     extra_system += "\n\n" + reference_instruction
-                if self.chat_mode == "project":
+                if live_vision_result is not None:
+                    extra_system += "\n\n" + live_vision_result.context_text()
+                if self.chat_mode == "project" or (
+                    self.chat_mode == "voice" and project_build_request
+                ):
                     self._emit_background(
                         "thinking_update",
                         "Project builder mode: applying workspace, access, and coding rules.",
@@ -13127,6 +14913,17 @@ class MoriceWindow(QWidget):
                     extra_system = (extra_system + "\n\n" if extra_system else "") + (
                         "Web results (may be incomplete):\n" + web_context
                     )
+                elif web_offline:
+                    extra_system = (extra_system + "\n\n" if extra_system else "") + (
+                        "Internet access is currently unavailable. Use local context only and "
+                        "state plainly when a live fact cannot be verified."
+                    )
+
+                self.runtime.realtime.mark(
+                    realtime_request.request_id,
+                    LatencyStage.CONTEXT_ASSEMBLED,
+                )
+                realtime_request.trace.mark_event("context_completed")
 
                 self._emit_background(
                     "thinking_update",
@@ -13145,17 +14942,229 @@ class MoriceWindow(QWidget):
                         f"AUTHORITATIVE_USER_REQUEST:\n{project_source_input}"
                     )
                 completion_started = time.perf_counter()
-                with self.runtime.profiler.measure("completion", "model"):
-                    reply = chat(
-                        model_history,
-                        model_user_input,
-                        extra_system=extra_system,
-                        model=self.model_name or None,
-                        timeout=180,
-                        precision_mode=self.precision_mode,
-                        math_steps_mode=self.math_steps_mode or wants_steps_detail(user_input),
-                        gguf_path=self.model_path,
+                self.runtime.realtime.mark(
+                    realtime_request.request_id,
+                    LatencyStage.INFERENCE_BEGAN,
+                )
+                realtime_request.trace.annotate(modelUsed=True)
+
+                def model_telemetry(event: str, payload: dict) -> None:
+                    data = dict(payload or {})
+                    at_ns = int(data.pop("atNs", time.perf_counter_ns()))
+                    if event == "prompt_assembled":
+                        realtime_request.trace.set_counter(
+                            "promptCharacters", int(data.get("characters") or 0)
+                        )
+                        realtime_request.trace.set_counter(
+                            "promptEstimatedTokens",
+                            int(data.get("estimatedTokens") or 0),
+                        )
+                        realtime_request.trace.set_counter(
+                            "promptMessages", int(data.get("messages") or 0)
+                        )
+                    elif event == "model_usage":
+                        usage = data.get("usage")
+                        if isinstance(usage, dict):
+                            for source, target in (
+                                ("prompt_tokens", "promptTokens"),
+                                ("completion_tokens", "completionTokens"),
+                                ("total_tokens", "totalTokens"),
+                            ):
+                                value = usage.get(source)
+                                if isinstance(value, (int, float)):
+                                    realtime_request.trace.set_counter(
+                                        target, int(value)
+                                    )
+                        realtime_request.trace.annotate(modelTelemetry=data)
+                    marked = realtime_request.trace.mark_event(
+                        event,
+                        at_ns=at_ns,
+                        metadata=data,
                     )
+                    if event == "model_request_submitted" and marked:
+                        realtime_request.trace.increment("modelCallCount")
+
+                voice_stream: BoundedSpeechStream | None = None
+                voice_handle = None
+                voice_submitted_ns: int | None = None
+                voice_status = self.runtime.voice.status()
+                stream_voice = bool(
+                    self.chat_mode == "voice"
+                    and not project_build_request
+                    and self.runtime.voice.config.enabled
+                    and voice_status.api_configured
+                )
+
+                def submit_voice_chunks(chunks) -> None:
+                    nonlocal voice_stream, voice_handle, voice_submitted_ns
+                    if not stream_voice:
+                        return
+                    for chunk in chunks:
+                        spoken = str(getattr(chunk, "spoken_text", "") or "").strip()
+                        if not spoken:
+                            continue
+                        if voice_stream is None:
+                            voice_stream = BoundedSpeechStream(max_chunks=8)
+                            voice_submitted_ns = time.perf_counter_ns()
+                            realtime_request.trace.mark_event(
+                                "first_speakable_chunk",
+                                at_ns=voice_submitted_ns,
+                                metadata={"characters": len(spoken)},
+                            )
+                            realtime_request.trace.mark(
+                                LatencyStage.TTS_CHUNK_RECEIVED,
+                                at_ns=voice_submitted_ns,
+                            )
+                            realtime_request.trace.mark_event(
+                                "tts_submitted",
+                                at_ns=voice_submitted_ns,
+                            )
+                            voice_stream.put(spoken)
+                            voice_handle = self.runtime.voice.speak_chunks(
+                                voice_stream,
+                                request_id=realtime_request.request_id,
+                                on_event=self._voice_trace_callback(
+                                    realtime_request
+                                ),
+                            )
+                            self._streamed_voice_reply_pending = True
+                        else:
+                            voice_stream.put(spoken)
+                        realtime_request.trace.increment("ttsChunksQueued")
+
+                reply_parts: list[str] = []
+                visible_model_text_started = False
+                try:
+                    with self.runtime.profiler.measure("completion", "model"):
+                        for delta in stream_chat(
+                            model_history,
+                            model_user_input,
+                            extra_system=extra_system,
+                            model=self.model_name or None,
+                            timeout=180,
+                            precision_mode=self.precision_mode,
+                            math_steps_mode=self.math_steps_mode
+                            or wants_steps_detail(user_input),
+                            gguf_path=self.model_path,
+                            cancel_event=realtime_request.cancellation.event,
+                            max_tokens=(
+                                4_096
+                                if project_build_request
+                                else realtime_request.route.max_output_tokens
+                            ),
+                            enable_reasoning=(
+                                project_build_request
+                                or realtime_request.route.tier is ModelTier.DEEP
+                            ),
+                            telemetry=model_telemetry,
+                        ):
+                            if not self.runtime.realtime.is_current(
+                                realtime_request.epoch
+                            ):
+                                break
+                            clean_delta = str(delta or "")
+                            if not clean_delta:
+                                continue
+                            reply_parts.append(clean_delta)
+                            speech_chunks = self.runtime.realtime.accept_delta(
+                                realtime_request.epoch,
+                                clean_delta,
+                            )
+                            submit_voice_chunks(speech_chunks)
+                            if not visible_model_text_started:
+                                visible_model_text_started = bool(clean_delta.strip())
+                            if not visible_model_text_started:
+                                continue
+                            if not project_build_request:
+                                realtime_request.trace.mark_event(
+                                    "ui_delta_queued"
+                                )
+                                self._emit_background(
+                                    "assistant_stream_delta",
+                                    realtime_request.request_id,
+                                    clean_delta,
+                                )
+
+                    if realtime_request.cancellation.cancelled:
+                        self.runtime.realtime.finish_speech(realtime_request.epoch)
+                        self._emit_background(
+                            "response_cancelled",
+                            realtime_request.request_id,
+                        )
+                        return
+
+                    final_speech_chunks = self.runtime.realtime.complete_generation(
+                        realtime_request.epoch
+                    )
+                    submit_voice_chunks(final_speech_chunks)
+                finally:
+                    if voice_stream is not None:
+                        voice_stream.close()
+                        realtime_request.trace.set_counter(
+                            "ttsQueuePeakDepth", voice_stream.peak_depth
+                        )
+                        realtime_request.trace.set_counter(
+                            "ttsChunksCoalesced", voice_stream.coalesced_chunks
+                        )
+                if voice_handle is not None:
+                    def finish_streamed_speech():
+                        result = voice_handle.wait()
+                        if (
+                            result is not None
+                            and voice_submitted_ns is not None
+                            and result.metrics.request_to_first_audio_ms is not None
+                        ):
+                            realtime_request.trace.annotate(
+                                ttsMetrics={
+                                    "queueWaitMs": result.metrics.queue_wait_ms,
+                                    "providerToFirstAudioMs": (
+                                        result.metrics.provider_to_first_audio_ms
+                                    ),
+                                    "playbackStartupMs": (
+                                        result.metrics.playback_startup_ms
+                                    ),
+                                    "streamedBeforeTextComplete": (
+                                        result.metrics.streamed_before_text_complete
+                                    ),
+                                }
+                            )
+                            first_audio_ns = voice_submitted_ns + int(
+                                result.metrics.request_to_first_audio_ms * 1_000_000
+                            )
+                            realtime_request.trace.mark(
+                                LatencyStage.FIRST_AUDIO_GENERATED,
+                                at_ns=first_audio_ns,
+                            )
+                            realtime_request.trace.mark_event(
+                                "first_audio_generated",
+                                at_ns=first_audio_ns,
+                            )
+                            audible_ns = first_audio_ns + int(
+                                (result.metrics.playback_startup_ms or 0.0)
+                                * 1_000_000
+                            )
+                            realtime_request.trace.mark(
+                                LatencyStage.FIRST_AUDIO_AUDIBLE,
+                                at_ns=audible_ns,
+                            )
+                            realtime_request.trace.mark_event(
+                                "first_audio_audible",
+                                at_ns=audible_ns,
+                            )
+                        self.runtime.realtime.finish_speech(
+                            realtime_request.epoch
+                        )
+                        self._emit_background(
+                            "speech_playback_finished",
+                            result,
+                        )
+
+                    _start_background_task(
+                        "voice-trace",
+                        finish_streamed_speech,
+                    )
+
+                reply = "".join(reply_parts)
                 model_returned_text = bool(str(reply or "").strip())
                 reply = ensure_visible_response(reply)
                 completion_ms = (time.perf_counter() - completion_started) * 1000
@@ -13197,12 +15206,12 @@ class MoriceWindow(QWidget):
                         project_result = self._apply_project_manifest(
                             reply,
                             project_source_input,
-                            preview_only=True,
+                            preview_only=self._project_patch_requires_review(),
                         )
                     except Exception as exc:  # noqa: BLE001
                         apply_error = str(exc)
 
-                    if not project_result:
+                    if not project_result and self._project_output_worth_repairing(reply):
                         self._emit_background(
                             "thinking_update",
                             "Converting the model output into a safe file manifest.",
@@ -13214,20 +15223,38 @@ class MoriceWindow(QWidget):
                             f"Previous model output:\n{reply}"
                         )
                         try:
-                            repair_reply = chat(
-                                [],
-                                repair_prompt,
-                                extra_system=extra_system + "\n\n" + self._project_manifest_instruction(project_source_input),
-                                model=self.model_name or None,
-                                timeout=180,
-                                precision_mode=True,
-                                math_steps_mode=False,
-                                gguf_path=self.model_path,
+                            repair_reply = "".join(
+                                stream_chat(
+                                    [],
+                                    repair_prompt,
+                                    extra_system=extra_system
+                                    + "\n\n"
+                                    + self._project_manifest_instruction(
+                                        project_source_input
+                                    ),
+                                    model=self.model_name or None,
+                                    timeout=180,
+                                    precision_mode=True,
+                                    math_steps_mode=False,
+                                    gguf_path=self.model_path,
+                                    cancel_event=(
+                                        realtime_request.cancellation.event
+                                    ),
+                                )
                             )
+                            if realtime_request.cancellation.cancelled:
+                                self.runtime.realtime.finish_speech(
+                                    realtime_request.epoch
+                                )
+                                self._emit_background(
+                                    "response_cancelled",
+                                    realtime_request.request_id,
+                                )
+                                return
                             project_result = self._apply_project_manifest(
                                 repair_reply,
                                 project_source_input,
-                                preview_only=True,
+                                preview_only=self._project_patch_requires_review(),
                             )
                         except Exception as exc:  # noqa: BLE001
                             apply_error = str(exc)
@@ -13246,7 +15273,7 @@ class MoriceWindow(QWidget):
                                 project_result = self._apply_project_manifest(
                                     fallback_manifest,
                                     project_source_input,
-                                    preview_only=True,
+                                    preview_only=self._project_patch_requires_review(),
                                 )
                                 if project_result:
                                     project_result["summary"] = (
@@ -13277,6 +15304,10 @@ class MoriceWindow(QWidget):
                 else:
                     visible_reply = self.visualization_manager.sanitize_model_reply(visible_reply)
                     visible_reply = ensure_visible_response(visible_reply)
+                if project_build_request:
+                    self.runtime.realtime.finish_speech(
+                        realtime_request.epoch
+                    )
                 self.history.append({"role": "user", "content": user_input})
                 self.history.append({"role": "assistant", "content": visible_reply})
                 try:
@@ -13285,7 +15316,7 @@ class MoriceWindow(QWidget):
                         visible_reply,
                         project_root=(
                             self.project_folder
-                            if self.chat_mode == "project"
+                            if self._project_capable_mode()
                             and os.path.isdir(self.project_folder)
                             else ""
                         ),
@@ -13297,13 +15328,25 @@ class MoriceWindow(QWidget):
                     )
                 except (OSError, RuntimeError, TypeError, ValueError):
                     pass
-                self._emit_background(
-                    "message_ready",
-                    MORICE_NAME,
-                    self._address(visible_reply),
-                    False,
-                )
+                if project_build_request:
+                    self._emit_background(
+                        "message_ready",
+                        MORICE_NAME,
+                        self._address(visible_reply),
+                        False,
+                    )
+                else:
+                    self._emit_background(
+                        "assistant_stream_finished",
+                        realtime_request.request_id,
+                        self._address(visible_reply),
+                    )
             except Exception as exc:  # noqa: BLE001
+                if realtime_request is not None:
+                    realtime_request.cancellation.cancel("pipeline-error")
+                    self.runtime.realtime.finish_speech(
+                        realtime_request.epoch
+                    )
                 if self._active_agent_request_id:
                     self.runtime.agent.record_model_result(
                         self._active_agent_request_id,
@@ -13319,10 +15362,9 @@ class MoriceWindow(QWidget):
                 )
                 self._complete_agent_ui(response_present=False, successful=False)
                 self._emit_background(
-                    "message_ready",
-                    MORICE_NAME,
+                    "assistant_stream_finished",
+                    realtime_request.request_id,
                     self._address(f"I hit an app error: {exc}"),
-                    False,
                 )
 
         _start_background_task("chat-reply", worker)
@@ -13352,6 +15394,7 @@ class MoriceWindow(QWidget):
 
     def closeEvent(self, event):
         self._is_closing = True
+        set_voice_session_active(False)
         self._save_workspace_session()
         self._save_recovery_snapshot()
         if (
@@ -13382,6 +15425,8 @@ class MoriceWindow(QWidget):
         self.plugin_center.shutdown()
         self.diagnostics_dialog.close()
         self.visualization_manager.shutdown()
+        if hasattr(self, "live_camera"):
+            self.live_camera.shutdown()
         self.animation_engine.stop_all()
         super().closeEvent(event)
         if self._owns_runtime_lifecycle:
@@ -13390,10 +15435,29 @@ class MoriceWindow(QWidget):
                 QTimer.singleShot(0, application.quit)
 
 
+def _show_window_for_launch(window: QWidget, environ: dict[str, str] | None = None) -> bool:
+    """Show an ordinary launch normally and a wake launch without activation."""
+
+    environment = os.environ if environ is None else environ
+    background_wake = str(environment.get("MORICE_BACKGROUND_WAKE", "")).strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if background_wake:
+        window.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        window.showMinimized()
+    else:
+        window.show()
+    return background_wake
+
+
 def run_app():
     _set_windows_app_id()
     runtime = get_runtime_services()
     recovery_info = runtime.start()
+    set_app_session_active(True)
     app = QApplication(sys.argv)
     _load_ui_fonts()
     app.setApplicationName("MORICE")
@@ -13415,12 +15479,14 @@ def run_app():
             "MORICE cannot start safely because required components failed:\n\n"
             + failure_text,
         )
+        set_app_session_active(False)
         runtime.shutdown(clean=True)
         return 2
-    window.show()
+    _show_window_for_launch(window)
     try:
         return app.exec()
     finally:
+        set_app_session_active(False)
         reset_model_runtime()
         runtime.shutdown(clean=True)
 

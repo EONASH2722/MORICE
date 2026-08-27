@@ -31,6 +31,12 @@ from .desktop_assistant import (
     collect_system_snapshot,
     execute_desktop_action,
 )
+from .media_control import (
+    AMAZON_MUSIC_APP_ID,
+    AmazonMusicController,
+    SystemVolumeBackend,
+    WindowsMediaSessionBackend,
+)
 
 
 DESKTOP_STATE_VERSION = 1
@@ -268,12 +274,41 @@ class ApplicationCandidate:
 
 
 class ApplicationManager:
-    def __init__(self, directory: Path, permissions: DesktopPermissionManager):
+    DISCOVERY_CACHE_SECONDS = 3_600.0
+    PERSISTED_DISCOVERY_SECONDS = 7 * 24 * 60 * 60
+
+    def __init__(
+        self,
+        directory: Path,
+        permissions: DesktopPermissionManager,
+        *,
+        default_music_provider: str = "Amazon Music",
+    ):
         self.directory = directory
         self.permissions = permissions
         self.state_path = directory / "applications.json"
         self._lock = threading.RLock()
+        self._closed = False
+        self.default_music_provider = (
+            _clean_text(default_music_provider, 120) or "Amazon Music"
+        )
+        self._discovery_cache: tuple[ApplicationCandidate, ...] = ()
+        self._discovery_cached_at = 0.0
         data = _read_json(self.state_path, {})
+        stored_at = float(data.get("discoveryCachedAt", 0.0) or 0.0)
+        if 0.0 <= time.time() - stored_at < self.PERSISTED_DISCOVERY_SECONDS:
+            restored: list[ApplicationCandidate] = []
+            for item in data.get("discovery", ()):
+                if not isinstance(item, dict):
+                    continue
+                name = _clean_text(item.get("name", ""), 200)
+                target = _clean_text(item.get("target", ""), 2_048)
+                source = _clean_text(item.get("source", ""), 80)
+                if name and target and source:
+                    restored.append(ApplicationCandidate(name, target, source))
+            if restored:
+                self._discovery_cache = tuple(restored[:5_000])
+                self._discovery_cached_at = time.monotonic()
         self.pinned = [
             _clean_text(item, 2_048)
             for item in data.get("pinned", [])
@@ -328,36 +363,334 @@ class ApplicationManager:
             if value
         )
 
-    def discover(self, query: str = "", *, limit: int = 80) -> list[ApplicationCandidate]:
-        needle = _clean_text(query, 200).casefold()
-        candidates: dict[str, ApplicationCandidate] = {}
+    def set_default_music_provider(self, provider: str) -> None:
+        clean = _clean_text(provider, 120)
+        if clean:
+            self.default_music_provider = clean
+
+    @staticmethod
+    def _start_apps() -> list[ApplicationCandidate]:
+        if os.name != "nt":
+            return []
+        command = (
+            "Get-StartApps | Select-Object Name,AppID | "
+            "ConvertTo-Json -Compress"
+        )
+        try:
+            completed = subprocess.run(
+                [
+                    "powershell.exe",
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    command,
+                ],
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=12,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            value = json.loads(completed.stdout or "[]")
+        except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError):
+            return []
+        rows = value if isinstance(value, list) else [value]
+        return [
+            ApplicationCandidate(
+                _clean_text(row.get("Name"), 200),
+                _clean_text(row.get("AppID"), 1_000),
+                "start-app",
+            )
+            for row in rows
+            if isinstance(row, dict)
+            and _clean_text(row.get("Name"), 200)
+            and _clean_text(row.get("AppID"), 1_000)
+        ]
+
+    @staticmethod
+    def _registry_app_paths() -> list[ApplicationCandidate]:
+        if os.name != "nt":
+            return []
+        try:
+            import winreg
+        except ImportError:
+            return []
+        base = r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths"
+        candidates: list[ApplicationCandidate] = []
+        views = (0, getattr(winreg, "KEY_WOW64_64KEY", 0), getattr(winreg, "KEY_WOW64_32KEY", 0))
+        for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+            for view in dict.fromkeys(views):
+                try:
+                    with winreg.OpenKey(hive, base, 0, winreg.KEY_READ | view) as root:
+                        count = winreg.QueryInfoKey(root)[0]
+                        names = [winreg.EnumKey(root, index) for index in range(count)]
+                except OSError:
+                    continue
+                for name in names:
+                    try:
+                        with winreg.OpenKey(
+                            hive,
+                            f"{base}\\{name}",
+                            0,
+                            winreg.KEY_READ | view,
+                        ) as item:
+                            target = _clean_text(winreg.QueryValue(item, None), 2_048)
+                    except OSError:
+                        continue
+                    if target and Path(target).is_file():
+                        candidates.append(
+                            ApplicationCandidate(Path(name).stem, target, "app-paths")
+                        )
+        return candidates
+
+    @staticmethod
+    def _path_applications() -> list[ApplicationCandidate]:
+        if os.name != "nt":
+            return []
+        candidates: list[ApplicationCandidate] = []
+        seen: set[str] = set()
+        for raw_directory in os.getenv("PATH", "").split(os.pathsep):
+            directory = Path(raw_directory.strip(' "'))
+            if not directory.is_dir():
+                continue
+            try:
+                executables = directory.glob("*.exe")
+                for executable in executables:
+                    key = str(executable).casefold()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    candidates.append(
+                        ApplicationCandidate(executable.stem, str(executable), "path")
+                    )
+                    if len(candidates) >= 2_000:
+                        return candidates
+            except OSError:
+                continue
+        return candidates
+
+    @staticmethod
+    def _common_location_applications() -> list[ApplicationCandidate]:
+        values = {
+            os.getenv("ProgramFiles", ""),
+            os.getenv("ProgramFiles(x86)", ""),
+            os.getenv("LOCALAPPDATA", ""),
+        }
+        candidates: list[ApplicationCandidate] = []
+        for value in values:
+            root = Path(value) if value else None
+            if root is None or not root.is_dir():
+                continue
+            patterns = ("*.exe", "*/*.exe", "*/*/*.exe")
+            try:
+                for pattern in patterns:
+                    for executable in root.glob(pattern):
+                        candidates.append(
+                            ApplicationCandidate(
+                                executable.stem,
+                                str(executable),
+                                "common-location",
+                            )
+                        )
+                        if len(candidates) >= 2_500:
+                            return candidates
+            except OSError:
+                continue
+        return candidates
+
+    def _build_discovery_cache(self) -> tuple[ApplicationCandidate, ...]:
+        candidates: dict[tuple[str, str], ApplicationCandidate] = {}
+
+        def add(candidate: ApplicationCandidate) -> None:
+            name = _clean_text(candidate.name, 200)
+            target = _clean_text(candidate.target, 2_048)
+            if not name or not target:
+                return
+            key = (name.casefold(), target.casefold())
+            candidates.setdefault(
+                key,
+                ApplicationCandidate(name, target, candidate.source),
+            )
+
         for root in self._shortcut_roots():
             if not root.is_dir():
                 continue
             try:
-                iterator = root.rglob("*.lnk")
-                for path in iterator:
-                    name = path.stem
-                    if needle and needle not in name.casefold():
-                        continue
-                    candidates[str(path).casefold()] = ApplicationCandidate(
-                        name, str(path), "start-menu"
-                    )
-                    if len(candidates) >= limit:
-                        break
+                for path in root.rglob("*.lnk"):
+                    add(ApplicationCandidate(path.stem, str(path), "start-menu"))
             except OSError:
                 continue
-        direct = shutil.which(query) if query else None
-        if direct:
-            candidates[direct.casefold()] = ApplicationCandidate(
-                Path(direct).stem, direct, "path"
+        for source in (
+            self._start_apps(),
+            self._registry_app_paths(),
+            self._path_applications(),
+            self._common_location_applications(),
+        ):
+            for candidate in source:
+                add(candidate)
+        for process in self.list_processes():
+            image = Path(process.image_name)
+            add(ApplicationCandidate(image.stem, process.image_name, "running"))
+        # Get-StartApps is authoritative, but retain a deterministic Amazon entry
+        # on machines where PowerShell discovery is administratively restricted.
+        if not any(item.name.casefold() == "amazon music" for item in candidates.values()):
+            add(ApplicationCandidate("Amazon Music", AMAZON_MUSIC_APP_ID, "known-app-id"))
+        return tuple(candidates.values())
+
+    def refresh_discovery(self, *, force: bool = False) -> tuple[ApplicationCandidate, ...]:
+        with self._lock:
+            if self._closed:
+                return self._discovery_cache
+            fresh = (
+                self._discovery_cache
+                and time.monotonic() - self._discovery_cached_at
+                < self.DISCOVERY_CACHE_SECONDS
             )
-        return sorted(candidates.values(), key=lambda item: item.name.casefold())[:limit]
+            if fresh and not force:
+                return self._discovery_cache
+        # Scanning Start Menu, registry, PATH, and common locations can take
+        # seconds. Do it outside the state lock so cached command resolution is
+        # never stalled behind a background refresh.
+        discovered = self._build_discovery_cache()
+        with self._lock:
+            # Runtime shutdown can happen while the Windows application scan is
+            # still inside a native filesystem/process call. Never recreate or
+            # write into a workspace after its owning runtime has closed.
+            if self._closed:
+                return self._discovery_cache
+            self._discovery_cache = discovered
+            self._discovery_cached_at = time.monotonic()
+            self._save()
+            return self._discovery_cache
+
+    def shutdown(self) -> None:
+        with self._lock:
+            self._closed = True
+
+    @staticmethod
+    def _normalized_name(value: str) -> str:
+        clean = re.sub(r"\b(?:application|app)\b", "", value.casefold())
+        return re.sub(r"[^a-z0-9]+", "", clean)
+
+    def _query_alias(self, query: str) -> str:
+        normalized = self._normalized_name(query)
+        if normalized in {"music", "musicplayer", "musicprovider"}:
+            return self.default_music_provider
+        return query
+
+    @staticmethod
+    def _default_browser_candidate() -> ApplicationCandidate | None:
+        """Resolve Windows' configured HTTPS handler without launching it."""
+
+        if os.name != "nt":
+            return None
+        try:
+            import winreg
+        except ImportError:
+            return None
+        try:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice",
+            ) as key:
+                prog_id = _clean_text(winreg.QueryValueEx(key, "ProgId")[0], 260)
+        except OSError:
+            return None
+        if not prog_id:
+            return None
+        command = ""
+        for hive, path in (
+            (winreg.HKEY_CURRENT_USER, rf"Software\Classes\{prog_id}\shell\open\command"),
+            (winreg.HKEY_CLASSES_ROOT, rf"{prog_id}\shell\open\command"),
+        ):
+            try:
+                with winreg.OpenKey(hive, path) as key:
+                    command = _clean_text(winreg.QueryValue(key, None), 2_048)
+            except OSError:
+                continue
+            if command:
+                break
+        if not command:
+            return None
+        quoted = re.match(r'^\s*"([^"]+\.exe)"', command, flags=re.IGNORECASE)
+        unquoted = re.match(r"^\s*([^\s]+\.exe)", command, flags=re.IGNORECASE)
+        match = quoted or unquoted
+        target = os.path.expandvars(match.group(1)) if match else ""
+        if not target or not Path(target).is_file():
+            return None
+        stem = Path(target).stem
+        display_name = {
+            "brave": "Brave",
+            "chrome": "Google Chrome",
+            "msedge": "Microsoft Edge",
+            "firefox": "Mozilla Firefox",
+            "opera": "Opera",
+        }.get(stem.casefold(), stem)
+        return ApplicationCandidate(display_name, target, "default-browser")
+
+    def _score_candidate(self, query: str, candidate: ApplicationCandidate) -> float:
+        needle = self._normalized_name(query)
+        name = self._normalized_name(candidate.name)
+        if not needle or not name:
+            return 0.0
+        if name == needle:
+            return 1000.0
+        score = difflib.SequenceMatcher(None, needle, name).ratio() * 100.0
+        if name.startswith(needle) or needle.startswith(name):
+            score += 120.0
+        if needle in name or name in needle:
+            score += 80.0
+        source_bonus = {
+            "start-app": 40.0,
+            "start-menu": 35.0,
+            "app-paths": 30.0,
+            "running": 25.0,
+            "path": 20.0,
+            "common-location": 10.0,
+            "known-app-id": 5.0,
+        }
+        return score + source_bonus.get(candidate.source, 0.0)
+
+    def discover(self, query: str = "", *, limit: int = 80) -> list[ApplicationCandidate]:
+        clean_query = self._query_alias(_clean_text(query, 200))
+        if self._normalized_name(clean_query) in {
+            "browser",
+            "webbrowser",
+            "internetbrowser",
+        }:
+            default_browser = self._default_browser_candidate()
+            if default_browser is not None:
+                return [default_browser]
+        candidates = list(self.refresh_discovery())
+        direct = shutil.which(clean_query) if clean_query else None
+        if direct:
+            candidates.append(
+                ApplicationCandidate(Path(direct).stem, direct, "path")
+            )
+        if clean_query:
+            ranked = [
+                (self._score_candidate(clean_query, item), item)
+                for item in candidates
+            ]
+            ranked = [item for item in ranked if item[0] >= 45.0]
+            ranked.sort(key=lambda item: (-item[0], item[1].name.casefold()))
+            return [item for _score, item in ranked[:limit]]
+        return sorted(candidates, key=lambda item: item.name.casefold())[:limit]
 
     def resolve(self, target: str) -> ApplicationCandidate | None:
-        clean = _clean_text(target, 2_048)
+        clean = self._query_alias(_clean_text(target, 2_048))
         if not clean:
             return None
+        if self._normalized_name(clean) in {
+            "browser",
+            "webbrowser",
+            "internetbrowser",
+        }:
+            default_browser = self._default_browser_candidate()
+            if default_browser is not None:
+                return default_browser
         direct = Path(clean).expanduser()
         if direct.exists() and direct.is_file():
             return ApplicationCandidate(direct.stem, str(direct.resolve()), "direct")
@@ -365,17 +698,19 @@ class ApplicationManager:
         if executable:
             return ApplicationCandidate(Path(executable).stem, executable, "path")
         matches = self.discover(clean, limit=20)
+        normalized = self._normalized_name(clean)
         exact = next(
-            (item for item in matches if item.name.casefold() == clean.casefold()),
+            (
+                item
+                for item in matches
+                if self._normalized_name(item.name) == normalized
+            ),
             None,
         )
         return exact or (matches[0] if matches else None)
 
     def alternatives(self, target: str, *, limit: int = 5) -> list[ApplicationCandidate]:
-        all_candidates = self.discover(limit=300)
-        names = {item.name: item for item in all_candidates}
-        matches = difflib.get_close_matches(target, names, n=limit, cutoff=0.35)
-        return [names[name] for name in matches]
+        return self.discover(target, limit=limit)
 
     def request_launch(self, target: str) -> PermissionGrant:
         candidate = self.resolve(target)
@@ -397,7 +732,15 @@ class ApplicationManager:
             permission_token, "application.launch", payload
         ):
             raise PermissionError("Launching this application requires exact approval.")
-        if candidate.target.casefold().endswith(".lnk"):
+        if candidate.source in {"start-app", "known-app-id"}:
+            if os.name != "nt":
+                raise RuntimeError("Windows Store applications require Windows.")
+            subprocess.Popen(
+                ["explorer.exe", f"shell:AppsFolder\\{candidate.target}"],
+                close_fds=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        elif candidate.target.casefold().endswith(".lnk"):
             if os.name != "nt":
                 raise RuntimeError("Windows shortcuts are supported on Windows only.")
             os.startfile(candidate.target)
@@ -409,6 +752,20 @@ class ApplicationManager:
             )
         self._record_recent(candidate.target)
         return candidate
+
+    def is_running(self, candidate: ApplicationCandidate) -> bool:
+        expected = self._normalized_name(candidate.name)
+        source_id = self._normalized_name(candidate.target)
+        for process in self.list_processes():
+            process_name = self._normalized_name(Path(process.image_name).stem)
+            if process_name and (
+                process_name == expected
+                or process_name in expected
+                or expected in process_name
+                or process_name in source_id
+            ):
+                return True
+        return False
 
     def request_close(self, image_name: str, *, pid: int | None = None) -> PermissionGrant:
         payload = {"imageName": Path(image_name).name, "pid": int(pid or 0)}
@@ -534,7 +891,16 @@ class ApplicationManager:
     def _save(self) -> None:
         _atomic_json_write(
             self.state_path,
-            {"version": DESKTOP_STATE_VERSION, "pinned": self.pinned, "recent": self.recent},
+            {
+                "version": DESKTOP_STATE_VERSION,
+                "pinned": self.pinned,
+                "recent": self.recent,
+                "discoveryCachedAt": time.time(),
+                "discovery": [
+                    {"name": item.name, "target": item.target, "source": item.source}
+                    for item in self._discovery_cache[:5_000]
+                ],
+            },
         )
 
 
@@ -647,6 +1013,9 @@ class WindowManager:
             height = max(120, int(parameters.get("height", bottom - top)))
             if not user32.MoveWindow(hwnd, x, y, width, height, True):
                 raise RuntimeError("Windows refused to move or resize the window.")
+        elif action == "close":
+            if not user32.PostMessageW(hwnd, 0x0010, 0, 0):
+                raise RuntimeError("Windows refused to close the selected window.")
         else:
             raise ValueError(f"Unsupported window action: {action}")
 
@@ -1593,44 +1962,211 @@ class NotificationManager:
 class MediaManager:
     SUPPORTED_ACTIONS = {
         "play-pause",
+        "pause",
+        "resume",
         "next",
         "previous",
+        "restart",
         "mute",
         "volume-down",
         "volume-up",
+        "volume-set",
+        "play-query",
     }
 
-    def __init__(self, permissions: DesktopPermissionManager):
+    def __init__(
+        self,
+        permissions: DesktopPermissionManager,
+        applications: ApplicationManager,
+        *,
+        default_music_provider: str = "Amazon Music",
+    ):
         self.permissions = permissions
+        self.applications = applications
+        self.default_music_provider = (
+            _clean_text(default_music_provider, 120) or "Amazon Music"
+        )
+        self.sessions = WindowsMediaSessionBackend()
+        self.volume = SystemVolumeBackend()
+        self.amazon = AmazonMusicController()
 
-    def request(self, action: str) -> PermissionGrant:
+    def set_default_music_provider(self, provider: str) -> None:
+        clean = _clean_text(provider, 120)
+        if clean:
+            self.default_music_provider = clean
+
+    def request(self, action: str, **arguments: Any) -> PermissionGrant:
         if action not in self.SUPPORTED_ACTIONS:
             raise ValueError(f"Unsupported media action: {action}")
+        payload = {"action": action, **arguments}
         return self.permissions.request(
             "media.control",
-            {"action": action},
+            payload,
             description=f"Send the global media command {action}",
         )
 
-    def control(self, action: str, permission_token: str) -> str:
+    def _ensure_provider_open(self, provider: str) -> ApplicationCandidate:
+        candidate = self.applications.resolve(provider)
+        if candidate is None:
+            raise FileNotFoundError(
+                f"Music provider not found: {provider}. Choose an installed provider in Settings."
+            )
+        if not self.applications.is_running(candidate):
+            grant = self.applications.request_launch(candidate.name)
+            self.applications.launch(candidate.name, grant.token)
+            deadline = time.monotonic() + 12.0
+            while time.monotonic() < deadline:
+                if self.applications.is_running(candidate):
+                    break
+                time.sleep(0.2)
+        if not self.applications.is_running(candidate):
+            raise RuntimeError(f"{provider} did not start successfully.")
+        return candidate
+
+    def control(
+        self,
+        action: str,
+        permission_token: str,
+        **arguments: Any,
+    ) -> dict[str, Any] | str:
         if action not in self.SUPPORTED_ACTIONS:
             raise ValueError(f"Unsupported media action: {action}")
+        payload = {"action": action, **arguments}
         if not self.permissions.consume(
-            permission_token, "media.control", {"action": action}
+            permission_token, "media.control", payload
         ):
             raise PermissionError("Media control requires explicit approval.")
-        return execute_desktop_action(DesktopAction("media", argument=action))
+        provider = _clean_text(
+            arguments.get("provider") or self.default_music_provider,
+            120,
+        )
+        if action == "play-query":
+            query = _clean_text(arguments.get("query"), 500)
+            self._ensure_provider_open(provider)
+            if provider.casefold() != "amazon music":
+                raise RuntimeError(
+                    f"Direct search/play is not configured for {provider}. "
+                    "Basic native media-session controls remain available."
+                )
+            result = self.amazon.play(query)
+            session_status = self.sessions.status(provider)
+            result["session"] = session_status
+            result["verified"] = bool(
+                result.get("uiVerified")
+                and session_status.get("playbackState") == "playing"
+            )
+            return result
+        if action == "volume-set":
+            return self.volume.set_percent(float(arguments.get("percent", 0.0)))
+        if action == "volume-up":
+            return self.volume.adjust(float(arguments.get("amount", 5.0)))
+        if action == "volume-down":
+            return self.volume.adjust(-float(arguments.get("amount", 5.0)))
+        if action == "mute":
+            return self.volume.toggle_mute()
 
-    @staticmethod
-    def status() -> dict[str, Any]:
+        native_action = action
+        if action == "play-pause":
+            state = self.sessions.status(provider).get("playbackState")
+            native_action = "pause" if state == "playing" else "resume"
+        before_native = self.sessions.status(provider)
+        if native_action == "resume" and not before_native.get("sessionAvailable"):
+            self._ensure_provider_open(provider)
+            session_deadline = time.monotonic() + 6.0
+            while (
+                time.monotonic() < session_deadline
+                and not before_native.get("sessionAvailable")
+            ):
+                time.sleep(0.15)
+                before_native = self.sessions.status(provider)
+        accepted_native = self.sessions.control(native_action, provider)
+
+        def verified_status(status: Mapping[str, Any]) -> bool:
+            state = status.get("playbackState")
+            changed_track = bool(
+                status.get("currentTrack")
+                and status.get("currentTrack") != before_native.get("currentTrack")
+            )
+            return bool(
+                (native_action == "pause" and state == "paused")
+                or (native_action in {"resume", "play"} and state == "playing")
+                or (native_action in {"next", "previous"} and changed_track)
+            )
+
+        after_native = self.sessions.status(provider)
+        native_deadline = time.monotonic() + 0.65
+        while time.monotonic() < native_deadline and not verified_status(after_native):
+            if native_action == "restart":
+                break
+            time.sleep(0.06)
+            after_native = self.sessions.status(provider)
+        if verified_status(after_native):
+            return {
+                "provider": provider,
+                "nativeSession": True,
+                "action": native_action,
+                "verified": True,
+                "status": after_native,
+            }
+
+        fallback = {
+            "pause": "play-pause",
+            "resume": "play-pause",
+            "play-pause": "play-pause",
+            "next": "next",
+            "previous": "previous",
+            "restart": "previous",
+        }.get(native_action)
+        if fallback:
+            detail = execute_desktop_action(DesktopAction("media", argument=fallback))
+            after_fallback = self.sessions.status(provider)
+            fallback_deadline = time.monotonic() + 2.0
+            while (
+                time.monotonic() < fallback_deadline
+                and not verified_status(after_fallback)
+            ):
+                if native_action == "restart":
+                    break
+                time.sleep(0.06)
+                after_fallback = self.sessions.status(provider)
+            return {
+                "provider": provider,
+                "nativeSession": bool(accepted_native),
+                "fallback": "global-media-key",
+                "detail": detail,
+                "verified": verified_status(after_fallback),
+                "status": after_fallback,
+            }
+        raise RuntimeError(f"The active media session did not accept {action}.")
+
+    def status(self, provider: str = "", *, fast: bool = False) -> dict[str, Any]:
+        selected_provider = _clean_text(provider or self.default_music_provider, 120)
+        session = self.sessions.status(
+            selected_provider,
+            include_metadata=not fast,
+        )
+        volume = {} if fast else self.volume.status()
+        amazon_ui = {}
+        if (
+            not fast
+            and
+            selected_provider.casefold() == "amazon music"
+            and not session.get("currentTrack")
+        ):
+            amazon_ui = self.amazon.now_playing()
+        ui_track = amazon_ui.get("currentTrack")
+        ui_artist = amazon_ui.get("artist")
+        if ui_track:
+            session["currentTrack"] = ui_track
+        if ui_artist:
+            session["artist"] = ui_artist
         return {
+            **session,
             "globalControls": os.name == "nt",
-            "currentTrack": None,
-            "playbackPosition": None,
-            "reason": (
-                "Global media transport metadata is not available through the "
-                "current standard-library backend."
-            ),
+            "provider": selected_provider,
+            "volume": volume.get("volume"),
+            "muted": volume.get("muted"),
+            "amazonUi": amazon_ui,
         }
 
 
@@ -1714,6 +2250,30 @@ class SystemMonitor:
             )
         except (OSError, ValueError, IndexError, subprocess.SubprocessError):
             return None, None, None
+
+    @staticmethod
+    def memory_status() -> dict[str, float | None]:
+        snapshot = collect_system_snapshot()
+        used = snapshot.memory_total_gb - snapshot.memory_available_gb
+        percent = (
+            100.0 * used / snapshot.memory_total_gb
+            if snapshot.memory_total_gb > 0
+            else None
+        )
+        return {
+            "memory_total_gb": snapshot.memory_total_gb,
+            "memory_available_gb": snapshot.memory_available_gb,
+            "memory_percent": percent,
+        }
+
+    @classmethod
+    def gpu_status(cls) -> dict[str, float | None]:
+        percent, used, total = cls._gpu()
+        return {
+            "gpu_percent": percent,
+            "vram_used_mb": used,
+            "vram_total_mb": total,
+        }
 
     def sample(self) -> MonitorSample:
         snapshot = collect_system_snapshot()
@@ -2727,11 +3287,17 @@ class VoiceManager:
             vosk_available = True
         except ImportError:
             vosk_available = False
+        try:
+            import elevenlabs  # noqa: F401
+
+            elevenlabs_available = True
+        except ImportError:
+            elevenlabs_available = False
         wake_listener = Path(__file__).resolve().parent.parent / "morice_wake_listener.py"
         return VoiceCapabilities(
             wake_word=wake_listener.is_file() and sounddevice_available,
             speech_to_text=vosk_available and sounddevice_available,
-            text_to_speech=os.name == "nt",
+            text_to_speech=elevenlabs_available and sounddevice_available,
             noise_suppression=sounddevice_available,
             offline=vosk_available,
             microphone_selection=sounddevice_available,
@@ -2740,7 +3306,11 @@ class VoiceManager:
                 "wakeListener": str(wake_listener) if wake_listener.is_file() else "unavailable",
                 "speechBackend": "Vosk" if vosk_available else "unavailable",
                 "audioBackend": "sounddevice" if sounddevice_available else "unavailable",
-                "ttsBackend": "Windows SAPI" if os.name == "nt" else "unavailable",
+                "ttsBackend": (
+                    "ElevenLabs streaming PCM"
+                    if elevenlabs_available and sounddevice_available
+                    else "unavailable"
+                ),
             },
         )
 
@@ -2864,18 +3434,31 @@ class SearchEverywhere:
 class DesktopIntegrationLayer:
     """Owns Phase 3 managers while keeping UI adapters optional and replaceable."""
 
-    def __init__(self, directory: str | os.PathLike[str]):
+    def __init__(
+        self,
+        directory: str | os.PathLike[str],
+        *,
+        default_music_provider: str = "Amazon Music",
+    ):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self.permissions = DesktopPermissionManager()
         self.notifications = NotificationManager(self.directory)
-        self.applications = ApplicationManager(self.directory, self.permissions)
+        self.applications = ApplicationManager(
+            self.directory,
+            self.permissions,
+            default_music_provider=default_music_provider,
+        )
         self.windows = WindowManager(self.permissions)
         self.files = FileManager(self.directory)
         self.documents = DocumentManager(self.files)
         self.multimodal = MultimodalContextManager(self.files, self.documents)
         self.clipboard = ClipboardManager(self.permissions)
-        self.media = MediaManager(self.permissions)
+        self.media = MediaManager(
+            self.permissions,
+            self.applications,
+            default_music_provider=default_music_provider,
+        )
         self.system_monitor = SystemMonitor()
         self.screenshots = ScreenshotManager(
             self.directory, self.permissions, self.windows
@@ -2968,6 +3551,7 @@ class DesktopIntegrationLayer:
     def shutdown(self) -> None:
         self.system_monitor.stop()
         self.automations.stop_scheduler()
+        self.applications.shutdown()
         self.permissions.revoke_all()
         self.multimodal.clear()
         self.memory.clear_temporary()

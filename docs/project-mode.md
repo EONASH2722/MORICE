@@ -24,7 +24,7 @@ Prompt
   -> typed project manifest
   -> schema, path, and semantic validation
   -> proposed files and diff
-  -> user apply/reject decision
+  -> folder-limited review, or validated Full access application
   -> atomic writes
   -> build, tests, logs, and Git status
 ```
@@ -49,7 +49,7 @@ All project file work is confined to the selected root. Requests requiring anoth
 
 ### Full access
 
-The selected project can reference broader filesystem locations. Protected application paths, validation, plugin isolation, and confirmations for sensitive actions remain active. Full access is not a promise that every request will be executed without review.
+Routine project files are validated and applied atomically without a second Apply click, which keeps the UI's Full access promise. The diff remains available as an audit view. Protected application paths, validation, plugin isolation, and exact one-use confirmations for destructive or sensitive actions remain active.
 
 ## Local And Online+Local
 

@@ -24,10 +24,19 @@ classifiers = [
 ]
 dependencies = [
   "PySide6>=6.7",
+  "winrt-runtime==3.2.1; platform_system == 'Windows'",
+  "winrt-Windows.Foundation==3.2.1; platform_system == 'Windows'",
+  "winrt-Windows.Foundation.Collections==3.2.1; platform_system == 'Windows'",
+  "winrt-Windows.Media==3.2.1; platform_system == 'Windows'",
+  "winrt-Windows.Media.Control==3.2.1; platform_system == 'Windows'",
+  "uiautomation==2.0.29; platform_system == 'Windows'",
+  "pycaw==20251023; platform_system == 'Windows'",
   "numpy>=1.26",
   "sounddevice>=0.4.6",
   "vosk>=0.3.45",
   "Pillow>=10.0",
+  "elevenlabs>=2.63,<3",
+  "python-dotenv>=1.2,<2",
 ]
 
 [project.optional-dependencies]

@@ -707,9 +707,21 @@ class BuiltinTools:
             return False
         try:
             process.terminate()
-            return True
         except OSError:
             return False
+        # A successful terminate request does not guarantee that the process has
+        # exited yet.  Waiting briefly here gives the thread blocked in
+        # ``communicate`` a deterministic wake-up; stubborn processes are then
+        # killed so cancellation cannot leave an agent worker behind.
+        try:
+            process.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+                process.wait(timeout=1.0)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        return process.poll() is not None
 
     def replay(self, action_id: str) -> ToolResult:
         record = self.history.get(action_id)

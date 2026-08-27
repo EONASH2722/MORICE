@@ -9,21 +9,35 @@ import urllib.request
 
 from .core import SYSTEM_PROMPT, current_datetime_summary, emotional_checkin_response, short_form_hints
 from .local_llama import chat as local_chat
+from .local_llama import stream_chat as local_stream_chat
 from .llama_server import ensure_server
 
 DEFAULT_MODEL = os.getenv("MORICE_MODEL", "").strip()
 DEFAULT_BASE_URL = os.getenv("MORICE_OLLAMA_URL", "http://localhost:11434")
 DEFAULT_GGUF = os.getenv("MORICE_GGUF_PATH", "").strip()
-DEFAULT_CTX = int(os.getenv("MORICE_CTX", "16384"))
+DEFAULT_CTX = int(os.getenv("MORICE_CTX", "8192"))
 DEFAULT_GPU_LAYERS = int(os.getenv("MORICE_GPU_LAYERS", "0"))
 DEFAULT_CHAT_FORMAT = os.getenv("MORICE_CHAT_FORMAT", "").strip() or None
-DEFAULT_THREADS = int(os.getenv("MORICE_THREADS", str(max(1, (os.cpu_count() or 4) - 2))))
-DEFAULT_BATCH = int(os.getenv("MORICE_BATCH", "64"))
+DEFAULT_THREADS = int(os.getenv("MORICE_THREADS", str(max(2, (os.cpu_count() or 4) // 2))))
+DEFAULT_BATCH = int(os.getenv("MORICE_BATCH", "256"))
 DEFAULT_USE_SERVER = os.getenv("MORICE_LLAMA_SERVER", "1") == "1"
-DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "6144"))
+DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "2048"))
 _OLLAMA_PROCESS = None
 DEFAULT_BUNDLED_GGUF = "Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf"
 OFFICIAL_QWEN_GGUF = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+
+
+def _report_telemetry(callback, event: str, **payload) -> None:
+    if not callable(callback):
+        return
+    try:
+        callback(
+            str(event),
+            {"atNs": time.perf_counter_ns(), **payload},
+        )
+    except Exception:
+        # Instrumentation must never make a response fail.
+        pass
 
 
 def reset_model_runtime() -> None:
@@ -50,6 +64,88 @@ def reset_model_runtime() -> None:
         pass
 
 
+def prewarm_local_model(gguf_path: str) -> str:
+    """Load a selected GGUF into the local server without generating text."""
+
+    selected = os.path.abspath(str(gguf_path or "").strip())
+    if not selected or not os.path.isfile(selected):
+        raise FileNotFoundError(selected or "No GGUF model was selected.")
+    if os.path.splitext(selected)[1].casefold() != ".gguf":
+        raise ValueError("Only GGUF models can be prewarmed.")
+    if not DEFAULT_USE_SERVER:
+        return selected
+    return ensure_server(
+        selected,
+        DEFAULT_CTX,
+        DEFAULT_GPU_LAYERS,
+        DEFAULT_THREADS,
+        DEFAULT_BATCH,
+    )
+
+
+def prime_local_chat_prefix(
+    gguf_path: str,
+    *,
+    extra_system: str = "",
+    timeout: float = 60.0,
+) -> dict[str, object]:
+    """Evaluate MORICE's stable chat prefix once so the first turn can reuse it."""
+
+    selected = os.path.abspath(str(gguf_path or "").strip())
+    if not selected or not os.path.isfile(selected):
+        raise FileNotFoundError(selected or "No GGUF model was selected.")
+    server_url = ensure_server(
+        selected,
+        DEFAULT_CTX,
+        DEFAULT_GPU_LAYERS,
+        DEFAULT_THREADS,
+        DEFAULT_BATCH,
+    )
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    clean_extra = str(extra_system or "").strip()
+    if clean_extra:
+        messages.append({"role": "system", "content": clean_extra})
+    messages.append(
+        {
+            "role": "user",
+            "content": "Reply with only the word Ready.",
+        }
+    )
+    payload = {
+        "model": "local-gguf",
+        "messages": messages,
+        "stream": True,
+        "temperature": 0.0,
+        "top_p": 0.8,
+        "max_tokens": 8,
+        "reasoning_budget": 0,
+        "chat_template_kwargs": {"enable_thinking": False},
+        "stream_options": {"include_usage": True},
+    }
+    events: list[tuple[str, dict[str, object]]] = []
+    output = "".join(
+        _try_openai_chat_stream(
+            server_url,
+            payload,
+            max(10.0, float(timeout)),
+            telemetry=lambda event, metadata: events.append((event, metadata)),
+        )
+    )
+    usage = next(
+        (
+            dict(metadata.get("usage") or {})
+            for event, metadata in reversed(events)
+            if event == "model_usage"
+        ),
+        {},
+    )
+    return {
+        "ready": bool(output.strip()),
+        "promptTokens": int(usage.get("prompt_tokens") or 0),
+        "completionTokens": int(usage.get("completion_tokens") or 0),
+    }
+
+
 def _asset_path(*parts: str) -> str:
     return os.path.join(os.path.dirname(__file__), "assets", *parts)
 
@@ -72,6 +168,46 @@ def _post_json(url, payload, timeout):
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def _post_stream_json(url, payload, timeout, cancel_event=None, telemetry=None):
+    """Yield SSE or newline-delimited JSON events from a local model backend."""
+
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Accept": "text/event-stream, application/x-ndjson, application/json",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        _report_telemetry(
+            telemetry,
+            "model_response_connected",
+            status=getattr(response, "status", None),
+        )
+        first_event = True
+        for raw_line in response:
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            line = raw_line.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            if line.startswith("data:"):
+                line = line[5:].strip()
+            if line == "[DONE]":
+                break
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                if first_event:
+                    first_event = False
+                    _report_telemetry(telemetry, "backend_first_event")
+                yield value
 
 
 def _get_json(url, timeout):
@@ -286,6 +422,50 @@ def _try_openai_chat(base_url, payload, timeout):
     return content or "(No response)"
 
 
+def _try_openai_chat_stream(
+    base_url,
+    payload,
+    timeout,
+    cancel_event=None,
+    telemetry=None,
+):
+    openai_url = f"{base_url.rstrip('/')}/v1/chat/completions"
+    running_payload = dict(payload)
+    running_payload["stream"] = True
+    emitted = False
+    useful_emitted = False
+    for event in _post_stream_json(
+        openai_url,
+        running_payload,
+        timeout,
+        cancel_event,
+        telemetry,
+    ):
+        if cancel_event is not None and cancel_event.is_set():
+            break
+        choice = (event.get("choices") or [{}])[0]
+        delta = choice.get("delta") or {}
+        text = delta.get("content") or choice.get("text") or ""
+        if text:
+            if not useful_emitted and str(text).strip():
+                useful_emitted = True
+                _report_telemetry(telemetry, "model_first_useful_token")
+            emitted = True
+            yield str(text)
+        usage = event.get("usage")
+        timings = event.get("timings")
+        if isinstance(usage, dict) or isinstance(timings, dict):
+            _report_telemetry(
+                telemetry,
+                "model_usage",
+                usage=usage if isinstance(usage, dict) else {},
+                timings=timings if isinstance(timings, dict) else {},
+            )
+    _report_telemetry(telemetry, "model_stream_complete", emitted=emitted)
+    if not emitted and not (cancel_event is not None and cancel_event.is_set()):
+        yield "(No response)"
+
+
 def _list_ollama_models(base_url, timeout=8):
     _ensure_ollama(base_url)
     try:
@@ -463,6 +643,43 @@ def _try_ollama_messages(base_url, messages, model, timeout, temperature, top_p)
     raise RuntimeError("No supported local model endpoint succeeded.")
 
 
+def _try_ollama_messages_stream(
+    base_url,
+    messages,
+    model,
+    timeout,
+    temperature,
+    top_p,
+    cancel_event=None,
+):
+    payload = {
+        "model": model,
+        "messages": messages,
+        "stream": True,
+        "options": {
+            "temperature": temperature,
+            "top_p": top_p,
+            "num_predict": DEFAULT_MAX_TOKENS,
+        },
+    }
+    emitted = False
+    for event in _post_stream_json(
+        f"{base_url.rstrip('/')}/api/chat",
+        payload,
+        timeout,
+        cancel_event,
+    ):
+        if cancel_event is not None and cancel_event.is_set():
+            break
+        message = event.get("message") or {}
+        text = message.get("content") or event.get("response") or ""
+        if text:
+            emitted = True
+            yield str(text)
+    if not emitted and not (cancel_event is not None and cancel_event.is_set()):
+        yield "(No response)"
+
+
 def _friendly_local_timeout_reply() -> str:
     return (
         "Qwen took too long on that one, All Father. I kept MORICE alive. "
@@ -477,6 +694,222 @@ def _runtime_context() -> str:
     )
 
 
+def _needs_runtime_context(text: str) -> bool:
+    lowered = str(text or "").casefold()
+    return any(
+        phrase in lowered
+        for phrase in (
+            "what time",
+            "current time",
+            "what date",
+            "today's date",
+            "todays date",
+            "what day",
+            "current date",
+            "this month",
+            "this year",
+        )
+    )
+
+
+def _conversation_messages(
+    history,
+    user_message,
+    *,
+    extra_system=None,
+    precision_mode: bool = False,
+    math_steps_mode: bool = False,
+):
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    system_additions = []
+    if _needs_runtime_context(user_message):
+        system_additions.append(_runtime_context())
+    hints = short_form_hints(user_message)
+    if hints:
+        system_additions.append(hints)
+    if extra_system:
+        system_additions.append(extra_system)
+    if precision_mode:
+        system_additions.append("Precision mode is on: be exact and avoid guesses.")
+    if math_steps_mode:
+        system_additions.append("Math steps mode is on: show all steps clearly.")
+    if system_additions:
+        messages.append({"role": "system", "content": "\n\n".join(system_additions)})
+    messages.extend(history)
+    messages.append({"role": "user", "content": user_message})
+    return _fit_messages_to_context(messages)
+
+
+def stream_chat(
+    history,
+    user_message,
+    extra_system=None,
+    model: str | None = None,
+    base_url=DEFAULT_BASE_URL,
+    timeout=120,
+    precision_mode: bool = False,
+    math_steps_mode: bool = False,
+    gguf_path: str | None = None,
+    *,
+    cancel_event=None,
+    max_tokens: int | None = None,
+    enable_reasoning: bool = False,
+    telemetry=None,
+):
+    """Yield response text while a local GGUF or Ollama backend is generating."""
+
+    explicit_model = bool((model or "").strip())
+    model = (model or DEFAULT_MODEL).strip()
+    temperature = 0.1 if precision_mode else (0.2 if _needs_precision(user_message) else 0.5)
+    top_p = 0.85 if precision_mode else 0.9
+    selected_path = (gguf_path or "").strip()
+    if selected_path and os.path.splitext(selected_path)[1].lower() != ".gguf":
+        yield "(MORICE) Selected model file is not a GGUF model."
+        return
+    resolved_path = _resolve_gguf_path(selected_path, model, explicit_model)
+    if selected_path and not resolved_path:
+        yield "(MORICE) Selected model file was not found. Use Change model and pick the file again."
+        return
+    messages = _conversation_messages(
+        history,
+        user_message,
+        extra_system=extra_system,
+        precision_mode=precision_mode,
+        math_steps_mode=math_steps_mode,
+    )
+    prompt_characters = sum(
+        len(str(message.get("content") or "")) for message in messages
+    )
+    _report_telemetry(
+        telemetry,
+        "prompt_assembled",
+        messages=len(messages),
+        characters=prompt_characters,
+        estimatedTokens=max(1, (prompt_characters + 3) // 4),
+        historyMessages=len(history or ()),
+    )
+    if resolved_path:
+        if DEFAULT_USE_SERVER:
+            payload = {
+                "model": "local-gguf",
+                "messages": messages,
+                "stream": True,
+                "temperature": temperature,
+                "top_p": top_p,
+                "max_tokens": max(
+                    32,
+                    min(
+                        DEFAULT_MAX_TOKENS,
+                        int(max_tokens or DEFAULT_MAX_TOKENS),
+                    ),
+                ),
+                # llama.cpp/Qwen can otherwise spend several seconds emitting
+                # hidden reasoning_content before the first visible token.
+                # Deep/project requests opt back in through the tier router.
+                "reasoning_budget": -1 if enable_reasoning else 0,
+                "chat_template_kwargs": {
+                    "enable_thinking": bool(enable_reasoning),
+                },
+                "stream_options": {"include_usage": True},
+            }
+            try:
+                prepare_started = time.perf_counter_ns()
+                _report_telemetry(telemetry, "model_prepare_started")
+                server_url = ensure_server(
+                    resolved_path,
+                    DEFAULT_CTX,
+                    DEFAULT_GPU_LAYERS,
+                    DEFAULT_THREADS,
+                    DEFAULT_BATCH,
+                )
+                _report_telemetry(
+                    telemetry,
+                    "model_ready",
+                    prepareMs=(time.perf_counter_ns() - prepare_started) / 1_000_000.0,
+                )
+                _report_telemetry(telemetry, "model_request_submitted")
+                if telemetry is None:
+                    yield from _try_openai_chat_stream(
+                        server_url,
+                        payload,
+                        timeout,
+                        cancel_event,
+                    )
+                else:
+                    yield from _try_openai_chat_stream(
+                        server_url,
+                        payload,
+                        timeout,
+                        cancel_event,
+                        telemetry=telemetry,
+                    )
+            except Exception as exc:  # noqa: BLE001
+                _report_telemetry(
+                    telemetry,
+                    "model_error",
+                    errorType=type(exc).__name__,
+                )
+                if cancel_event is not None and cancel_event.is_set():
+                    return
+                yield (
+                    _friendly_local_timeout_reply()
+                    if _is_timeout_error(exc)
+                    else f"(MORICE) Local server error: {exc}"
+                )
+            return
+        try:
+            yield from local_stream_chat(
+                messages,
+                resolved_path,
+                DEFAULT_CTX,
+                DEFAULT_GPU_LAYERS,
+                DEFAULT_CHAT_FORMAT,
+                DEFAULT_THREADS,
+                DEFAULT_BATCH,
+                temperature,
+                top_p,
+                cancel_event=cancel_event,
+            )
+        except Exception as exc:  # noqa: BLE001
+            if cancel_event is None or not cancel_event.is_set():
+                yield f"(MORICE) Local model error: {exc}"
+        return
+    if not model:
+        yield "(MORICE) MORICE_MODEL is not set. Set it or configure MORICE_GGUF_PATH for offline mode."
+        return
+    _ensure_ollama(base_url)
+    fallback_models = _fallback_models(model, base_url, user_message)
+    for candidate in (model, *fallback_models):
+        if cancel_event is not None and cancel_event.is_set():
+            return
+        try:
+            yield from _try_ollama_messages_stream(
+                base_url,
+                messages,
+                candidate,
+                timeout,
+                temperature,
+                top_p,
+                cancel_event,
+            )
+            return
+        except urllib.error.HTTPError as exc:
+            if exc.code not in {404, 405, 500}:
+                yield f"(MORICE) Model error: HTTP {exc.code}"
+                return
+        except urllib.error.URLError as exc:
+            if not _is_timeout_error(exc):
+                break
+        except Exception:
+            continue
+    if cancel_event is None or not cancel_event.is_set():
+        yield _friendly_backend_reply(
+            user_message,
+            model,
+            fallback_models[0] if fallback_models else "",
+        )
+
+
 def chat(
     history,
     user_message,
@@ -487,6 +920,7 @@ def chat(
     precision_mode: bool = False,
     math_steps_mode: bool = False,
     gguf_path: str | None = None,
+    enable_reasoning: bool = False,
 ):
     explicit_model = bool((model or "").strip())
     model = (model or DEFAULT_MODEL).strip()
@@ -530,6 +964,10 @@ def chat(
                 "temperature": temperature,
                 "top_p": top_p,
                 "max_tokens": DEFAULT_MAX_TOKENS,
+                "reasoning_budget": -1 if enable_reasoning else 0,
+                "chat_template_kwargs": {
+                    "enable_thinking": bool(enable_reasoning),
+                },
             }
             try:
                 base_url = ensure_server(
@@ -542,13 +980,11 @@ def chat(
                 try:
                     return _try_openai_chat(base_url, payload, timeout)
                 except Exception as exc:  # noqa: BLE001
+                    # Repeating the same oversized local generation used to turn
+                    # one timeout into a 420-second wait.  The server keeps its
+                    # prompt cache, so the next user request can retry explicitly.
                     if _is_timeout_error(exc):
-                        try:
-                            return _try_openai_chat(base_url, payload, max(timeout, 240))
-                        except Exception as retry_exc:  # noqa: BLE001
-                            if _is_timeout_error(retry_exc):
-                                return _friendly_local_timeout_reply()
-                            return f"(MORICE) Local server retry error: {retry_exc}"
+                        return _friendly_local_timeout_reply()
                     return f"(MORICE) Local server error: {exc}"
             except Exception as exc:  # noqa: BLE001
                 if _is_timeout_error(exc):

@@ -4,15 +4,15 @@
 
 ### Installer
 
-Keep `MORICE-Setup-v0.7.0-Windows-x64.exe` and all numbered installer `.bin` slices from the same release together. Run the setup executable and launch MORICE from the installed shortcut.
+Keep `MORICE-Setup-v0.8.0-Windows-x64.exe` and all numbered installer `.bin` slices from the same release together. Run the setup executable and launch MORICE from the installed shortcut.
 
 ### Portable
 
-Keep every portable `.part*` file, the `.parts.json` manifest, and the provided reassembly script together. Open PowerShell in that folder and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\MORICE-Portable-v0.7.0-Windows-x64-reassemble.ps1`. Extract the verified ZIP and launch `MORICE.exe`; do not run it from inside the ZIP or separate the executable from `_internal`.
+Keep every portable `.part*` file, the `.parts.json` manifest, and the provided reassembly script together. Open PowerShell in that folder and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\MORICE-Portable-v0.8.0-Windows-x64-reassemble.ps1`. Extract the verified ZIP and launch `MORICE.exe`; do not run it from inside the ZIP or separate the executable from `_internal`.
 
 ### Python package
 
-The wheel is a model-free advanced installation. Install the downloaded `morice_ai-0.7.0-py3-none-any.whl` with `python -m pip install <wheel-path>`, then run `morice`. Configure a local GGUF or Ollama model in the application. This release does not claim a public package-manager channel until publication is independently verified.
+The wheel is a model-free advanced installation. Install the downloaded `morice_ai-0.8.0-py3-none-any.whl` with `python -m pip install <wheel-path>`, then run `morice`. Configure a local GGUF or Ollama model in the application. This release does not claim a public package-manager channel until publication is independently verified.
 
 ## First Launch
 
@@ -32,16 +32,16 @@ Type a message and press Enter or **Send**. The Send button remains disabled whi
 - **Precision:** requests a more deliberate response profile.
 - **Personalised:** applies the saved address and response-style instructions.
 - **Attach:** selects an image for supported multimodal/context workflows.
-- **Voice:** shows voice input and wake-listener status.
+- **Voice:** enters or exits the dedicated camera-centered Live Action workspace.
 - **Model:** opens model selection.
-- **Mode:** switches between Normal Chat and Project Mode.
+- **Mode:** switches between Normal Chat, Project Mode, and Live Action.
 - **Quick actions:** opens common commands and tools.
 
 Use explicit nouns, values, and units. MORICE corrects common spelling errors using conversation context, but precise requests improve local-model results.
 
 ## Visualizations In Chat
 
-Visualization is part of Normal Chat, not Project Mode.
+Visualization is available in Normal Chat and Live Action, not in the dedicated Project Mode conversation surface.
 
 ```text
 Plot y = x^3 - 6x^2 + 9x + 15 and mark its extrema.
@@ -78,11 +78,17 @@ MORICE asks the coding model for file artifacts rather than instructions to copy
 - platform memory, automations, diagnostics, recovery, updates, and plugins;
 - system status, notes, browser context, media, and permission-controlled desktop actions.
 
-Use `@notes` in chat when selected local notes should be included as context. Online lookup is explicit and requires network access.
+Ask naturally. MORICE retrieves relevant local notes automatically, recognizes when an answer depends on current information, and uses source-linked web context when connectivity is available. If the network is unavailable, it stays on the local path and says when freshness could not be verified.
+
+## Amazon Music And Fast PC Commands
+
+Amazon Music is the default music provider in this build. Change it in **Panel > Mode > Default music provider**; generic phrases such as `open music`, `play music`, and `play Starboy` use that setting.
+
+Routine commands route directly to validated local tools and do not start the conversational model. Amazon Music is discovered from the Windows application index, launched as a Store app, searched through semantic accessibility controls, and verified against the Windows media session. Supported direct commands include song/artist search and play, pause, resume, next, previous, current-track metadata, system volume adjustments, exact volume percentages, open, and close. `Restart this song` sends the best available Amazon/Windows transport command, but Amazon does not expose playback position on every session, so MORICE reports it as unverified when the reset cannot be measured. An unnamed `play my playlist` asks for the playlist name instead of guessing.
 
 ## Model Selection
 
-The current release supports validated local GGUF files and locally installed Ollama models. The model browser can detect GPU memory, estimate compatibility, display source/license metadata, and prepare a run plan. It does not configure hosted provider API keys.
+The current release supports validated local GGUF files and locally installed Ollama models. The model browser can detect GPU memory, estimate compatibility, display source/license metadata, and prepare a run plan. Hosted LLM keys are not configured; the separate ElevenLabs key control is only for optional reply speech and stores the secret with Windows DPAPI.
 
 Changing the model changes reply and coding quality; it does not bypass host rendering, path, or permission checks. See [Models and performance](model-guide.md).
 
@@ -97,15 +103,23 @@ Changing the model changes reply and coding quality; it does not bypass host ren
 
 The top-bar sun/moon control switches the active theme. Settings includes search and live preview.
 
-## Voice And Wake Listener
+## Live Action Mode
 
-Set the wake line in Panel. Microphone quality is improved through adaptive gain, noise-floor calibration, and diagnostics, but Windows microphone privacy permissions and actual hardware still matter.
+Choose **Mode > Live Action**, or press the speaker button beside the composer. Entering Live Action also wakes MORICE, so no second wake phrase is required. MORICE starts offline Vosk transcription, auto-sends the recognized turn when configured, streams an ElevenLabs reply when reply speech and a key are configured, and then resumes listening. Live Action replaces chat bubbles/history with a camera-centered workspace, a live transcript, a glass streaming-response overlay, and its own typed composer. Chat, graphs, Lab, Tools, attachments, PC control, and Project build requests still use their normal pipelines.
+
+The camera remains off until **Turn camera on** is pressed. Select the camera, resolution, FPS, and mirror setting in the Live Action toolbar. Preview frames remain in memory and are never recorded to disk. Vision runs on the newest real frame only after a visual request such as “What am I holding?” The optional **Scene awareness** toggle tracks only lightweight scene changes; it does not run the visual model continuously. Low-quality, stale, missing, or unavailable frames produce an explicit failure instead of a guessed answer. Provider-supported normalized regions may be drawn on the preview; MORICE does not fabricate targeting boxes.
+
+Choose **Normal Chat** or **Project**, press the active speaker button again, or use **Exit Live Action** to leave. Leaving stops the camera, microphone capture, speech playback, and pending vision work immediately; it clears raw frames and short-lived visual memory and ignores late callbacks. MORICE intentionally starts outside Live Action after every launch.
+
+Set the wake line and audio devices in **Panel > Live Action voice configuration**. Microphone quality is improved through adaptive gain, noise-floor calibration, default-device fallback, and diagnostics, but Windows microphone privacy permissions and actual hardware still matter. ElevenLabs is optional for reply speech; without a configured key, the glass text response still works.
+
+Open **Tools > Diagnostics > Voice** to inspect the selected/default input device, supported sample rate, input level, VAD activity, partial/final transcript, confidence availability, and recognition latency. **Test Microphone** captures a short temporary sample, optionally plays it back, and discards the audio immediately.
 
 ```powershell
 python diagnose-wake-listener.py
 ```
 
-If startup listening is wanted, use the provided startup installation script only after confirming the diagnostic works.
+The installed application enables a lightweight local background listener by default. It recognizes MORICE, configured magic words, or a double-clap, starts the app minimized without stealing foreground focus, and releases its microphone lease while Live Action is active. It never turns on the camera. Set `MORICE_ENABLE_ALWAYS_ON_WAKE=0` or disable **MORICE Wake Listener** in Windows Startup Apps to opt out.
 
 ## Keyboard Shortcuts
 

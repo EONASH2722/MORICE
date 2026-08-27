@@ -1171,7 +1171,12 @@ class UnifiedPlatformOrchestrator:
         self.knowledge = KnowledgeGraphStore(self.directory / "knowledge")
         self.multi_agent = MultiAgentCoordinator(self.directory / "agents")
         self.workflows = ProjectWorkflowEngine(self.directory / "projects")
-        self.dashboard = ProjectDashboardService(self.knowledge, git_service)
+        self.project_indexer = agent.tools.indexer
+        self.dashboard = ProjectDashboardService(
+            self.knowledge,
+            git_service,
+            indexer=self.project_indexer,
+        )
 
     def prepare(
         self,
@@ -1275,7 +1280,7 @@ class UnifiedPlatformOrchestrator:
         return run
 
     def index_project(self, root: str) -> dict[str, int]:
-        index = ProjectIndexer().build(root)
+        index = self.project_indexer.build(root)
         return self.knowledge.index_project(index)
 
     def snapshot(

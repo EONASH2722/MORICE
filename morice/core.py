@@ -26,7 +26,9 @@ SYSTEM_PROMPT = (
     "if they remain sound, say no plainly and explain why instead of conceding to pressure. Correct "
     "yourself only when evidence or reasoning shows a real mistake, and state uncertainty honestly. "
     "Answer the user's request directly and follow the saved response style closely. "
-    "Default to detailed, easy explanations instead of tiny answers. "
+    "Begin with the first useful sentence immediately. Never open with filler such as "
+    "'Certainly', 'I'd be happy to help', or a restatement of the question. "
+    "Default to concise first responses, then add detail only when the request needs it. "
     "Silently infer meaning from common typos, short forms, missing spaces, and rough wording by using the conversation context. "
     "Use a ChatGPT-like structure for most substantive replies: a short direct answer first, then clear plain-text section headings, "
     "then body paragraphs or bullets under each heading. Do not wrap headings or phrases in raw markdown markers like **. "
@@ -289,8 +291,8 @@ def wants_model_identity(text: str) -> bool:
 
 def help_text() -> str:
     return (
-        "Commands: wake up son, @notes <question>, @web <query>, @image <path>, precision on/off, math steps on/off.\n"
-        "Web: only @web <query> uses DuckDuckGo + Wikipedia fallback. Without @web I stay offline.\n"
+        "Controls: wake MORICE, attach an image, precision on/off, and math steps on/off.\n"
+        "Knowledge: relevant local notes and live web information are selected automatically; offline requests stay local.\n"
         "Memory: show my last messages, what did I say about <topic>.\n"
         "Project mode: build apps, games, websites, scripts, and tools in the language you ask for."
     )
@@ -578,7 +580,18 @@ def wants_script(text: str) -> bool:
 
 
 def extract_notes_term(text: str) -> str | None:
-    if "@notes" not in text.lower():
+    lowered = text.lower()
+    if not any(
+        signal in lowered
+        for signal in (
+            "@notes",
+            "my note",
+            "my saved knowledge",
+            "from my notes",
+            "in the notes",
+            "what i wrote",
+        )
+    ):
         return None
     tokens = re.findall(r"[a-zA-Z0-9_]+", text.lower())
     stop = {
@@ -627,9 +640,33 @@ def extract_notes_term(text: str) -> str | None:
 
 def wants_notes_search(text: str) -> bool:
     lowered = text.lower()
-    return "@notes" in lowered and any(
-        key in lowered for key in {"look", "find", "search", "where", "check", "see", "show"}
+    references_notes = any(
+        signal in lowered
+        for signal in (
+            "@notes",
+            "my note",
+            "my saved knowledge",
+            "from my notes",
+            "in the notes",
+            "what i wrote",
+        )
     )
+    asks_to_retrieve = any(
+        key in lowered
+        for key in {
+            "look",
+            "find",
+            "search",
+            "where",
+            "check",
+            "see",
+            "show",
+            "remember",
+            "what",
+            "tell",
+        }
+    )
+    return references_notes and asks_to_retrieve
 
 
 def wants_web_capability(text: str) -> bool:
@@ -800,6 +837,20 @@ def extract_web_query(text: str) -> str | None:
         return cleaned[4:].strip() or None
     if lowered.startswith("web:"):
         return cleaned[4:].strip() or None
+    natural = re.match(
+        r"^(?:please\s+)?(?:search(?:\s+the)?\s+web(?:\s+for)?|web\s+search(?:\s+for)?|look\s+up|google)\s+(.+)$",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if natural:
+        return natural.group(1).strip() or None
+    online = re.match(
+        r"^(?:please\s+)?go\s+online(?:\s+and)?\s+(.+)$",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    if online:
+        return online.group(1).strip() or None
     return None
 
 
@@ -875,7 +926,9 @@ def extract_image_path(text: str) -> str | None:
 
 
 def needs_web(text: str) -> bool:
-    return False
+    from .web_search import infer_web_need
+
+    return infer_web_need(text).required
 
 
 def is_acknowledgement(text: str) -> bool:

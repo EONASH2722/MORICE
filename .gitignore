@@ -23,6 +23,7 @@ artifacts/qa/
 .env.*
 .vscode/
 .idea/
+.codex-remote-attachments/
 
 # Logs
 *.log
@@ -42,6 +43,7 @@ Thumbs.db
 
 # Local dependencies, voice packs, and private runtime memory
 node_modules/
+*.relocation-broken/
 voice_models/
 *.whl
 *.tar.gz

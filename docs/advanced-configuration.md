@@ -33,7 +33,9 @@ For a 6 GB mobile GPU, close games and GPU-heavy browsers before loading the rel
 
 ## Knowledge And Memory
 
-Use `@notes` when local knowledge files should inform a response. Memory services are scoped, searchable, bounded, and exportable. They are separate from the visible chat, which starts clean on a new application session.
+MORICE selects relevant local knowledge automatically when a request overlaps indexed notes. It also detects freshness-sensitive questions and uses source-linked web context when connectivity is available; offline requests remain local. Memory services are scoped, searchable, bounded, and exportable. They are separate from the visible chat, which starts clean on a new application session.
+
+The packaged background wake listener is enabled by default and remains local. Set `MORICE_ENABLE_ALWAYS_ON_WAKE=0` to disable it. The listener recognizes the saved wake terms and double-clap pattern, starts MORICE minimized, never enables the camera, and yields microphone ownership to an active Live Action session.
 
 Do not place secrets in notes, project prompts, or plugin data unless the relevant local storage and plugin permissions have been reviewed.
 

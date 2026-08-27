@@ -44,7 +44,7 @@ from .core import (
 )
 from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_context, should_preload
 from .llm_client import chat
-from .web_search import search_web
+from .web_search import infer_web_need, internet_available, search_web
 from .knowledge import search_notes
 from .vision import describe_image
 from .capabilities import (
@@ -93,7 +93,7 @@ def run_cli() -> None:
         else:
             print(f"{MORICE_NAME} has no knowledge files loaded.")
     else:
-        print(f"{MORICE_NAME} knowledge is on-demand. Use @notes to include your files.")
+        print(f"{MORICE_NAME} selects relevant local notes automatically when available.")
 
     print(f"{MORICE_NAME} terminal is ready. Type 'exit' to quit.")
     history = []
@@ -230,18 +230,6 @@ def run_cli() -> None:
             print(f"{MORICE_NAME}: {enforce_father('Image loaded. Ask your question.')}")
             continue
 
-        if wants_web_capability(user_input):
-            if os.getenv("MORICE_WEB", "1") == "1":
-                print(
-                    f"{MORICE_NAME}: "
-                    f"{enforce_father('Offline mode is active. Start the message with @web <query> when you want web search.')}"
-                )
-            else:
-                print(
-                    f"{MORICE_NAME}: {enforce_father('Web is disabled. Set MORICE_WEB=1 to enable it.')}"
-                )
-            continue
-
         if wants_notes_search(user_input):
             term = extract_notes_term(user_input)
             if term:
@@ -292,12 +280,16 @@ def run_cli() -> None:
 
         context = retrieve_context(user_input) if should_use_context(user_input) else ""
         web_context = ""
+        web_offline = False
         if os.getenv("MORICE_WEB", "1") == "1":
-            web_query = extract_web_query(user_input)
-            if web_query:
-                web_context = search_web(web_query)
-                if not web_context:
-                    web_context = "Web lookup returned no results."
+            web_decision = infer_web_need(user_input)
+            if web_decision.required:
+                if internet_available():
+                    web_context = search_web(web_decision.query)
+                    if not web_context:
+                        web_context = "Web lookup returned no results."
+                else:
+                    web_offline = True
         extra_system = "\n".join(
             (
                 emoji_preference_instruction(emoji_level),
@@ -330,6 +322,11 @@ def run_cli() -> None:
         if web_context:
             extra_system = (extra_system + "\n\n" if extra_system else "") + (
                 "Web results (may be incomplete):\n" + web_context
+            )
+        elif web_offline:
+            extra_system = (extra_system + "\n\n" if extra_system else "") + (
+                "Internet access is currently unavailable. Answer from local knowledge and "
+                "notes only, and state plainly when a live fact cannot be verified."
             )
 
         reply = chat(
