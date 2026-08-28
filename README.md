@@ -149,7 +149,7 @@ Download the setup executable and every adjacent numbered `.bin` slice into one 
 
 ### Portable build
 
-Download all portable `.part*` files, the `.parts.json` manifest, and the matching reassembly script into one folder. Run the script from PowerShell, extract the verified ZIP, and launch `MORICE.exe` without separating it from `_internal`.
+Download all portable `.part*` files, the `.parts.json` manifest, and the matching reassembly script from the [MORICE Portable Plug-and-Play Release](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) into one folder. Run the script from PowerShell, extract the verified ZIP, and launch `MORICE.exe` without separating it from `_internal`.
 
 ### Android companion
 

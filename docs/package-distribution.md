@@ -4,13 +4,13 @@ MORICE 0.8.0 is built from one source revision and one authoritative version in
 `morice/version.py`. The release pipeline stops if tests, type checking, package integrity,
 version consistency, secret scanning, archive policy, split-part hashes, or final checksums fail.
 
-## Published And Prepared Channels
+## Published Channels
 
 | Channel | Release status | Installation |
 | --- | --- | --- |
-| GitHub Release installer | Prepared for publication | Setup executable plus all adjacent `.bin` slices |
-| GitHub Release portable | Prepared for publication | Reassemble verified parts, extract, run `MORICE.exe` |
-| Android companion APK | Prepared for publication | Install the signed Android 9+ APK after checking its adjacent SHA-256 manifest |
+| [GitHub Release installer](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0) | Published | Setup executable plus all adjacent `.bin` slices |
+| [GitHub Release portable](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) | Published | Reassemble verified parts, extract, run `MORICE.exe` |
+| [Android companion APK](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) | Published | Install the signed Android 9+ APK after checking its adjacent SHA-256 manifest |
 | Python wheel and sdist | Built and verified locally | Install the downloaded wheel; no public index claimed |
 | PyPI | Not published | Requires verified project ownership and a PyPI token |
 | GitHub Packages | Not applicable to Python wheels | GitHub Packages does not provide a PyPI-compatible registry |
