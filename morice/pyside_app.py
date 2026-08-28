@@ -15455,9 +15455,12 @@ def _show_window_for_launch(window: QWidget, environ: dict[str, str] | None = No
 
 def run_app():
     _set_windows_app_id()
+    # Publish the UI identity before model/runtime prewarm. The background
+    # listener can otherwise observe a long cold start as "no app" and launch
+    # duplicate hidden copies while a game or media audio is still playing.
+    set_app_session_active(True)
     runtime = get_runtime_services()
     recovery_info = runtime.start()
-    set_app_session_active(True)
     app = QApplication(sys.argv)
     _load_ui_fonts()
     app.setApplicationName("MORICE")

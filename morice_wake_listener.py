@@ -39,6 +39,8 @@ BLOCK_SIZE = 640
 BLOCK_DURATION_SECONDS = BLOCK_SIZE / SAMPLE_RATE
 DOUBLE_CLAP_WINDOW = 1.8
 CLAP_DEBOUNCE = 0.11
+MIN_CLAP_INTERVAL_SECONDS = 0.22
+MAX_CLAP_INTERVAL_SECONDS = 1.35
 # This is only event de-duplication, not a user-facing wake cooldown. A phrase
 # or clap wake can immediately launch/wake MORICE again after a real new event.
 WAKE_DEDUP_SECONDS = 0.75
@@ -54,6 +56,7 @@ SENSITIVITY_PROFILES = {
     "high": {"target_rms": 1800.0, "max_gain": 14.0, "clap_scale": 0.82},
 }
 _LISTENER_MUTEX_HANDLE = None
+_PENDING_LAUNCH_PROCESS = None
 
 
 def acquire_listener_instance() -> bool:
@@ -344,7 +347,13 @@ def morice_is_running() -> bool:
 
 
 def write_wake_signal(source: str) -> None:
-    write_wake_request(source)
+    try:
+        write_wake_request(source)
+    except OSError as exc:
+        # A running UI or antivirus scanner can briefly hold the signal file
+        # on Windows. A missed signal must not tear down the microphone stream
+        # or start the listener's device-rotation recovery loop.
+        log(f"wake signal could not be refreshed: {exc}")
 
 
 def background_process_options() -> dict:
@@ -381,10 +390,30 @@ def wait_for_voice_session_release(
     return True
 
 
+def launch_in_progress() -> bool:
+    """Return whether this listener already owns a live cold-start process."""
+
+    global _PENDING_LAUNCH_PROCESS
+    process = _PENDING_LAUNCH_PROCESS
+    if process is None:
+        return False
+    try:
+        running = process.poll() is None
+    except Exception:  # noqa: BLE001
+        running = False
+    if not running:
+        _PENDING_LAUNCH_PROCESS = None
+    return running
+
+
 def wake_morice(source: str) -> None:
+    global _PENDING_LAUNCH_PROCESS
     write_wake_signal(source)
     if morice_is_running():
         log(f"wake signal sent by {source}")
+        return
+    if launch_in_progress():
+        log(f"wake signal refreshed by {source}; MORICE launch already pending")
         return
 
     env = os.environ.copy()
@@ -413,9 +442,10 @@ def wake_morice(source: str) -> None:
                 exit_code = process.wait(timeout=0.9)
             except subprocess.TimeoutExpired:
                 exit_code = None
-            if exit_code not in (None, 0):
+            if exit_code is not None:
                 log(f"launch failed with {label}: process exited {exit_code}")
                 continue
+            _PENDING_LAUNCH_PROCESS = process
             log(f"launched Morice by {source} using {label}")
             return
         except Exception as exc:  # noqa: BLE001
@@ -585,12 +615,13 @@ def detect_clap(
     loud_transient = (
         peak >= peak_threshold
         and diff_peak >= attack_threshold
-        and (rms >= rms_threshold or sharpness >= 1.52)
+        and rms >= rms_threshold
+        and sharpness >= 1.85
     )
     sharp_snap = (
         peak >= max(220.0 * scale, ambient_peak * 1.30 * scale)
         and diff_peak >= attack_threshold
-        and sharpness >= 1.42
+        and sharpness >= 2.30
     )
     return loud_transient or sharp_snap, peak, rms
 
@@ -764,7 +795,14 @@ def main() -> int:
                         )
                         if is_clap:
                             last_clap = now
-                            clap_times = [stamp for stamp in clap_times if now - stamp <= DOUBLE_CLAP_WINDOW]
+                            clap_times = [
+                                stamp
+                                for stamp in clap_times
+                                if now - stamp <= MAX_CLAP_INTERVAL_SECONDS
+                            ]
+                            previous_clap = clap_times[-1] if clap_times else 0.0
+                            if previous_clap and now - previous_clap < MIN_CLAP_INTERVAL_SECONDS:
+                                continue
                             clap_times.append(now)
                             log(f"clap heard ({min(len(clap_times), 2)}/2)")
                             if len(clap_times) >= 2:
@@ -793,13 +831,22 @@ def main() -> int:
                                 f"heard: {heard_norm!r}; gain=x{frontend.gain:.1f}, "
                                 f"noise_rms={frontend.noise_rms:.0f}"
                             )
-                        if any(
-                            phrase_matches(combined_heard, phrase)
-                            for phrase in magic_phrases(wake_phrase)
-                        ):
+                        matched_phrase = next(
+                            (
+                                phrase
+                                for phrase in magic_phrases(wake_phrase)
+                                if phrase_matches(combined_heard, phrase)
+                            ),
+                            "",
+                        )
+                        # Restricted Vosk grammars may coerce background audio
+                        # into a plausible one-word partial. Wait for a final
+                        # utterance before launching so games, music, and room
+                        # noise do not create hidden MORICE process storms.
+                        if accepted and matched_phrase:
                             if now - last_wake >= WAKE_DEDUP_SECONDS:
                                 last_wake = now
-                                wake_morice(f"magic words: {wake_phrase}")
+                                wake_morice(f"magic words: {matched_phrase}")
                             else:
                                 log("duplicate magic words ignored")
                             clap_times = []

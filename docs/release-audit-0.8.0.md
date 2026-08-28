@@ -8,7 +8,7 @@ Release tag: `v0.8.0`
 
 | Gate | Result |
 | --- | --- |
-| Python regression | 448 tests passed |
+| Python regression | 450 tests passed |
 | VNext runtime | 14 tests passed; TypeScript typecheck passed |
 | Website | TypeScript and Vite production build passed |
 | Version consistency | `0.8.0` validated from `morice/version.py` |
@@ -26,10 +26,10 @@ Tests below used this Windows host and its actual hardware/services. They are no
 | Vision | SmolVLM2 500M Q8 model/projector prewarmed on CPU and processed a fresh camera frame in 8.84 s; JSON schema and quality gates were enforced |
 | Microphone | The configured Windows input opened and completed a non-retained capture; Windows permission and device fallback paths were exercised |
 | Speech | ElevenLabs prewarm succeeded; streaming playback started; barge-in stopped playback in 12.76 ms; a second utterance recovered successfully |
-| Background wake | Vosk opened the actual Realtek microphone at 16 kHz and entered magic-word/double-clap listening; Live Action lease pause/resume passed |
+| Background wake | Vosk opened the actual Realtek microphone at 16 kHz and entered magic-word/double-clap listening; Live Action lease pause/resume passed; a 30-second packaged soak remained at one listener process, zero children, and 191.5 MB working set |
 | Packaged Live Action | The frozen app entered the separate Live Action workspace, began real microphone listening, kept the camera off by default, opened the real camera only on request, reported memory-only capture, and stopped voice/camera I/O on exit |
 | Packaged local control | “What is my current RAM usage?” selected `FAST_TOOL → system.status` and returned actual local memory values without a model call |
-| Packaged wake entry point | `MORICE.exe --morice-wake-listener --self-test` exited successfully with code 0 |
+| Packaged wake entry point | `MORICE.exe --morice-wake-listener --self-test` exited successfully with code 0; repeated wake events share one pending cold launch and noisy one-word partials cannot launch the app |
 | Network | Bounded live connectivity probe succeeded; offline behavior is independently covered by tests |
 | Bluetooth | Windows native PnP discovery returned real device nodes; active connection state remained unknown rather than inferred from driver status |
 | Amazon Music | Structured discovery/media routes and semantic search paths are covered; exact provider behavior still depends on installed app/account/session state |

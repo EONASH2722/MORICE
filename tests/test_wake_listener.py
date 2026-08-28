@@ -1,6 +1,9 @@
 import math
+import subprocess
+import tempfile
 import unittest
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -10,6 +13,7 @@ from morice_wake_listener import (
     RollingTranscript,
     audio_stream_options,
     detect_clap,
+    launch_in_progress,
     magic_phrases,
     morice_is_running,
     normalize_sensitivity,
@@ -17,6 +21,7 @@ from morice_wake_listener import (
     resample_pcm16,
     self_test,
     wait_for_voice_session_release,
+    wake_morice,
 )
 
 
@@ -62,6 +67,14 @@ class WakeAudioFrontendTests(unittest.TestCase):
 
         self.assertTrue(clap_detected)
         self.assertFalse(noise_detected)
+
+    def test_sustained_voice_energy_is_not_mistaken_for_a_clap(self):
+        phase = np.linspace(0.0, math.tau * 6, 640, endpoint=False)
+        voice_like = (np.sin(phase) * 2_000.0).astype(np.int16)
+
+        detected, _, _ = detect_clap(voice_like, 180.0, 22.0, "high")
+
+        self.assertFalse(detected)
 
     def test_rolling_partials_recover_a_phrase_split_across_blocks(self):
         transcript = RollingTranscript()
@@ -124,6 +137,29 @@ class WakeAudioFrontendTests(unittest.TestCase):
     def test_listener_uses_ui_lease_instead_of_its_own_process_name(self):
         with patch("morice_wake_listener.app_session_active", return_value=True):
             self.assertTrue(morice_is_running())
+
+    def test_repeated_wakes_share_one_pending_cold_launch(self):
+        import morice_wake_listener as listener
+
+        process = Mock()
+        process.wait.side_effect = subprocess.TimeoutExpired("MORICE.exe", 0.9)
+        process.poll.return_value = None
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "MORICE.exe"
+            executable.touch()
+            with (
+                patch.object(listener, "EXE_PATH", executable),
+                patch.object(listener, "_PENDING_LAUNCH_PROCESS", None),
+                patch("morice_wake_listener.write_wake_signal") as signal,
+                patch("morice_wake_listener.morice_is_running", return_value=False),
+                patch("morice_wake_listener.subprocess.Popen", return_value=process) as popen,
+            ):
+                wake_morice("magic words: morice")
+                self.assertTrue(launch_in_progress())
+                wake_morice("double clap")
+
+        self.assertEqual(popen.call_count, 1)
+        self.assertEqual(signal.call_count, 2)
 
 
 if __name__ == "__main__":

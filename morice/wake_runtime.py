@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -102,10 +103,25 @@ def write_wake_request(source: str, *, path: str | os.PathLike[str] | None = Non
     )
     target = Path(path or wake_signal_path())
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f"{target.name}.{os.getpid()}.tmp")
-    temporary.write_text(request.to_json(), encoding="utf-8")
-    os.replace(temporary, target)
-    return request
+    last_error: OSError | None = None
+    for attempt in range(3):
+        temporary = target.with_name(
+            f"{target.name}.{os.getpid()}.{threading.get_ident()}.{attempt}.tmp"
+        )
+        try:
+            temporary.write_text(request.to_json(), encoding="utf-8")
+            os.replace(temporary, target)
+            return request
+        except OSError as exc:
+            last_error = exc
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+            if attempt < 2:
+                time.sleep(0.025 * (attempt + 1))
+    assert last_error is not None
+    raise last_error
 
 
 def voice_session_path() -> Path:

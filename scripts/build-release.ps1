@@ -73,7 +73,7 @@ Get-ChildItem -LiteralPath $Release -Force | Remove-Item -Recurse -Force
 Push-Location $Root
 try {
     Invoke-Checked "PyInstaller build" {
-        python -m PyInstaller --noconfirm MORICE.spec
+        python -m PyInstaller --noconfirm --clean MORICE.spec
     }
 }
 finally {

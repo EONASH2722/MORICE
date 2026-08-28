@@ -18,7 +18,8 @@ model on the computer. ElevenLabs speech and current web retrieval remain option
   low-quality, or failed frames never produce a fabricated visual claim.
 - The installed background listener recognizes MORICE, configured magic words, or double-clap,
   launches the app minimized without stealing foreground focus, never turns on the camera, and
-  releases microphone ownership while Live Action is active.
+  releases microphone ownership while Live Action is active. Cold-start events are single-flight,
+  so repeated audio detections cannot create duplicate hidden app/model processes.
 
 ## Faster, More Grounded Execution
 

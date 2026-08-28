@@ -41,7 +41,8 @@ All notable changes to MORICE are documented here.
 - Prevented short background discovery subprocesses from leaking beyond runtime shutdown.
 - Made packaged vision use the shared bundled llama resolver and an enforced JSON response format.
 - Fixed packaged wake-listener startup, runtime paths, single-instance behavior, and UI-process
-  detection.
+  detection. Cold starts are single-flight, noisy partial speech is not accepted as a completed
+  wake phrase, and signal-file contention no longer restarts the microphone loop.
 
 ### Documentation
 
@@ -53,7 +54,7 @@ All notable changes to MORICE are documented here.
 
 ### Release Engineering
 
-- Standardized the public version as semantic `0.7.0` from one Python version source.
+- Standardized the public version as semantic `0.8.0` from one Python version source.
 - Added verified Python wheel and source-distribution packaging with GUI and CLI entry points.
 - Added archive policy, secret, split-part, checksum, and package-content audits.
 - Added release-validation CI and documented the honest publication status of every package channel.
