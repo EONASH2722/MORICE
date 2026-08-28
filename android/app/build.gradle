@@ -1,0 +1,65 @@
+plugins {
+    id 'com.android.application'
+}
+
+def releaseKeystore = System.getenv('MORICE_ANDROID_KEYSTORE')
+def releaseAlias = System.getenv('MORICE_ANDROID_KEY_ALIAS')
+def releaseStorePassword = System.getenv('MORICE_ANDROID_STORE_PASSWORD')
+def releaseKeyPassword = System.getenv('MORICE_ANDROID_KEY_PASSWORD')
+
+android {
+    namespace 'ai.morice.companion'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'ai.morice.companion'
+        minSdk 28
+        targetSdk 36
+        versionCode 800
+        versionName '0.8.0-android'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    signingConfigs {
+        if (releaseKeystore && releaseAlias && releaseStorePassword && releaseKeyPassword) {
+            release {
+                storeFile file(releaseKeystore)
+                storePassword releaseStorePassword
+                keyAlias releaseAlias
+                keyPassword releaseKeyPassword
+                enableV1Signing true
+                enableV2Signing true
+                enableV3Signing true
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (signingConfigs.findByName('release') != null) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        resources.excludes += ['/META-INF/{AL2.0,LGPL2.1}']
+    }
+}
+
+dependencies {
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+}

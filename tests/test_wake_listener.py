@@ -10,8 +10,10 @@ import numpy as np
 from morice_wake_listener import (
     AdaptiveAudioFrontend,
     AudioMetrics,
+    DoubleClapDetector,
     RollingTranscript,
     audio_stream_options,
+    confident_wake_result,
     detect_clap,
     launch_in_progress,
     magic_phrases,
@@ -75,6 +77,68 @@ class WakeAudioFrontendTests(unittest.TestCase):
         detected, _, _ = detect_clap(voice_like, 180.0, 22.0, "high")
 
         self.assertFalse(detected)
+
+    def test_broad_low_attack_transient_is_not_mistaken_for_a_clap(self):
+        event = np.zeros(640, dtype=np.int16)
+        event[80:240] = np.concatenate(
+            (
+                np.linspace(0, 424, 80, dtype=np.int16),
+                np.linspace(424, 0, 80, dtype=np.int16),
+            )
+        )
+
+        detected, _, _ = detect_clap(event, 18.0, 3.0, "high")
+
+        self.assertFalse(detected)
+
+    def test_double_clap_requires_quiet_before_and_between_impulses(self):
+        detector = DoubleClapDetector()
+        now = 10.0
+        for _ in range(4):
+            now += 0.04
+            self.assertEqual(
+                detector.update(candidate=False, rms=2.0, ambient_rms=3.0, now=now),
+                0,
+            )
+        self.assertEqual(
+            detector.update(candidate=True, rms=28.0, ambient_rms=3.0, now=now + 0.04),
+            1,
+        )
+        for _ in range(4):
+            now += 0.04
+            detector.update(candidate=False, rms=2.0, ambient_rms=3.0, now=now + 0.04)
+        self.assertEqual(
+            detector.update(candidate=True, rms=30.0, ambient_rms=3.0, now=now + 0.36),
+            2,
+        )
+
+    def test_background_transients_cannot_arm_without_quiet_gap(self):
+        detector = DoubleClapDetector()
+
+        states = [
+            detector.update(
+                candidate=index % 6 == 0,
+                rms=90.0 if index % 6 else 180.0,
+                ambient_rms=12.0,
+                now=index * 0.04,
+            )
+            for index in range(80)
+        ]
+
+        self.assertNotIn(2, states)
+
+    def test_single_word_wake_requires_strong_final_confidence(self):
+        low = {"text": "morice", "result": [{"word": "morice", "conf": 0.71}]}
+        strong = {"text": "morice", "result": [{"word": "morice", "conf": 0.96}]}
+
+        self.assertFalse(confident_wake_result(low, "morice"))
+        self.assertTrue(confident_wake_result(strong, "morice"))
+
+    def test_unscored_single_word_wake_is_rejected(self):
+        self.assertFalse(confident_wake_result({"text": "morice"}, "morice"))
+        self.assertTrue(
+            confident_wake_result({"text": "wake up son"}, "wake up son")
+        )
 
     def test_rolling_partials_recover_a_phrase_split_across_blocks(self):
         transcript = RollingTranscript()

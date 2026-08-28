@@ -1,11 +1,14 @@
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from morice.wake_runtime import (
     WakeRequest,
+    _pid_is_running,
     app_session_active,
     parse_wake_request,
     set_app_session_active,
@@ -46,6 +49,19 @@ class WakeRequestTests(unittest.TestCase):
 
 
 class VoiceSessionLeaseTests(unittest.TestCase):
+    def test_process_probe_recognizes_a_different_live_process(self):
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(10)"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            self.assertTrue(_pid_is_running(process.pid))
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
+        self.assertFalse(_pid_is_running(process.pid))
+
     def test_live_process_lease_pauses_listener_and_exit_resumes_it(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "voice-session.json"
@@ -66,6 +82,17 @@ class VoiceSessionLeaseTests(unittest.TestCase):
             self.assertFalse(active)
             self.assertFalse(path.exists())
 
+    def test_one_voice_process_cannot_clear_another_process_lease(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "voice-session.json"
+            set_voice_session_active(True, path=path, pid=77)
+
+            set_voice_session_active(False, path=path, pid=88)
+
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["pid"], 77)
+            set_voice_session_active(False, path=path, pid=77)
+            self.assertFalse(path.exists())
+
     def test_app_session_lease_identifies_ui_without_confusing_daemon(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "app-session.json"
@@ -76,6 +103,17 @@ class VoiceSessionLeaseTests(unittest.TestCase):
             self.assertFalse(
                 app_session_active(path=path, pid_probe=lambda _pid: False)
             )
+            self.assertFalse(path.exists())
+
+    def test_one_ui_process_cannot_clear_another_process_lease(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app-session.json"
+            set_app_session_active(True, path=path, pid=77)
+
+            set_app_session_active(False, path=path, pid=88)
+
+            self.assertEqual(json.loads(path.read_text(encoding="utf-8"))["pid"], 77)
+            set_app_session_active(False, path=path, pid=77)
             self.assertFalse(path.exists())
 
 

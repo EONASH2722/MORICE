@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import threading
@@ -146,7 +147,15 @@ def set_voice_session_active(
     """
 
     target = Path(path) if path is not None else voice_session_path()
+    owner_pid = int(pid or os.getpid())
     if not active:
+        try:
+            current = json.loads(target.read_text(encoding="utf-8"))
+            current_pid = int(current.get("pid") or 0) if isinstance(current, dict) else 0
+        except (FileNotFoundError, OSError, TypeError, ValueError, json.JSONDecodeError):
+            current_pid = 0
+        if current_pid and current_pid != owner_pid:
+            return
         try:
             target.unlink()
         except FileNotFoundError:
@@ -154,12 +163,14 @@ def set_voice_session_active(
         return
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f"{target.name}.{os.getpid()}.tmp")
+    temporary = target.with_name(
+        f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
     temporary.write_text(
         json.dumps(
             {
                 "version": WAKE_SIGNAL_VERSION,
-                "pid": int(pid or os.getpid()),
+                "pid": owner_pid,
                 "createdAt": time.time(),
             },
             separators=(",", ":"),
@@ -174,6 +185,24 @@ def _pid_is_running(pid: int) -> bool:
         return False
     if pid == os.getpid():
         return True
+    if os.name == "nt":
+        try:
+            kernel32 = ctypes.windll.kernel32
+            kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+            kernel32.OpenProcess.restype = ctypes.c_void_p
+            kernel32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            kernel32.WaitForSingleObject.restype = ctypes.c_uint32
+            kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+            handle = kernel32.OpenProcess(0x00100000, False, int(pid))  # SYNCHRONIZE
+            if not handle:
+                # Access denied still proves that a process owns the PID.
+                return int(kernel32.GetLastError()) == 5
+            try:
+                return int(kernel32.WaitForSingleObject(handle, 0)) == 0x00000102
+            finally:
+                kernel32.CloseHandle(handle)
+        except (AttributeError, OSError, ValueError):
+            return False
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -215,19 +244,32 @@ def set_app_session_active(
     """Publish the actual UI process identity for the background wake daemon."""
 
     target = Path(path) if path is not None else app_session_path()
+    owner_pid = int(pid or os.getpid())
     if not active:
+        try:
+            current = json.loads(target.read_text(encoding="utf-8"))
+            current_pid = int(current.get("pid") or 0) if isinstance(current, dict) else 0
+        except (FileNotFoundError, OSError, TypeError, ValueError, json.JSONDecodeError):
+            current_pid = 0
+        # A short-lived duplicate must never erase the lease belonging to the
+        # healthy UI process that won startup. Stale leases remain removable by
+        # app_session_active() when their owning PID is no longer alive.
+        if current_pid and current_pid != owner_pid:
+            return
         try:
             target.unlink()
         except FileNotFoundError:
             pass
         return
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name(f"{target.name}.{os.getpid()}.tmp")
+    temporary = target.with_name(
+        f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp"
+    )
     temporary.write_text(
         json.dumps(
             {
                 "version": WAKE_SIGNAL_VERSION,
-                "pid": int(pid or os.getpid()),
+                "pid": owner_pid,
                 "createdAt": time.time(),
             },
             separators=(",", ":"),

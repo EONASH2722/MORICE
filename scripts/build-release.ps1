@@ -8,6 +8,18 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Release = Join-Path $Root "release"
 $Dist = Join-Path $Root "dist\MORICE"
+$BuildDataRoot = if ($env:MORICE_LOCAL_DATA_DIR) {
+    $env:MORICE_LOCAL_DATA_DIR
+}
+else {
+    Join-Path ([System.IO.Path]::GetPathRoot($Root)) "MORICE_DATA"
+}
+$BuildTemp = Join-Path $BuildDataRoot "Temp"
+$PyInstallerConfig = Join-Path $BuildDataRoot "PyInstaller"
+New-Item -ItemType Directory -Force -Path $BuildTemp, $PyInstallerConfig | Out-Null
+$env:TEMP = $BuildTemp
+$env:TMP = $BuildTemp
+$env:PYINSTALLER_CONFIG_DIR = $PyInstallerConfig
 $Version = (& python -c "from morice.version import VERSION; print(VERSION)").Trim()
 if ($LASTEXITCODE -ne 0 -or -not $Version) {
     throw "Unable to read the authoritative MORICE version."

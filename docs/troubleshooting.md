@@ -89,6 +89,30 @@ Enter **Mode > Live Action**, then open **Panel > Live Action voice configuratio
 
 Open **Tools > Diagnostics > Voice** and run **Test Microphone**. A detected device plus a changing level confirms capture independently of recognition. The result lists the selected/default endpoint, sample rate, VAD state, and exact backend error; the temporary sample is not retained.
 
+## Android Companion
+
+### The phone cannot pair with the desktop
+
+Keep both devices on a mutually reachable LAN, open **Panel > Pair a device** immediately before
+pairing, use the address and port shown by MORICE, and compare the six-digit code on both screens.
+Windows Firewall or guest Wi-Fi client isolation can block the LAN socket. Sharing Wi-Fi alone does
+not create trust; a pairing request outside the explicit two-minute window is rejected.
+
+### A phone or desktop task is denied
+
+Capabilities are directional. A phone permission does not automatically grant the desktop the
+matching operation, and a desktop grant does not automatically grant the phone. Review the paired
+device entry and grant only the required capability. Camera sharing remains foreground and
+user-initiated even when a vision capability exists.
+
+### Android voice or camera is unavailable
+
+Grant microphone/camera permission in Android settings, return to the foreground, and explicitly
+enable **Voice on** or open **Live Vision**. Battery or OEM background restrictions may stop the
+connection service. The release build passed compile, lint, signing, and encrypted desktop-loopback
+checks, but actual device audio/camera behavior still depends on the phone and was not claimed as
+physical-device verified for this release.
+
 ### Camera preview or visual answers do not work
 
 Enter **Mode > Live Action** and press **Turn camera on**. If the preview stays unavailable, allow camera access in Windows **Privacy & security > Camera**, close another application that may exclusively own the camera, and reselect the device. Diagnostics > Voice lists the camera state, active device, actual resolution, preview FPS, frame conversion failures, vision-provider state, visual-model name, request latency, last failure, and temporary-memory state. A preview without a visual answer usually means the local visual model is unavailable or the frame failed the darkness, contrast, blur, or freshness gate; MORICE reports the exact condition in the glass overlay.

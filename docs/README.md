@@ -10,6 +10,7 @@ This documentation describes the current `0.8.0` Windows application. Claims are
 | [Feature matrix](feature-matrix.md) | Exact implemented, conditional, and unavailable capabilities |
 | [Models and performance](model-guide.md) | GGUF/Ollama setup, GPU fit, and tuning |
 | [Project Mode](project-mode.md) | Folder access, project generation, review, apply, tests, and Git status |
+| [Android companion](android-companion.md) | APK installation, secure pairing, voice, Live Vision, task grants, and validation limits |
 | [Troubleshooting](troubleshooting.md) | Launch, model, renderer, voice, display, and project problems |
 | [FAQ](faq.md) | Short answers about privacy, models, rendering, projects, VRAM, and support |
 

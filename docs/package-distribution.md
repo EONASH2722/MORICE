@@ -10,6 +10,7 @@ version consistency, secret scanning, archive policy, split-part hashes, or fina
 | --- | --- | --- |
 | GitHub Release installer | Prepared for publication | Setup executable plus all adjacent `.bin` slices |
 | GitHub Release portable | Prepared for publication | Reassemble verified parts, extract, run `MORICE.exe` |
+| Android companion APK | Prepared for publication | Install the signed Android 9+ APK after checking its adjacent SHA-256 manifest |
 | Python wheel and sdist | Built and verified locally | Install the downloaded wheel; no public index claimed |
 | PyPI | Not published | Requires verified project ownership and a PyPI token |
 | GitHub Packages | Not applicable to Python wheels | GitHub Packages does not provide a PyPI-compatible registry |
@@ -56,8 +57,18 @@ Generated release metadata includes:
 - `MORICE-v0.8.0-Package-Contents.json` with archive inventory and policy results;
 - versioned release notes, documentation, source archive, wheel, and sdist.
 
+The Android companion is published separately as `v0.8.0-android`. The portable plug-and-play
+bundle is published as `v0.8.0-portable` so its split parts and reassembly script remain together.
+Both tags point to the same audited `0.8.0` source revision; they are distribution variants, not
+different application versions.
+
 ## Signing
 
-The current binaries are unsigned because no trusted Windows code-signing certificate is
-configured. The pipeline never creates a fake signature. A future signed release must validate
-the Authenticode chain before publication.
+The Windows binaries are unsigned because no trusted Windows Authenticode certificate is
+configured. The pipeline never creates a fake signature. A future signed Windows release must
+validate the Authenticode chain before publication.
+
+The Android APK uses a dedicated 4096-bit RSA release key stored outside the repository and is
+verified with Android `apksigner`. Its adjacent JSON manifest records the final APK hash. This is
+application signing for upgrade identity and package integrity; it is not a claim of Play Store
+publication or third-party publisher certification.

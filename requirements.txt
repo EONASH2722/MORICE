@@ -12,3 +12,4 @@ vosk>=0.3.45
 Pillow>=10.0
 elevenlabs>=2.63,<3
 python-dotenv>=1.2,<2
+cryptography>=45,<47

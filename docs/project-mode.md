@@ -26,10 +26,35 @@ Prompt
   -> proposed files and diff
   -> folder-limited review, or validated Full access application
   -> atomic writes
-  -> build, tests, logs, and Git status
+  -> exact artifact verification
+  -> detected build and tests when available
+  -> observed evidence, logs, and Git status
 ```
 
 The model is asked for file content, not a tutorial telling the user what to copy. Invalid manifests do not overwrite existing source.
+
+## Generalized Project Workflows
+
+Project Mode is not a Roblox-only or web-only builder. It detects project markers and installed
+tools for Unreal Engine, Unity, Roblox/Rojo, Godot, Android/Gradle, Visual Studio/.NET, Node.js,
+Python, Java/Maven/Gradle, Rust/Cargo, Go, and static web projects. Unknown formats remain usable as
+generic projects instead of being forced into an unrelated engine workflow.
+
+The detected adapter supplies only commands declared by the project. For example, an npm build is
+not run unless `package.json` actually declares that script, and Python tests are not claimed when
+the work folder has no test files. Proprietary editor play mode is reported separately from file or
+CLI verification.
+
+Each request creates durable goal, target-state, milestone, attempt, changed-file, and command
+evidence. Available build/test commands run after exact file-content verification in Full access.
+A nonzero exit or timeout leaves the task in `needs-repair`; it never becomes “done” just because a
+model produced plausible prose.
+
+## Visible Process
+
+The processing card remains available as **Show process** after a reply. It exposes host-observed
+steps—routing, capability selection, file validation, writes, commands, and verification. This is
+an operational audit trail, not hidden model chain-of-thought.
 
 ## Review Workspace
 
@@ -81,4 +106,9 @@ Run the tests and report exact files changed.
 
 ## Limits
 
-The host can write any text-based language, but it cannot guarantee that an unavailable compiler, SDK, service, signing identity, device, or proprietary asset exists. When a model fails to produce valid project JSON, the built-in fallback is intentionally narrower and primarily covers selected web-project patterns.
+The host can write any text-based language, but it cannot guarantee that an unavailable compiler,
+SDK, service, signing identity, device, proprietary asset, or GUI automation surface exists. An
+editor-aware workflow can identify when Unity, Unreal, Roblox Studio, or another GUI is needed, but
+it reports the editor/playtest as unverified until that real application is opened and observed.
+When a model fails to produce valid project JSON, the built-in fallback is intentionally narrower
+and primarily covers selected web-project patterns.

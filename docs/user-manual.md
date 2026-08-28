@@ -14,6 +14,14 @@ Keep every portable `.part*` file, the `.parts.json` manifest, and the provided 
 
 The wheel is a model-free advanced installation. Install the downloaded `morice_ai-0.8.0-py3-none-any.whl` with `python -m pip install <wheel-path>`, then run `morice`. Configure a local GGUF or Ollama model in the application. This release does not claim a public package-manager channel until publication is independently verified.
 
+### Android companion
+
+Download `MORICE-Android-0.8.0-android.apk` and its JSON manifest from the Android
+release. Verify the SHA-256 value, install it on Android 9 or newer, then use **Devices** on the
+phone and **Panel > Pair a device** on the desktop. Compare and confirm the same six-digit pairing
+code on both devices. Pairing is explicit, time-limited, encrypted, and grants capabilities in each
+direction separately. See the [Android companion guide](android-companion.md).
+
 ## First Launch
 
 1. Start MORICE.
@@ -67,6 +75,20 @@ Controls vary by family: zoom, pan, rotate, hover inspection, 2D/3D switch, paus
 8. Inspect tests, run logs, terminal output, and Git status.
 
 MORICE asks the coding model for file artifacts rather than instructions to copy and paste. Invalid or unsafe project JSON cannot replace existing files. Read the full [Project Mode guide](project-mode.md).
+
+After a change, **Show process** remains available. It records detected project type and tools,
+the exact files found on disk, real build/test commands, exit codes, and verification results. A
+file-only result, unavailable editor, skipped playtest, and successful runnable build are distinct
+states; MORICE does not label them all “done.”
+
+## Android Companion
+
+The phone app keeps one unified chat and adds opt-in voice, on-demand Live Vision, device status,
+media control, and application launch. Desktop Project Mode is intentionally not copied to the
+phone. Phone requests use the paired desktop model and tools only when the corresponding capability
+is granted. Voice stops when toggled off or when leaving the app; the camera opens only in Live
+Vision after foreground permission, and a frame leaves the phone only when **Analyze frame** is
+pressed. Remote background camera activation is not enabled.
 
 ## Tools Workspace
 

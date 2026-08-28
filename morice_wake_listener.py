@@ -37,13 +37,15 @@ LOG_PATH = local_data_dir() / "runtime" / "wake-listener.log"
 SAMPLE_RATE = 16000
 BLOCK_SIZE = 640
 BLOCK_DURATION_SECONDS = BLOCK_SIZE / SAMPLE_RATE
-DOUBLE_CLAP_WINDOW = 1.8
-CLAP_DEBOUNCE = 0.11
-MIN_CLAP_INTERVAL_SECONDS = 0.22
-MAX_CLAP_INTERVAL_SECONDS = 1.35
+MIN_CLAP_INTERVAL_SECONDS = 0.28
+MAX_CLAP_INTERVAL_SECONDS = 1.10
+CLAP_QUIET_BLOCKS = 4
+CLAP_WAKE_COOLDOWN_SECONDS = 4.0
+SINGLE_WORD_WAKE_MIN_CONFIDENCE = 0.88
+MULTI_WORD_WAKE_MIN_CONFIDENCE = 0.64
 # This is only event de-duplication, not a user-facing wake cooldown. A phrase
 # or clap wake can immediately launch/wake MORICE again after a real new event.
-WAKE_DEDUP_SECONDS = 0.75
+WAKE_DEDUP_SECONDS = 3.0
 SETTINGS_REFRESH_SECONDS = 2.0
 STREAM_RETRY_SECONDS = 1.0
 HEARD_LOG_GAP = 1.0
@@ -208,6 +210,67 @@ class RollingTranscript:
     def text(self, now: float) -> str:
         self._trim(now)
         return " ".join(token for _, token in self._entries)
+
+
+class DoubleClapDetector:
+    """Recognize two distinct impulses separated by a genuinely quiet gap."""
+
+    def __init__(self) -> None:
+        self.quiet_blocks = 0
+        self.candidate_active = False
+        self.first_clap_at = 0.0
+        self.cooldown_until = 0.0
+
+    def reset(self, *, cooldown_until: float = 0.0) -> None:
+        self.quiet_blocks = 0
+        self.candidate_active = False
+        self.first_clap_at = 0.0
+        self.cooldown_until = max(self.cooldown_until, float(cooldown_until))
+
+    def update(
+        self,
+        *,
+        candidate: bool,
+        rms: float,
+        ambient_rms: float,
+        now: float,
+    ) -> int:
+        """Return 1 for an armed clap and 2 for a confirmed double clap."""
+
+        if self.first_clap_at and now - self.first_clap_at > MAX_CLAP_INTERVAL_SECONDS:
+            self.first_clap_at = 0.0
+
+        quiet_limit = max(8.0, float(ambient_rms) * 2.6)
+        if not candidate:
+            self.candidate_active = False
+            if float(rms) <= quiet_limit:
+                self.quiet_blocks = min(CLAP_QUIET_BLOCKS, self.quiet_blocks + 1)
+            else:
+                self.quiet_blocks = 0
+            return 0
+
+        # One physical impulse can span adjacent 40 ms blocks. Treat it as one
+        # event and require a real quiet valley before accepting another.
+        if self.candidate_active:
+            return 0
+        self.candidate_active = True
+        if now < self.cooldown_until or self.quiet_blocks < CLAP_QUIET_BLOCKS:
+            self.quiet_blocks = 0
+            return 0
+        self.quiet_blocks = 0
+
+        if not self.first_clap_at:
+            self.first_clap_at = now
+            return 1
+        interval = now - self.first_clap_at
+        if interval < MIN_CLAP_INTERVAL_SECONDS:
+            return 0
+        if interval <= MAX_CLAP_INTERVAL_SECONDS:
+            self.first_clap_at = 0.0
+            self.cooldown_until = now + CLAP_WAKE_COOLDOWN_SECONDS
+            return 2
+        self.first_clap_at = now
+        return 1
 
 
 @dataclass(frozen=True)
@@ -463,7 +526,53 @@ def make_recognizer(model, wake_phrase: str):
         return None
     phrases = sorted(magic_phrases(wake_phrase), key=len, reverse=True)
     grammar = json.dumps(phrases + ["[unk]"])
-    return KaldiRecognizer(model, SAMPLE_RATE, grammar)
+    recognizer = KaldiRecognizer(model, SAMPLE_RATE, grammar)
+    if hasattr(recognizer, "SetWords"):
+        recognizer.SetWords(True)
+    return recognizer
+
+
+def recognition_confidence(payload: object) -> float | None:
+    """Return the weakest final-word confidence exposed by Vosk."""
+
+    if not isinstance(payload, dict):
+        return None
+    words = payload.get("result")
+    if not isinstance(words, list) or not words:
+        return None
+    confidences: list[float] = []
+    for word in words:
+        if not isinstance(word, dict):
+            continue
+        try:
+            confidence = float(word.get("conf"))
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(confidence):
+            confidences.append(max(0.0, min(1.0, confidence)))
+    return min(confidences) if confidences else None
+
+
+def confident_wake_result(payload: object, matched_phrase: str) -> bool:
+    """Reject constrained-grammar guesses that only resemble a wake word."""
+
+    if not isinstance(payload, dict):
+        return False
+    heard = norm(payload.get("text", ""))
+    phrase = norm(matched_phrase)
+    if not heard or not phrase or not phrase_matches(heard, phrase):
+        return False
+    confidence = recognition_confidence(payload)
+    if confidence is None:
+        # Older recognizers without word metadata may still accept a deliberate
+        # multi-word phrase; never trust an unscored one-word grammar guess.
+        return len(phrase.split()) >= 2
+    threshold = (
+        SINGLE_WORD_WAKE_MIN_CONFIDENCE
+        if len(phrase.split()) == 1
+        else MULTI_WORD_WAKE_MIN_CONFIDENCE
+    )
+    return confidence >= threshold
 
 
 def configured_audio_device():
@@ -605,25 +714,27 @@ def detect_clap(
     rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
     sharpness = peak / max(rms, 1.0)
     diff_peak = float(np.max(np.abs(np.diff(samples.astype(np.int32))))) if samples.size > 1 else 0.0
+    impulse_fraction = float(np.mean(np.abs(samples.astype(np.int32)) >= peak * 0.35))
     profile = SENSITIVITY_PROFILES[normalize_sensitivity(sensitivity)]
     scale = float(profile["clap_scale"])
-    # The two-clap requirement gives us room to accept compressed, low-level
-    # transients from inexpensive laptop microphones without waking on speech.
-    peak_threshold = max(145.0 * scale, ambient_peak * 1.58 * scale)
-    rms_threshold = max(12.0 * scale, ambient_rms * 1.20 * scale)
-    attack_threshold = max(82.0 * scale, ambient_peak * 0.24 * scale)
-    loud_transient = (
+    # A clap is sparse and has a steep sample-to-sample attack. Requiring both
+    # properties rejects voiced speech and the low, broad transients produced
+    # by games/music while retaining compressed laptop-microphone claps.
+    peak_threshold = max(320.0 * scale, ambient_peak * 2.20 * scale)
+    rms_threshold = max(16.0 * scale, ambient_rms * 1.55 * scale)
+    attack_threshold = max(
+        140.0 * scale,
+        peak * 0.32,
+        ambient_peak * 1.20 * scale,
+    )
+    impulse = (
         peak >= peak_threshold
-        and diff_peak >= attack_threshold
         and rms >= rms_threshold
-        and sharpness >= 1.85
-    )
-    sharp_snap = (
-        peak >= max(220.0 * scale, ambient_peak * 1.30 * scale)
         and diff_peak >= attack_threshold
-        and sharpness >= 2.30
+        and sharpness >= 3.20
+        and impulse_fraction <= 0.20
     )
-    return loud_transient or sharp_snap, peak, rms
+    return impulse, peak, rms
 
 
 def self_test() -> int:
@@ -703,9 +814,7 @@ def main() -> int:
     else:
         log("no Vosk model found; double clap wake is active, but magic words are unavailable")
 
-    last_clap = 0.0
     last_wake = 0.0
-    clap_times: list[float] = []
     last_settings_refresh = 0.0
     last_heard_log = 0.0
     audio_device = configured_audio_device()
@@ -723,6 +832,7 @@ def main() -> int:
         source_block_size = max(320, int(round(source_rate * BLOCK_DURATION_SECONDS)))
         audio_queue: queue.Queue[bytes] = queue.Queue(maxsize=96)
         frontend = AdaptiveAudioFrontend(sensitivity)
+        clap_detector = DoubleClapDetector()
         transcript = RollingTranscript()
         last_input_activity = time.monotonic()
 
@@ -783,45 +893,39 @@ def main() -> int:
                         ):
                             raise RotateAudioDevice("microphone input stayed digitally silent")
 
-                        clap_candidate, _, _ = detect_clap(
+                        clap_candidate, _, clap_rms = detect_clap(
                             samples,
                             frontend.noise_peak,
                             frontend.noise_rms,
                             sensitivity,
                         )
                         frontend.observe_noise(metrics, transient=clap_candidate)
-                        is_clap = (
-                            clap_candidate and now - last_clap >= CLAP_DEBOUNCE
+                        clap_state = clap_detector.update(
+                            candidate=clap_candidate,
+                            rms=clap_rms,
+                            ambient_rms=frontend.noise_rms,
+                            now=now,
                         )
-                        if is_clap:
-                            last_clap = now
-                            clap_times = [
-                                stamp
-                                for stamp in clap_times
-                                if now - stamp <= MAX_CLAP_INTERVAL_SECONDS
-                            ]
-                            previous_clap = clap_times[-1] if clap_times else 0.0
-                            if previous_clap and now - previous_clap < MIN_CLAP_INTERVAL_SECONDS:
-                                continue
-                            clap_times.append(now)
-                            log(f"clap heard ({min(len(clap_times), 2)}/2)")
-                            if len(clap_times) >= 2:
-                                if now - last_wake >= WAKE_DEDUP_SECONDS:
-                                    last_wake = now
-                                    wake_morice("double clap")
-                                else:
-                                    log("duplicate double clap ignored")
-                                clap_times = []
-                                transcript.reset()
-                                if recognizer is not None and hasattr(recognizer, "Reset"):
-                                    recognizer.Reset()
+                        if clap_state:
+                            log(f"clap heard ({clap_state}/2)")
+                        if clap_state == 2:
+                            if now - last_wake >= WAKE_DEDUP_SECONDS:
+                                last_wake = now
+                                wake_morice("double clap")
+                            else:
+                                log("duplicate double clap ignored")
+                            transcript.reset()
+                            if recognizer is not None and hasattr(recognizer, "Reset"):
+                                recognizer.Reset()
 
                     if recognizer is not None:
                         conditioned_data = frontend.condition_for_speech(samples).tobytes()
                         accepted = recognizer.AcceptWaveform(conditioned_data)
                         if accepted:
-                            heard = json.loads(recognizer.Result()).get("text", "")
+                            final_payload = json.loads(recognizer.Result())
+                            heard = final_payload.get("text", "")
                         else:
+                            final_payload = {}
                             heard = json.loads(recognizer.PartialResult()).get("partial", "")
                         heard_norm = norm(heard)
                         combined_heard = transcript.add(heard, now, final=accepted)
@@ -840,16 +944,22 @@ def main() -> int:
                             "",
                         )
                         # Restricted Vosk grammars may coerce background audio
-                        # into a plausible one-word partial. Wait for a final
-                        # utterance before launching so games, music, and room
-                        # noise do not create hidden MORICE process storms.
-                        if accepted and matched_phrase:
+                        # into plausible wake words. Require a scored final
+                        # result, especially for one-word triggers, before the
+                        # listener may launch or wake the UI.
+                        if (
+                            accepted
+                            and matched_phrase
+                            and confident_wake_result(final_payload, matched_phrase)
+                        ):
                             if now - last_wake >= WAKE_DEDUP_SECONDS:
                                 last_wake = now
                                 wake_morice(f"magic words: {matched_phrase}")
                             else:
                                 log("duplicate magic words ignored")
-                            clap_times = []
+                            clap_detector.reset(
+                                cooldown_until=now + CLAP_WAKE_COOLDOWN_SECONDS
+                            )
                             transcript.reset()
                             if recognizer is not None and hasattr(recognizer, "Reset"):
                                 recognizer.Reset()

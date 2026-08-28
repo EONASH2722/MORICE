@@ -23,6 +23,7 @@ This matrix is the release boundary for MORICE `0.8.0`. It is intentionally narr
 | Background wake listener | Supported, local | Installed startup listener recognizes MORICE, configured magic words, and double-clap; launches minimized without taking focus, never starts the camera, and yields microphone ownership to Live Action |
 | Speech-to-text | Supported, local | Vosk conversation input in Live Action; requires the bundled model, audio device, and Windows permission |
 | Text-to-speech | Conditional | ElevenLabs streaming PCM in Live Action; requires a securely configured API key and network access |
+| Context-aware speech delivery | Supported | Verified actions use short truthful acknowledgements while explanations and warnings use distinct pace/stability/style metadata; a failed action is never spoken as complete |
 
 ## Model Sources
 
@@ -64,9 +65,12 @@ Every renderer produces typed data, runs host validation, and either displays a 
 | Red/green diff review | Supported | Mandatory before apply in folder-limited mode; retained as an audit view after Full access writes |
 | Atomic file application and undo | Supported | Validated writes with rollback path |
 | Build/test/terminal output | Supported | Output panel records commands and results |
+| Persistent process evidence | Supported | The expandable process panel remains available after completion and shows routes, detected tools, files, commands, and verification—not private chain-of-thought |
 | Git status | Supported | Requires a valid project folder with Git installed where applicable |
 | Online+local context | Conditional | Requires network access and only adds retrieved context; it does not grant cloud execution |
 | Any text-based language/framework | Model-dependent | The host can write arbitrary text files; generation quality and runnable output depend on the model and local toolchain |
+| Engine/framework discovery | Supported | Detects Unreal, Unity, Roblox, Godot, Android, .NET/Visual Studio, Node, Python, Java, Rust, Go, web, and generic projects from real markers and installed tools |
+| Durable builder verification | Supported | Goal, target state, milestones, exact artifact checks, bounded build/test output, and repair evidence persist; unavailable editors or playtests are reported separately |
 | Local fallback web builder | Supported, limited | Used only when the model fails to return safe project JSON; covers selected web patterns |
 
 ## Tools And Platform
@@ -80,7 +84,9 @@ Every renderer produces typed data, runs host validation, and either displays a 
 | Device intelligence | Supported, local | Normalized device graph, trust metadata, and adapter-backed host observations; unsupported control surfaces fail honestly |
 | Network observation | Supported, local | Bounded cached connectivity probe plus local interface reporting |
 | Bluetooth discovery | Supported on Windows | Native read-only PnP discovery; driver status is not misreported as an active connection |
-| Cross-platform adapters | Adapter-ready | Windows host adapter is active; Linux, macOS, and Android require their platform implementations and are not claimed as remotely controlled |
+| Cross-platform adapters | Windows + Android companion | Windows host control is active. The Android 9+ companion implements its granted node tasks; Linux and macOS remain adapter-ready rather than claimed as controlled |
+| Encrypted multi-device nodes | Supported, LAN | Explicit code-confirmed pairing, P-256/HKDF keys, AES-GCM envelopes, replay/timestamp checks, revocation, and separate inbound/outbound capability grants |
+| Android companion | Conditional | Unified chat, opt-in voice, foreground Live Vision, device status, media, and application tasks; requires the signed APK and a reachable paired desktop |
 | System status and diagnostics | Supported | Health, logs, performance, agent, and component views |
 | Memory import/export/search | Supported | Scoped memory service; not the visible chat transcript |
 | Automations | Supported | Local automation records with enable/disable controls |

@@ -126,6 +126,8 @@ class TTSConfig:
     model_id: str = DEFAULT_ELEVENLABS_MODEL_ID
     streaming: bool = True
     speech_speed: float = 1.0
+    stability: float = 0.5
+    style: float = 0.0
     automatic_fallback: bool = True
     output_device: int | None = None
     output_format: str = DEFAULT_TTS_OUTPUT_FORMAT
@@ -161,6 +163,8 @@ class TTSConfig:
             "modelId": self.model_id,
             "streaming": self.streaming,
             "speechSpeed": self.speech_speed,
+            "stability": self.stability,
+            "style": self.style,
             "automaticFallback": self.automatic_fallback,
             "outputDevice": self.output_device,
             "outputFormat": self.output_format,
@@ -216,6 +220,8 @@ def load_tts_config(
         model_id=model_id or DEFAULT_ELEVENLABS_MODEL_ID,
         streaming=_boolean(values.get("tts_streaming", "true"), True),
         speech_speed=_number(values.get("tts_speech_speed", 1.0), 1.0, 0.7, 1.2),
+        stability=_number(values.get("tts_stability", 0.5), 0.5, 0.0, 1.0),
+        style=_number(values.get("tts_style", 0.0), 0.0, 0.0, 1.0),
         automatic_fallback=_boolean(values.get("tts_automatic_fallback", "true"), True),
         output_device=output_device,
         output_format=output_format,

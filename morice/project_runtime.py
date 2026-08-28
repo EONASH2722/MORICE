@@ -4,9 +4,13 @@ import ast
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
+
+from .project_workflows import discover_project_workflow
 
 
 BINARY_ARTIFACT_EXTENSIONS = {
@@ -154,6 +158,63 @@ def build_launch_plan(project_root: str) -> ProjectLaunchPlan | None:
         path = os.path.join(root, filename)
         if os.path.isfile(path):
             return ProjectLaunchPlan("python", f"Run {filename}", path, (sys.executable, path))
+
+    workflow = discover_project_workflow(root)
+    root_path = Path(root)
+    if workflow.adapter_id == "unreal" and workflow.tool_path:
+        projects = sorted(root_path.glob("*.uproject"))
+        if projects:
+            return ProjectLaunchPlan(
+                "editor",
+                f"Open {projects[0].name} in Unreal Engine",
+                str(projects[0]),
+                (workflow.tool_path, str(projects[0])),
+            )
+    if workflow.adapter_id == "unity" and workflow.tool_path:
+        return ProjectLaunchPlan(
+            "editor",
+            "Open project in Unity",
+            root,
+            (workflow.tool_path, "-projectPath", root),
+        )
+    if workflow.adapter_id == "roblox" and workflow.tool_path:
+        place = next(iter(sorted(root_path.glob("*.rbxl*"))), None)
+        if place and Path(workflow.tool_path).name.casefold() == "robloxstudiobeta.exe":
+            return ProjectLaunchPlan(
+                "editor",
+                f"Open {place.name} in Roblox Studio",
+                str(place),
+                (workflow.tool_path, str(place)),
+            )
+        project = next(iter(sorted(root_path.glob("*.project.json"))), None)
+        if project and Path(workflow.tool_path).name.casefold() == "rojo.exe":
+            return ProjectLaunchPlan(
+                "command",
+                f"Serve {project.name} with Rojo",
+                str(project),
+                (workflow.tool_path, "serve", str(project)),
+            )
+    if workflow.adapter_id == "godot" and workflow.tool_path:
+        return ProjectLaunchPlan(
+            "editor",
+            "Open project in Godot",
+            root,
+            (workflow.tool_path, "--editor", "--path", root),
+        )
+    if workflow.run_command:
+        return ProjectLaunchPlan(
+            "command",
+            f"Run {workflow.label} project",
+            root,
+            workflow.run_command,
+        )
+    if workflow.build_command:
+        return ProjectLaunchPlan(
+            "command",
+            f"Build {workflow.label} project",
+            root,
+            workflow.build_command,
+        )
     return None
 
 
@@ -175,6 +236,18 @@ def launch_project(plan: ProjectLaunchPlan) -> str:
             creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
         )
         return f"Started {os.path.basename(plan.target)} with Python."
+    if plan.kind in {"command", "editor"} and plan.command:
+        executable = plan.command[0]
+        if not (os.path.isfile(executable) or shutil.which(executable)):
+            raise ProjectValidationError(
+                f"The required executable is unavailable: {executable}"
+            )
+        subprocess.Popen(
+            list(plan.command),
+            cwd=(plan.target if os.path.isdir(plan.target) else os.path.dirname(plan.target)),
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+        )
+        return f"Started {plan.label}."
     raise ProjectValidationError("MORICE could not find a supported run target for this project.")
 
 

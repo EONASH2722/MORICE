@@ -26,6 +26,7 @@ from morice.runtime_services import (
     StructuredLogManager,
 )
 from morice.visualization import VisualizationManager
+from morice.node_protocol import MessageType, NodeDescriptor, NodeIdentity, ProtocolMessage
 
 
 class StructuredLoggingTests(unittest.TestCase):
@@ -124,6 +125,43 @@ class CrashRecoveryTests(unittest.TestCase):
 
 
 class HealthAndRuntimeTests(unittest.TestCase):
+    def test_runtime_routes_only_granted_remote_node_capabilities(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = RuntimeServices(
+                directory,
+                project_root=Path(__file__).resolve().parent.parent,
+            )
+            phone = NodeDescriptor(
+                "phone-test",
+                "Test Phone",
+                "android",
+                ("device.status", "camera.capture"),
+                metadata={"host": "127.0.0.1", "port": 47661},
+            )
+            runtime.trusted_nodes.enroll(
+                phone,
+                NodeIdentity().public_key_text,
+                b"x" * 32,
+                (),
+                user_approved=True,
+                remote_capabilities=("device.status",),
+            )
+            runtime.node_client.send = Mock(
+                return_value=ProtocolMessage(
+                    MessageType.TASK_RESULT,
+                    "phone-test",
+                    runtime.node_descriptor.device_id,
+                    {"verified": True, "capability": "device.status", "result": {"batteryPercent": 75}},
+                )
+            )
+            try:
+                result = runtime.send_node_task("device.status", device="my phone")
+                self.assertTrue(result["verified"])
+                with self.assertRaises(PermissionError):
+                    runtime.send_node_task("camera.capture", device="my phone")
+            finally:
+                runtime.shutdown(clean=True)
+
     def test_health_check_covers_assets_dependencies_model_and_renderers(self):
         manager = VisualizationManager()
         with tempfile.TemporaryDirectory() as directory:

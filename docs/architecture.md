@@ -27,6 +27,9 @@ Composer input
 | Model runtime | `llm_client.py`, `llama_server.py`, `model_catalog.py` | Local GGUF/llama endpoint, Ollama, model validation, catalog and run plans |
 | Agent pipeline | `agent_runtime.py`, `agent_planner.py`, `agent_tools.py` | Typed requests, routing, tool plans, workspace facts, telemetry, and recovery |
 | Project Mode | `project_builder.py`, `project_runtime.py`, `project_index.py` | Snapshot, manifest validation, semantic checks, diff, atomic apply/undo, test and Git output |
+| Autonomous project evidence | `project_workflows.py`, `autonomous_builder.py` | Engine/tool discovery, target state, milestones, exact artifact checks, bounded build/test execution and durable evidence |
+| Device network | `node_protocol.py`, `runtime_services.py`, `android/` | Encrypted pairing, node identities, directional capabilities, remote task routing and Android companion |
+| Response delivery | `response_policy.py`, `voice_runtime.py` | Truthful deterministic acknowledgements and context-sensitive ElevenLabs delivery hints |
 | Visualization | `visualization.py`, `science_engine.py`, `domain_engine.py`, `educational_engine.py`, `universal_engine.py` | Selection, typed artifacts, deterministic builders, validation, scheduling, caching, and workspace data |
 | Platform services | `platform_services.py`, `runtime_services.py`, `desktop_environment.py` | Memory, automations, permissions, diagnostics, recovery, updates, backups, desktop actions |
 | Plugins | `plugin_sdk.py`, `plugin_manager.py`, `plugin_ui.py` | Manifests, contribution points, process isolation, permissions, updates, marketplace and diagnostics |
@@ -44,6 +47,17 @@ Project Mode resolves paths against the selected root, protects MORICE applicati
 ## Platform And Plugin Boundary
 
 Desktop and platform operations pass through permission-aware services. Sensitive actions require confirmation. Plugin packages are validated, assigned declared capabilities, and run outside the main application process; crashes and timeouts are recorded without bringing down the UI.
+
+## MORICE Node Boundary
+
+Each enrolled installation advertises a versioned descriptor and structured capabilities. Pairing
+uses a time-limited user-opened window, authenticated P-256 key agreement, a compared verification
+code, and AES-GCM task envelopes with replay and endpoint checks. Inbound and outbound permissions
+are distinct: authorization to query a PC does not authorize that PC to use a phone camera.
+
+LAN discovery advertises availability but never creates trust. The current transport is framed TCP
+on a local network; BLE and an end-to-end encrypted relay remain future transports behind the same
+message schemas. Android stores peer material through Android Keystore and Windows uses DPAPI.
 
 ## Persistence
 

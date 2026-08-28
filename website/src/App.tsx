@@ -3,6 +3,8 @@ import NeuralCanvas, { Quality } from './NeuralCanvas'
 import { useScrollProgress } from './useScrollProgress'
 
 const repo = 'https://github.com/EONASH2722/MORICE'
+const androidRelease = `${repo}/releases/tag/v0.8.0-android`
+const portableRelease = `${repo}/releases/tag/v0.8.0-portable`
 const statements = [
   'MORICE does not simply answer.',
   'It thinks beside you.',
@@ -27,6 +29,8 @@ const features = [
   ['11', 'Desktop native', 'A focused Windows workspace with tools, files, and diagnostics.'],
   ['12', 'Background wake', 'Wake locally by name, a configured magic word, or double-clap without taking focus.'],
   ['13', 'Adaptive execution', 'Match goals to verified tools, device context, and review boundaries before acting.'],
+  ['14', 'MORICE Android', 'Carry chat, voice, Live Vision, and approved device controls in a lightweight companion.'],
+  ['15', 'Verified Project Mode', 'Detect Unity, Unreal, Roblox, Visual Studio, web, and other toolchains—and report real files, builds, and tests.'],
 ]
 
 const showcase = {
@@ -40,7 +44,7 @@ function Header({ quality, setQuality }: { quality: Quality; setQuality: (q: Qua
   return <header className="site-header">
     <a className="brand" href="#top" aria-label="MORICE home"><span className="brand-logo-frame" aria-hidden="true"><img className="brand-logo" src="./morice-logo.png" alt="" /></span><span>MORICE</span></a>
     <nav aria-label="Main navigation">
-      <a href="#features">Features</a><a href="#visualizations">Visualizations</a><a href="#live-action">Live Action</a><a href="#privacy">Privacy</a>
+      <a href="#features">Features</a><a href="#visualizations">Visualizations</a><a href="#live-action">Live Action</a><a href="#devices">Devices</a><a href="#privacy">Privacy</a>
       <a href={`${repo}/tree/main/docs`}>Documentation</a><a href={repo}>GitHub</a>
     </nav>
     <div className="header-actions">
@@ -131,6 +135,28 @@ function LiveAction() {
   </section>
 }
 
+const deviceCapabilities = [
+  ['Conversation', 'Continue chat and routed tasks through an enrolled desktop.'],
+  ['Voice', 'Opt-in STT with barge-in, ElevenLabs streaming, and Android TTS fallback.'],
+  ['Live Vision', 'Front or rear camera, explicit capture, real desktop vision results, and a visible camera indicator.'],
+  ['PC control', 'Query system state, open approved apps, and control media through structured encrypted tasks.'],
+]
+
+function Devices() {
+  return <section className="section devices" id="devices">
+    <div className="device-heading"><div><p>MORICE network</p><h2>One intelligence.<br /><em>More than one device.</em></h2></div><p className="device-lede">MORICE Android is a lightweight companion—not a desktop clone. Pair it locally with MORICE Desktop, compare the six-digit code, and grant capabilities per device.</p></div>
+    <div className="device-grid">
+      <article className="phone-card" aria-label="MORICE Android companion preview">
+        <div className="phone-shell"><div className="phone-sensor" /><header><b>M</b><span>MORICE</span><i>Encrypted</i></header><div className="phone-chat"><p><small>YOU</small>How much battery does my PC have?</p><p><small>MORICE</small>Your desktop reports 74%.</p></div><div className="phone-actions"><span>Devices</span><span className="active">Voice</span><span>Vision</span></div><div className="phone-input">Message MORICE… <b>↑</b></div></div>
+      </article>
+      <div className="device-details">
+        {deviceCapabilities.map(([title, copy], index) => <article key={title}><span>{String(index + 1).padStart(2, '0')}</span><div><h3>{title}</h3><p>{copy}</p></div></article>)}
+        <div className="security-note"><b>Authenticated by design</b><p>P-256 key agreement, AES-GCM task envelopes, replay protection, time-limited pairing, Android Keystore, Windows DPAPI, and device-scoped grants. A shared Wi-Fi network alone never creates trust.</p></div>
+      </div>
+    </div>
+  </section>
+}
+
 function Privacy() {
   return <section className="section privacy" id="privacy">
     <div className="privacy-title"><p>Private by design</p><h2>Your conversations belong<br />on your machine.</h2></div>
@@ -143,12 +169,12 @@ function Privacy() {
 
 function Download() {
   return <section className="download" id="download">
-    <div className="download-inner"><div><p>Open source. Local first.</p><h2>Run MORICE on<br />your machine.</h2><span>Windows 10/11 · Python 3.12+ · Local GGUF or Ollama</span></div><div className="download-actions"><a className="button primary" href={`${repo}/releases/latest`}>Download MORICE <b>↓</b></a><a className="button" href={repo}>View on GitHub ↗</a><a className="text-link" href={`${repo}/tree/main/docs`}>Read documentation →</a></div></div>
+    <div className="download-inner"><div><p>Open source. Local first.</p><h2>Run MORICE<br />your way.</h2><span>Windows 10/11 · Android 9+ · Local GGUF or Ollama</span></div><div className="download-actions"><a className="button primary" href={portableRelease}>Portable plug-and-play <b>↓</b></a><a className="button" href={androidRelease}>Android companion <b>↓</b></a><a className="button" href={repo}>View on GitHub ↗</a><a className="text-link" href={`${repo}/tree/main/docs`}>Read documentation →</a></div></div>
     <div className="finale"><div className="core" aria-hidden="true"><i/><i/><i/><i/><span/></div><h2>Intelligence should<br />feel personal.</h2><a className="button primary" href={`${repo}/releases/latest`}>Download MORICE</a></div>
   </section>
 }
 
 export default function App() {
   const [quality, setQuality] = useState<Quality>('auto')
-  return <><a className="skip-link" href="#features">Skip cinematic introduction</a><Header quality={quality} setQuality={setQuality} /><main><Hero quality={quality} /><Intro /><Visualizations /><LiveAction /><Privacy /><Download /></main><footer><a className="brand" href="#top"><span className="brand-logo-frame" aria-hidden="true"><img className="brand-logo" src="./morice-logo.png" alt="" /></span>MORICE</a><span>Local intelligence, under your control.</span><a href={repo}>GitHub ↗</a></footer></>
+  return <><a className="skip-link" href="#features">Skip cinematic introduction</a><Header quality={quality} setQuality={setQuality} /><main><Hero quality={quality} /><Intro /><Visualizations /><LiveAction /><Devices /><Privacy /><Download /></main><footer><a className="brand" href="#top"><span className="brand-logo-frame" aria-hidden="true"><img className="brand-logo" src="./morice-logo.png" alt="" /></span>MORICE</a><span>Local intelligence, under your control.</span><a href={repo}>GitHub ↗</a></footer></>
 }

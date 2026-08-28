@@ -19,6 +19,7 @@
 <p align="center">
   <a href="https://github.com/EONASH2722/MORICE/releases/latest"><img src="https://img.shields.io/github/v/release/EONASH2722/MORICE?label=latest" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4" alt="Windows 10 and 11">
+  <img src="https://img.shields.io/badge/companion-Android%209%2B-3ddc84" alt="Android 9 and newer">
   <img src="https://img.shields.io/badge/Python-3.12%2B-3776ab" alt="Python 3.12+">
   <img src="https://img.shields.io/badge/UI-PySide6-41cd52" alt="PySide6">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="MIT license"></a>
@@ -34,6 +35,7 @@ MORICE combines local model inference with a desktop workspace that can answer q
 - **Conversation memory:** contextual follow-ups can reference earlier messages, saved preferences, selected notes, and the active workspace.
 - **Real visualizations:** interactive graphs, simulations, molecules, biology models, data structures, charts, diagrams, schematics, and file previews render inside Normal Chat and Live Action.
 - **Project Mode:** turn a prompt into validated files and diffs inside a chosen work folder; folder-limited mode stages review while Full access applies routine project writes atomically.
+- **General project workflows:** detect Unity, Unreal, Roblox, Godot, Visual Studio/.NET, Android, Node, Python, Java, Rust, Go, and web markers; run available declared builds/tests and retain exact evidence.
 - **Desktop assistance:** permission-aware file search, system information, clipboard actions, media controls, workspace tools, tasks, notes, and diagnostics.
 - **Live Action:** a separate camera-centered voice workspace that retains Chat, Lab, Tools, graphs, attachments, desktop control, and Project builds; camera access is explicit and exiting stops camera, STT, TTS, and visual work.
 - **Automatic context:** relevant local notes are selected without special commands; freshness-sensitive questions use source-linked web context when online and fall back locally when offline.
@@ -43,6 +45,7 @@ MORICE combines local model inference with a desktop workspace that can answer q
 - **Extensible platform:** isolated plugins, permission manifests, renderer contributions, lifecycle controls, diagnostics, and package validation.
 - **Recovery and updates:** bounded workspace state, backups, verified update staging, rollback protection, activity history, and resumable tasks.
 - **Personalization:** name and wake-line preferences, dark/light themes, custom fonts, emoji amount, response maturity, motion, opacity, contrast, and text sizing.
+- **Android companion:** unified chat, opt-in voice, on-demand Live Vision, and encrypted device-scoped PC/phone tasks without copying desktop Project Mode onto the phone.
 
 ## Interactive Rendering
 
@@ -97,6 +100,10 @@ Project Mode is a development workspace for generating and editing real files.
 6. Inspect command output, tests, errors, and Git status.
 7. Apply, reject, continue, or undo the validated change set.
 
+The process panel preserves an expandable observed-action trace after completion. It shows selected
+routes, detected tools, files written, commands executed, and verification results—not private
+model chain-of-thought. MORICE reports file, build, test, editor, and playtest status separately.
+
 ## Live Action
 
 Choose **Mode > Live Action**, or use the speaker button beside the composer, to enter and wake the camera-centered workspace; no second wake phrase is required. Live Action uses offline Vosk speech-to-text for user turns and interruptible ElevenLabs streaming speech for MORICE replies. Its live transcript, glass response overlay, and typed composer retain attachments, graphs, Lab, Tools, desktop actions, and project-building. The camera remains off until explicitly enabled, frames stay in memory, and visual inference runs on demand rather than on every preview frame.
@@ -144,6 +151,10 @@ Download the setup executable and every adjacent numbered `.bin` slice into one 
 
 Download all portable `.part*` files, the `.parts.json` manifest, and the matching reassembly script into one folder. Run the script from PowerShell, extract the verified ZIP, and launch `MORICE.exe` without separating it from `_internal`.
 
+### Android companion
+
+Download the signed APK from the [MORICE Android Release](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android), verify its SHA-256 manifest, install it on Android 9 or newer, then pair it through **Panel > Pair a device** on MORICE Desktop. See the [Android companion guide](docs/android-companion.md).
+
 ### Python package
 
 Advanced users can install the model-free wheel included with the release:
@@ -188,6 +199,7 @@ The release pipeline produces the Windows installer, portable package, source an
 - [User manual](docs/user-manual.md)
 - [Feature matrix](docs/feature-matrix.md)
 - [Project Mode](docs/project-mode.md)
+- [Android companion](docs/android-companion.md)
 - [VNext rendering](docs/vnext-science-workspace.md)
 - [Models and performance](docs/model-guide.md)
 - [Advanced configuration](docs/advanced-configuration.md)

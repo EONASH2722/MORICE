@@ -1,0 +1,9 @@
+<resources>
+    <color name="morice_bg">#081019</color>
+    <color name="morice_surface">#101D29</color>
+    <color name="morice_surface_alt">#173247</color>
+    <color name="morice_text">#F3F8FC</color>
+    <color name="morice_muted">#9CB0C2</color>
+    <color name="morice_accent">#54E6C2</color>
+    <color name="morice_purple">#845DE8</color>
+</resources>

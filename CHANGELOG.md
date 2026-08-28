@@ -4,6 +4,28 @@ All notable changes to MORICE are documented here.
 
 ## [Unreleased]
 
+## [0.8.0-android / 0.8.0-portable] - 2026-08-29
+
+### Added
+
+- Added the MORICE Android companion: unified chat, opt-in voice, on-demand Camera2 Live Vision,
+  encrypted device routing, a signed release APK, and no desktop Project Mode.
+- Added a versioned multi-node protocol with explicit pairing windows, P-256/HKDF key agreement,
+  AES-GCM envelopes, replay protection, directional device-scoped capabilities, LAN discovery,
+  Windows DPAPI storage, and Android Keystore storage.
+- Added generalized project adapters for Unreal, Unity, Roblox/Rojo, Godot, Android, Visual
+  Studio/.NET, Node, Python, Java, Rust, Go, static web, and unknown generic projects.
+- Added durable autonomous-builder goal/milestone/evidence state and real available build/test
+  execution after exact artifact verification.
+- Added deterministic response-state acknowledgements and context-sensitive ElevenLabs delivery
+  metadata for brief actions, explanations, and warnings.
+
+### Changed
+
+- Completed processing cards remain available as expandable host-observed execution traces.
+- The website now presents Android, secure device networking, generalized Project Mode, and
+  separate Android and portable release downloads.
+
 ## [0.8.0] - 2026-08-27
 
 ### Added
@@ -42,7 +64,9 @@ All notable changes to MORICE are documented here.
 - Made packaged vision use the shared bundled llama resolver and an enforced JSON response format.
 - Fixed packaged wake-listener startup, runtime paths, single-instance behavior, and UI-process
   detection. Cold starts are single-flight, noisy partial speech is not accepted as a completed
-  wake phrase, and signal-file contention no longer restarts the microphone loop.
+  wake phrase, scored single-word finals and quiet-separated impulse pairs reject room/game audio,
+  native Windows PID checks preserve active Live Action leases, and signal-file contention no
+  longer restarts the microphone loop.
 
 ### Documentation
 

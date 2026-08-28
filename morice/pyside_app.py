@@ -133,6 +133,11 @@ from .knowledge import KB_DIR, load_knowledge, retrieve_context, should_use_cont
 from .llm_client import chat, prewarm_local_model, prime_local_chat_prefix, stream_chat
 from .llm_client import reset_model_runtime
 from .realtime_intelligence import LatencyStage, ModelTier
+from .response_policy import (
+    ActionState,
+    action_acknowledgement,
+    speech_delivery,
+)
 from .model_catalog import (
     GpuProfile,
     default_model_download_dir,
@@ -161,6 +166,11 @@ from .project_runtime import (
     detect_python_requirements,
     launch_project,
     validate_project_file,
+)
+from .project_workflows import (
+    command_text,
+    discover_project_workflow,
+    verify_project_artifacts,
 )
 from .agent_types import ToolCall
 from .science_engine import GraphArtifact, GraphSurface, PhysicsArtifact, ScienceArtifact, is_science_request
@@ -1899,6 +1909,12 @@ class ThinkingBubble(QFrame):
         self.dot.setProperty("done", "true")
         self.dot.style().unpolish(self.dot)
         self.dot.style().polish(self.dot)
+        # Keep a compact, inspectable execution trace beside the answer.  This
+        # exposes MORICE's observable plan/actions/evidence without presenting
+        # private model chain-of-thought as if it were a trustworthy log.
+        self._visible = False
+        self.detail_label.setVisible(False)
+        self.toggle.setText("Show process")
 
 
 class RgbMenuButton(QPushButton):
@@ -5897,6 +5913,7 @@ class MoriceWindow(QWidget):
     speech_transcript_ready = Signal(object)
     speech_playback_finished = Signal(object)
     pc_control_ready = Signal(str, object)
+    node_control_ready = Signal(str, object)
     live_vision_ready = Signal(str, object)
 
     def _emit_background(self, signal_name: str, *arguments) -> bool:
@@ -6177,6 +6194,7 @@ class MoriceWindow(QWidget):
             self._on_speech_playback_finished
         )
         self.pc_control_ready.connect(self._on_pc_control_ready)
+        self.node_control_ready.connect(self._on_node_control_ready)
         self.live_vision_ready.connect(self._on_live_vision_ready)
 
         root = QVBoxLayout(self)
@@ -6300,6 +6318,18 @@ class MoriceWindow(QWidget):
                 )
             )
 
+        node_label = QLabel("MORICE device network")
+        node_label.setObjectName("ModeSectionLabel")
+        self.node_pair_btn = QPushButton("Pair a device")
+        self.node_pair_btn.setObjectName("ProjectModelButton")
+        self.node_pair_btn.setToolTip(
+            "Open a two-minute authenticated pairing window for Android or another MORICE node"
+        )
+        self.node_pair_btn.clicked.connect(self._enable_node_pairing)
+        self.node_pair_status = QLabel("Encrypted LAN pairing is closed.")
+        self.node_pair_status.setObjectName("ModeHint")
+        self.node_pair_status.setWordWrap(True)
+
         self.project_details = QFrame()
         self.project_details.setObjectName("ProjectDetails")
         self.project_details_opacity = QGraphicsOpacityEffect(self.project_details)
@@ -6368,6 +6398,9 @@ class MoriceWindow(QWidget):
         mode_layout.addWidget(self.detect_gpu_btn)
         mode_layout.addWidget(music_provider_label)
         mode_layout.addWidget(self.music_provider_select)
+        mode_layout.addWidget(node_label)
+        mode_layout.addWidget(self.node_pair_btn)
+        mode_layout.addWidget(self.node_pair_status)
         mode_layout.addWidget(self.project_details)
         mode_layout.addWidget(self.mode_status)
         mode_layout.addStretch(1)
@@ -9337,6 +9370,7 @@ class MoriceWindow(QWidget):
                 spoken,
                 request_id=request_id,
                 on_event=self._voice_trace_callback(traced_request),
+                delivery=speech_delivery(spoken).provider_settings(),
             )
 
             def wait_for_playback() -> None:
@@ -10898,6 +10932,125 @@ class MoriceWindow(QWidget):
         _start_background_task("pc-control", worker)
         return True
 
+    def _handle_natural_node_control(self, user_input: str) -> bool:
+        """Route explicit phone/tablet commands through the encrypted node protocol."""
+
+        lowered = " ".join(str(user_input or "").casefold().split())
+        trusted = [node for node in self.runtime.trusted_nodes.list() if not node.revoked]
+        named_node = next(
+            (
+                node
+                for node in trusted
+                if node.descriptor.device_name.casefold() in lowered
+            ),
+            None,
+        )
+        mobile_reference = next(
+            (word for word in ("my phone", "phone", "android", "tablet") if word in lowered),
+            "",
+        )
+        if named_node is None and not mobile_reference:
+            return False
+        device_reference = (
+            named_node.descriptor.device_id if named_node is not None else mobile_reference
+        )
+        capability = ""
+        arguments: dict[str, object] = {}
+        if re.search(r"\b(?:battery|device status|phone status|charging)\b", lowered):
+            capability = "device.status"
+        elif re.search(r"\b(?:pause|resume|play|next|skip|previous)\b", lowered):
+            capability = "media.control"
+            if re.search(r"\b(?:next|skip)\b", lowered):
+                arguments["action"] = "next"
+            elif re.search(r"\bprevious\b", lowered):
+                arguments["action"] = "previous"
+            elif re.search(r"\b(?:resume|play)\b", lowered):
+                arguments["action"] = "resume"
+            else:
+                arguments["action"] = "pause"
+        elif re.search(r"\b(?:take|capture|snap|use)\b.*\b(?:photo|picture|camera)\b", lowered):
+            capability = "camera.capture"
+            arguments["camera"] = "front" if "front" in lowered else "rear"
+        else:
+            app_match = re.search(
+                r"\bopen\s+(.+?)(?:\s+on\s+(?:my\s+)?(?:phone|android|tablet)|$)",
+                str(user_input or ""),
+                flags=re.IGNORECASE,
+            )
+            if app_match:
+                application = " ".join(app_match.group(1).casefold().split())
+                packages = {
+                    "amazon music": "com.amazon.mp3",
+                    "chrome": "com.android.chrome",
+                    "maps": "com.google.android.apps.maps",
+                    "google maps": "com.google.android.apps.maps",
+                    "youtube": "com.google.android.youtube",
+                }
+                package = packages.get(application, application if "." in application else "")
+                if not package:
+                    self._append_direct_reply(
+                        user_input,
+                        "I need the Android package name for that app.",
+                        address=False,
+                    )
+                    return True
+                capability = "application.open"
+                arguments["package"] = package
+        if not capability:
+            return False
+
+        self._set_busy(True)
+        self._show_thinking(
+            f"Sending encrypted {capability} task to {device_reference}."
+        )
+
+        def worker() -> None:
+            try:
+                result = self.runtime.send_node_task(
+                    capability,
+                    arguments,
+                    device=device_reference,
+                    timeout=45.0,
+                )
+            except Exception as exc:  # noqa: BLE001
+                result = {"verified": False, "error": str(exc), "capability": capability}
+            self._emit_background("node_control_ready", user_input, result)
+
+        _start_background_task("node-control", worker)
+        return True
+
+    def _on_node_control_ready(self, user_input: str, result: object) -> None:
+        payload = dict(result or {}) if isinstance(result, dict) else {}
+        verified = bool(payload.get("verified", False))
+        capability = str(payload.get("capability", ""))
+        output = payload.get("result")
+        if verified and capability == "device.status" and isinstance(output, dict):
+            battery = output.get("batteryPercent")
+            charging = " and charging" if output.get("charging") else ""
+            message = f"Phone battery is {battery}%{charging}." if battery is not None else "Phone is online."
+        elif verified:
+            message = action_acknowledgement(
+                capability.replace(".control", "." + str((output or {}).get("action", "")))
+                if capability == "media.control" and isinstance(output, dict)
+                else capability,
+                ActionState.VERIFIED,
+            )
+        else:
+            message = action_acknowledgement(
+                capability,
+                ActionState.FAILED,
+                failure=str(payload.get("error", "The remote device did not verify the action.")),
+            )
+        self._append_direct_reply(user_input, message, address=False)
+        self._remove_thinking()
+        self._set_busy(False)
+        QTimer.singleShot(120, self._send_queued_message_if_ready)
+        self._record_activity(
+            "Remote device action completed" if verified else "Remote device action failed",
+            message[:240],
+            category="devices",
+        )
+
     def _on_pc_control_ready(self, user_input: str, result: object) -> None:
         message = str(getattr(result, "message", "PC action returned no result."))
         output = dict(getattr(result, "output", {}) or {})
@@ -10906,20 +11059,11 @@ class MoriceWindow(QWidget):
         verified = bool(getattr(result, "verified", False))
         compact_ack = False
         if succeeded and verified:
-            short_ack = {
-                "application.open": "Opened.",
-                "application.close": "Closed.",
-                "application.focus": "Focused.",
-                "application.minimize": "Minimized.",
-                "application.maximize": "Maximized.",
-                "media.pause": "Paused.",
-                "media.resume": "Playing.",
-                "media.next": "Skipped.",
-                "media.previous": "Previous track.",
-                "media.restart": "Restarted.",
-                "media.set_volume": "Done.",
-                "media.adjust_volume": "Done.",
-            }.get(tool_id)
+            short_ack = (
+                action_acknowledgement(tool_id, ActionState.VERIFIED)
+                if tool_id.startswith(("application.", "media."))
+                else ""
+            )
             if short_ack:
                 message = short_ack
                 compact_ack = True
@@ -11453,6 +11597,30 @@ class MoriceWindow(QWidget):
             self.mode_status.setText(
                 f"{clean} is now the default music provider."
             )
+
+    def _enable_node_pairing(self) -> None:
+        try:
+            expires_at = self.runtime.node_server.enable_pairing(120.0)
+            endpoint = collect_system_snapshot().local_ip
+            port = self.runtime.node_server.bound_port
+            fingerprint = self.runtime.node_identity.fingerprint
+        except Exception as exc:  # noqa: BLE001
+            self.node_pair_status.setText(f"Pairing unavailable: {exc}")
+            return
+        self.node_pair_status.setText(
+            f"Pairing open for 2 minutes. Desktop: {endpoint}:{port}\n"
+            f"Identity: {fingerprint}\n"
+            "Compare the six-digit code on both devices before accepting."
+        )
+        self.node_pair_btn.setText("Pairing open")
+        remaining_ms = max(1, int((expires_at - time.time()) * 1000))
+        QTimer.singleShot(remaining_ms, self._close_node_pairing_status)
+
+    def _close_node_pairing_status(self) -> None:
+        if self.runtime.node_server.pairing_status().get("enabled"):
+            return
+        self.node_pair_btn.setText("Pair a device")
+        self.node_pair_status.setText("Encrypted LAN pairing is closed.")
 
     def _refresh_gpu_profile_ui(self):
         if not hasattr(self, "gpu_status_input"):
@@ -12161,6 +12329,15 @@ class MoriceWindow(QWidget):
         if not self.project_folder:
             raise ValueError("No work folder selected.")
         os.makedirs(self.project_folder, exist_ok=True)
+        workflow = discover_project_workflow(self.project_folder, request)
+        build_session = self.runtime.autonomous_builder.plan(
+            self.project_folder,
+            request or "Verify the generated project",
+        )
+        self._emit_background(
+            "thinking_update",
+            f"Detected {workflow.label} workflow from {workflow.detected_from}; validating generated source files.",
+        )
 
         staged_files: list[tuple[str, str, str]] = []
         file_contents: dict[str, str] = {}
@@ -12221,6 +12398,8 @@ class MoriceWindow(QWidget):
             ],
         }
         patch_result = None
+        artifact_verification = None
+        command_evidence = ()
         if pending_writes and preview_only:
             preview_result = self.runtime.agent.tools.executor.execute(
                 ToolCall(
@@ -12277,12 +12456,54 @@ class MoriceWindow(QWidget):
                 patch_result.metadata.get("undoId", "")
             )
             self.pending_project_patch = None
+            expected_files = {
+                relative_path: content
+                for content, _target, relative_path in pending_writes
+            }
+            artifact_verification = verify_project_artifacts(
+                self.project_folder,
+                expected_files,
+            )
+            if not artifact_verification.success:
+                raise ProjectValidationError(artifact_verification.summary())
+            self._emit_background(
+                "thinking_update",
+                artifact_verification.summary(),
+            )
 
-        summary = str(manifest.get("summary") or "").strip() or f"Updated {len(changed)} file(s)."
+        if not preview_only:
+            intended_files = {
+                relative_path: content
+                for relative_path, content, _target in staged_files
+            }
+            artifact_verification, command_evidence = self.runtime.autonomous_builder.verify(
+                build_session,
+                intended_files,
+                run_build=True,
+                run_tests=True,
+                timeout=180.0,
+            )
+            for evidence in command_evidence:
+                self._emit_background(
+                    "thinking_update",
+                    (
+                        f"{evidence.stage.title()} passed: {command_text(evidence.command)}"
+                        if evidence.attempted and evidence.success
+                        else evidence.reason
+                    ),
+                )
+
+        model_summary = str(manifest.get("summary") or "").strip()
+        summary = model_summary or f"Updated {len(changed)} file(s)."
         if not changed:
-            summary = summary + " No file content changed."
+            summary = "No file content changed; the requested files already match the work folder."
         elif preview_only:
             summary = f"Patch ready for review: {summary}"
+        elif artifact_verification is not None:
+            summary = (
+                f"Files written and verified on disk ({artifact_verification.verified}/"
+                f"{artifact_verification.expected}). {model_summary}"
+            ).strip()
         panel_html = "<div style='font-family:Consolas,monospace;font-size:11px'>" + "".join(diff_parts) + "</div>"
         commands = [
             str(command).strip()
@@ -12306,10 +12527,44 @@ class MoriceWindow(QWidget):
             notes.insert(0, "Use run.bat to install required packages before launching the Python project.")
         elif launch_plan and launch_plan.kind == "browser":
             commands = ["Open index.html in a browser"] + commands
+        for command in (
+            workflow.build_command,
+            workflow.test_command,
+            workflow.run_command,
+        ):
+            rendered = command_text(command)
+            if rendered and rendered not in commands:
+                commands.append(rendered)
+        commands = list(dict.fromkeys(commands))[:8]
+        if workflow.editor_required and not workflow.tool_path:
+            notes.insert(
+                0,
+                f"{workflow.label} was identified, but its editor executable was not found; editor/play-mode verification was not performed.",
+            )
+        elif workflow.editor_required:
+            notes.insert(
+                0,
+                f"{workflow.label} is installed at {workflow.tool_path}; this file operation did not claim an editor playtest.",
+            )
+        attempted_commands = [item for item in command_evidence if item.attempted]
+        failed_commands = [item for item in attempted_commands if not item.success]
+        if failed_commands:
+            execution_status = "; ".join(item.reason for item in failed_commands)
+            first_output = next((item.output for item in failed_commands if item.output), "")
+            if first_output:
+                notes.insert(0, "First failing build/test output:\n" + first_output[-2_000:])
+        elif attempted_commands:
+            execution_status = "files, build, and available tests verified"
+        elif preview_only and changed:
+            execution_status = "awaiting review"
+        else:
+            execution_status = "files verified on disk; no build/test command was available"
         message = (
             f"{summary}\n\n"
             f"Work folder: {self.project_folder}\n"
-            f"Changed files: {', '.join(changed) if changed else 'none'}"
+            f"Changed files: {', '.join(changed) if changed else 'none'}\n"
+            f"Detected workflow: {workflow.label}\n"
+            f"Execution status: {execution_status}"
         )
         if preview_only and changed:
             message += (
@@ -12331,7 +12586,24 @@ class MoriceWindow(QWidget):
                 not changed
                 or (patch_result is not None and patch_result.verified)
                 or preview_only
+            ) and not failed_commands,
+            "artifact_verification": (
+                {
+                    "expected": artifact_verification.expected,
+                    "verified": artifact_verification.verified,
+                    "success": artifact_verification.success,
+                    "files": list(artifact_verification.files),
+                }
+                if artifact_verification is not None
+                else None
             ),
+            "workflow": workflow.to_dict(),
+            "builder": {
+                "sessionId": build_session.session_id,
+                "state": build_session.state,
+                "milestone": build_session.milestone,
+                "commands": [item.to_dict() for item in command_evidence],
+            },
         }
 
     def _project_patch_requires_review(self) -> bool:
@@ -13839,10 +14111,9 @@ class MoriceWindow(QWidget):
             else:
                 self._speak_assistant_text(message)
         if completed_bubble is not None:
-            QTimer.singleShot(
-                220,
-                lambda bubble=completed_bubble: self._remove_thinking_widget(bubble),
-            )
+            # Completed process traces remain collapsed and can be reopened by
+            # the user, matching the transparent "show process" interaction.
+            completed_bubble.setProperty("completed", "true")
         self._record_activity(
             "Response completed",
             " ".join(message.split())[:240],
@@ -14545,6 +14816,10 @@ class MoriceWindow(QWidget):
                 ):
                     self._save_workspace_session()
                     return
+
+        if self._handle_natural_node_control(user_input):
+            self._save_workspace_session()
+            return
 
         if self._handle_natural_pc_control(user_input):
             self._save_workspace_session()

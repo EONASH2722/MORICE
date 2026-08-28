@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import ctypes
+import base64
 import importlib.metadata
 import json
 import os
 import platform
+import socket
 import shutil
 import stat
 import subprocess
@@ -21,13 +23,14 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, Mapping
 
 from . import __version__
 from .agent_orchestrator import AgentOrchestrator
 from .platform_services import PlatformServices
 from .plugin_manager import PluginManager
 from .desktop_environment import DesktopIntegrationLayer
+from .desktop_assistant import collect_system_snapshot
 from .config import load_tts_config
 from .connectivity import BluetoothManager, NetworkManager
 from .device_intelligence import (
@@ -37,6 +40,18 @@ from .device_intelligence import (
     EnvironmentRegistry,
 )
 from .live_vision import LiveVisionRuntime, LlamaCppVisionProvider
+from .autonomous_builder import AutonomousBuilder
+from .node_protocol import (
+    LanDiscovery,
+    MessageType,
+    MoriceNodeClient,
+    MoriceNodeServer,
+    NodeDescriptor,
+    NodeIdentity,
+    ProtocolMessage,
+    TrustedNode,
+    TrustedNodeStore,
+)
 from .pc_control import (
     DesktopContext,
     FastActionRouter,
@@ -1071,6 +1086,7 @@ class RuntimeServices:
         self.recovery = CrashRecoveryManager(base / "recovery")
         self.health_checker = StartupHealthChecker(project_root, base)
         self.agent = AgentOrchestrator(base / "agent", logger=self.logs.log)
+        self.autonomous_builder = AutonomousBuilder(base / "builder")
         settings = load_settings()
         self.default_music_provider = str(
             settings.get("default_music_provider", "Amazon Music")
@@ -1099,6 +1115,55 @@ class RuntimeServices:
             application_root=core_root,
             logger=self.logs.log,
         )
+        identity_pem = self.platform_services.vault.get("morice.node.identity", "")
+        try:
+            self.node_identity = NodeIdentity.from_pem(identity_pem) if identity_pem else NodeIdentity()
+        except ValueError:
+            self.node_identity = NodeIdentity()
+        if not identity_pem:
+            self.platform_services.vault.set(
+                "morice.node.identity",
+                self.node_identity.private_pem(),
+            )
+        node_device_id = self.platform_services.vault.get("morice.node.device-id", "")
+        if not node_device_id:
+            node_device_id = "desktop-" + uuid.uuid4().hex
+            self.platform_services.vault.set("morice.node.device-id", node_device_id)
+        self.node_descriptor = NodeDescriptor(
+            node_device_id,
+            socket.gethostname() or "MORICE Desktop",
+            platform.system().casefold() or "windows",
+            (
+                "system.status",
+                "chat.complete",
+                "vision.analyze",
+                "application.open",
+                "media.control",
+                "screen.capture",
+                "project.status",
+                "project.run",
+                "notification.receive",
+                "file.receive",
+            ),
+            APP_VERSION,
+            ("lan", "direct-ip", "future-relay"),
+            {"identityFingerprint": self.node_identity.fingerprint},
+        )
+        self.trusted_nodes = TrustedNodeStore(base / "nodes" / "trusted.json")
+        try:
+            node_port = int(os.getenv("MORICE_NODE_PORT", "47651") or 47651)
+        except ValueError:
+            node_port = 47651
+        self.node_server = MoriceNodeServer(
+            self.node_descriptor,
+            self.trusted_nodes,
+            self._dispatch_node_message,
+            port=node_port,
+            error_callback=self._log_node_error,
+            identity=self.node_identity,
+        )
+        self.node_client = MoriceNodeClient(self.node_descriptor, self.trusted_nodes)
+        self.node_discovery = LanDiscovery(self.node_descriptor, node_port=node_port)
         tts_config = load_tts_config(settings, root=core_root)
         if not tts_config.api_configured:
             vault_key = self.platform_services.vault.get("elevenlabs.api-key", "")
@@ -1255,6 +1320,275 @@ class RuntimeServices:
         self._shutdown = False
         self._lock = threading.RLock()
 
+    def _log_node_error(self, error: Exception, address: Any) -> None:
+        self.logs.log(
+            "WARNING",
+            f"MORICE node request failed: {error}",
+            category="nodes",
+            metadata={"address": str(address)},
+        )
+
+    def resolve_node(self, reference: str = "") -> TrustedNode:
+        """Resolve one enrolled node by id, name, platform, or a natural device noun."""
+
+        candidates = [node for node in self.trusted_nodes.list() if not node.revoked]
+        if not candidates:
+            raise LookupError("No paired MORICE devices are available.")
+        clean = " ".join(str(reference or "").casefold().split())
+        if not clean and len(candidates) == 1:
+            return candidates[0]
+        aliases = {
+            "phone": "android",
+            "my phone": "android",
+            "android": "android",
+            "tablet": "android",
+            "pc": "windows",
+            "computer": "windows",
+            "desktop": "windows",
+            "laptop": "windows",
+        }
+        target = aliases.get(clean, clean)
+        matches = [
+            node
+            for node in candidates
+            if target
+            and (
+                target == node.descriptor.device_id.casefold()
+                or target == node.descriptor.device_name.casefold()
+                or target == node.descriptor.platform.casefold()
+                or target in node.descriptor.device_name.casefold()
+            )
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        if not matches:
+            raise LookupError(f"No paired MORICE device matches {reference or 'that device'}.")
+        raise LookupError(
+            "More than one paired device matches; specify the device name."
+        )
+
+    def send_node_task(
+        self,
+        capability: str,
+        arguments: Mapping[str, Any] | None = None,
+        *,
+        device: str = "",
+        timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        """Invoke an explicitly granted structured capability on a paired node."""
+
+        trusted = self.resolve_node(device)
+        clean_capability = str(capability or "").strip()
+        if not clean_capability or not trusted.remote_allows(clean_capability):
+            raise PermissionError(
+                f"{trusted.descriptor.device_name} has not granted {clean_capability or 'that capability'}."
+            )
+        host = str(trusted.descriptor.metadata.get("host", "") or "").strip()
+        try:
+            port = int(trusted.descriptor.metadata.get("port", 0) or 0)
+        except (TypeError, ValueError):
+            port = 0
+        if not host or not 0 < port <= 65_535:
+            raise ConnectionError(
+                f"{trusted.descriptor.device_name} has no reachable LAN endpoint. Pair it again while both devices are online."
+            )
+        task_id = uuid.uuid4().hex
+        response = self.node_client.send(
+            trusted.descriptor.device_id,
+            host,
+            port,
+            MessageType.TASK_REQUEST,
+            {
+                "capability": clean_capability,
+                "arguments": dict(arguments or {}),
+            },
+            task_id=task_id,
+            timeout=max(2.0, min(float(timeout), 300.0)),
+        )
+        payload = dict(response.payload)
+        payload.setdefault("taskId", task_id)
+        payload.setdefault("deviceId", trusted.descriptor.device_id)
+        payload.setdefault("deviceName", trusted.descriptor.device_name)
+        payload.setdefault("verified", False)
+        if response.message_type == MessageType.ERROR:
+            payload.setdefault("error", "The remote MORICE node rejected the task.")
+        return payload
+
+    def _dispatch_node_message(
+        self,
+        message: ProtocolMessage,
+        trusted: TrustedNode,
+    ) -> ProtocolMessage:
+        def response(
+            message_type: MessageType,
+            payload: dict[str, Any],
+        ) -> ProtocolMessage:
+            return ProtocolMessage(
+                message_type,
+                self.node_descriptor.device_id,
+                message.sender_id,
+                payload,
+                task_id=message.task_id,
+            )
+
+        if message.message_type in {MessageType.HELLO, MessageType.CAPABILITIES}:
+            return response(
+                MessageType.CAPABILITIES,
+                {
+                    "descriptor": self.node_descriptor.to_dict(),
+                    "authorizedForPeer": list(trusted.allowed_capabilities),
+                    "online": True,
+                },
+            )
+        if message.message_type == MessageType.DEVICE_STATE:
+            return response(
+                MessageType.DEVICE_STATE,
+                {
+                    "descriptor": self.node_descriptor.to_dict(),
+                    "online": True,
+                    "serverPort": self.node_server.bound_port,
+                },
+            )
+        if message.message_type == MessageType.TASK_CANCEL:
+            cancelled = bool(message.task_id and self.goals.cancel(message.task_id))
+            return response(
+                MessageType.TASK_RESULT,
+                {"verified": cancelled, "cancelled": cancelled},
+            )
+        if message.message_type != MessageType.TASK_REQUEST:
+            return response(
+                MessageType.ERROR,
+                {"error": f"Unsupported node message: {message.message_type.value}"},
+            )
+
+        capability = str(message.payload.get("capability", ""))
+        arguments = (
+            dict(message.payload.get("arguments", {}))
+            if isinstance(message.payload.get("arguments"), Mapping)
+            else {}
+        )
+        try:
+            if capability == "system.status":
+                snapshot = asdict(collect_system_snapshot())
+                return response(
+                    MessageType.TASK_RESULT,
+                    {"verified": True, "capability": capability, "result": snapshot},
+                )
+            if capability == "chat.complete":
+                prompt = " ".join(str(arguments.get("message", "")).split())[:20_000]
+                if not prompt:
+                    raise ValueError("A chat message is required.")
+                from .llm_client import chat
+
+                settings = load_settings()
+                answer = chat(
+                    [],
+                    prompt,
+                    extra_system=(
+                        "This request came from the user's paired MORICE Android companion. "
+                        "Respond naturally and do not claim a device action unless a verified tool result is present."
+                    ),
+                    model=str(settings.get("model_name", "")).strip() or None,
+                    gguf_path=str(settings.get("model_path", "")).strip() or None,
+                    timeout=120,
+                    precision_mode=bool(arguments.get("precision", False)),
+                )
+                return response(
+                    MessageType.TASK_RESULT,
+                    {
+                        "verified": bool(str(answer).strip()),
+                        "capability": capability,
+                        "result": {"message": str(answer)},
+                    },
+                )
+            if capability == "vision.analyze":
+                encoded = str(arguments.get("jpegBase64", ""))
+                if not encoded or len(encoded) > 14_000_000:
+                    raise ValueError("A bounded JPEG frame is required.")
+                jpeg = base64.b64decode(encoded, validate=True)
+                prompt = " ".join(
+                    str(arguments.get("prompt", "Describe what is visible.")).split()
+                )[:2_000]
+                self.live_vision.publish_frame(
+                    jpeg,
+                    source="paired-android",
+                    deviceId=message.sender_id,
+                )
+                vision_result = self.live_vision.analyze_latest(
+                    prompt,
+                    request_id=message.task_id or message.message_id,
+                ).result(timeout=120)
+                return response(
+                    MessageType.TASK_RESULT if vision_result.success else MessageType.ERROR,
+                    {
+                        "verified": vision_result.success,
+                        "capability": capability,
+                        "result": vision_result.public_dict(),
+                        "error": "" if vision_result.success else vision_result.message,
+                    },
+                )
+            if capability == "application.open":
+                target = " ".join(str(arguments.get("application", "")).split())[:300]
+                if not target:
+                    raise ValueError("An application name is required.")
+                candidate = self.desktop.applications.resolve(target)
+                if candidate is None:
+                    raise FileNotFoundError(f"Application not found: {target}")
+                grant = self.desktop.applications.request_launch(candidate.name)
+                self.desktop.applications.launch(candidate.name, grant.token)
+                deadline = time.monotonic() + 8.0
+                running = self.desktop.applications.is_running(candidate)
+                while not running and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                    running = self.desktop.applications.is_running(candidate)
+                return response(
+                    MessageType.TASK_RESULT,
+                    {
+                        "verified": running,
+                        "capability": capability,
+                        "result": {"application": candidate.name, "running": running},
+                    },
+                )
+            if capability == "media.control":
+                action = str(arguments.get("action", "")).strip().casefold()
+                if action not in self.desktop.media.SUPPORTED_ACTIONS:
+                    raise ValueError(f"Unsupported media action: {action}")
+                media_arguments = {
+                    key: value for key, value in arguments.items() if key != "action"
+                }
+                grant = self.desktop.media.request(action, **media_arguments)
+                result = self.desktop.media.control(
+                    action,
+                    grant.token,
+                    **media_arguments,
+                )
+                verified = bool(
+                    result.get("verified", False)
+                    if isinstance(result, Mapping)
+                    else result
+                )
+                return response(
+                    MessageType.TASK_RESULT,
+                    {"verified": verified, "capability": capability, "result": result},
+                )
+            if capability == "project.status":
+                return response(
+                    MessageType.TASK_RESULT,
+                    {
+                        "verified": True,
+                        "capability": capability,
+                        "result": self.unified_memory.snapshot(),
+                    },
+                )
+            raise RuntimeError(
+                f"Capability {capability or '(missing)'} is advertised for explicit adapters but has no active safe handler on this node."
+            )
+        except Exception as exc:  # noqa: BLE001
+            return response(
+                MessageType.ERROR,
+                {"verified": False, "capability": capability, "error": str(exc)[:2_000]},
+            )
+
     def set_default_music_provider(self, provider: str) -> None:
         clean = " ".join(str(provider or "").split())[:120]
         if not clean:
@@ -1304,6 +1638,19 @@ class RuntimeServices:
                 "application-discovery",
                 self.desktop.applications.refresh_discovery,
             )
+            if normalize_boolean_setting(
+                os.getenv("MORICE_NODE_NETWORK", "true"), default=True
+            ):
+                try:
+                    self.node_server.start()
+                    self.node_discovery.node_port = self.node_server.bound_port
+                    self.node_discovery.start_responder()
+                except OSError as exc:
+                    self.logs.log(
+                        "WARNING",
+                        f"MORICE node networking is unavailable: {exc}",
+                        category="nodes",
+                    )
             self._started = True
             self._shutdown = False
             return self.recovery_info
@@ -1482,6 +1829,13 @@ class RuntimeServices:
             devices={
                 "registry": self.device_registry.snapshot(),
                 "environment": self.environment_registry.snapshot(),
+                "node": self.node_descriptor.to_dict(),
+                "nodeServer": {
+                    "running": self.node_server.running,
+                    "port": self.node_server.bound_port,
+                    "pairing": self.node_server.pairing_status(),
+                },
+                "trustedNodes": [item.to_dict() for item in self.trusted_nodes.list()],
             },
             connectivity={
                 "host": {
@@ -1514,6 +1868,8 @@ class RuntimeServices:
                 return
             failures: list[str] = []
             shutdown_steps = (
+                ("node discovery", self.node_discovery.stop),
+                ("node server", self.node_server.stop),
                 ("voice", self.voice.shutdown),
                 ("speech input", self.speech_input.shutdown),
                 ("live vision", self.live_vision.shutdown),

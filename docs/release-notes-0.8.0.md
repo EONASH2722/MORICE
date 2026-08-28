@@ -19,7 +19,9 @@ model on the computer. ElevenLabs speech and current web retrieval remain option
 - The installed background listener recognizes MORICE, configured magic words, or double-clap,
   launches the app minimized without stealing foreground focus, never turns on the camera, and
   releases microphone ownership while Live Action is active. Cold-start events are single-flight,
-  so repeated audio detections cannot create duplicate hidden app/model processes.
+  so repeated audio detections cannot create duplicate hidden app/model processes. Double-clap
+  wake requires two sparse impulses with quiet separation, constrained-grammar guesses are
+  confidence-gated, and Windows process leases use native liveness checks.
 
 ## Faster, More Grounded Execution
 
@@ -29,8 +31,9 @@ model on the computer. ElevenLabs speech and current web retrieval remain option
   streaming speech let useful output appear before a long local generation finishes.
 - Typed goal state and capability inference select only registered host abilities. Device,
   network, Bluetooth, permission, and platform observations are normalized and reported honestly.
-- Windows is the active privileged host adapter. Linux, macOS, Android, and authorized physical
-  devices have extension contracts, not fabricated control claims.
+- Windows is the active privileged host adapter. The Android companion implements only explicitly
+  paired and granted node tasks; Linux, macOS, and other physical devices remain extension
+  contracts rather than fabricated control claims.
 
 ## Automatic Notes And Web Context
 
@@ -45,6 +48,31 @@ Full access now applies validated routine project files atomically and verifies 
 workspace. Folder-limited mode retains the red/green review step. Invalid model manifests are
 repaired or sent through the narrow local fallback builder; a generated response is not counted
 as success unless files exist under the selected work folder.
+
+Project detection now covers Unreal, Unity, Roblox/Rojo, Godot, Android/Gradle, Visual Studio/.NET,
+Node, Python, Java, Rust, Go, and static web projects. Full access records a durable target state,
+exact artifact hashes/content checks, and available declared build/test results. The completed
+processing card remains expandable as an observed execution trace.
+
+## Android Companion And Device Network
+
+- Added a lightweight Android 9+ companion with unified chat, opt-in STT/TTS, on-demand Camera2
+  Live Vision, paired-device controls, and no desktop Project Mode.
+- Added a common versioned MORICE node protocol using P-256 pairing, a compared six-digit code,
+  AES-GCM task envelopes, replay rejection, time-limited pairing, directional capability grants,
+  Windows DPAPI, and Android Keystore.
+- Added desktop routing for explicit phone/tablet status, media, application, notification, and
+  permission-gated camera requests. Local networking remains useful without internet.
+- The signed Android APK has passed lint, compilation, minification, and APK signature validation.
+  Physical-device camera/microphone/pairing QA remains required because this host has no attached
+  phone and its Android emulator cannot use hardware acceleration.
+
+## Context-Aware Speech
+
+Verified deterministic PC actions use short acknowledgements without a large-model round trip.
+MORICE differentiates started, found, running, verified, and failed states, so “Done” is reserved
+for verified completion. ElevenLabs receives lightweight speed, stability, and style hints for
+brief acknowledgements, normal explanations, and warnings without delaying synthesis.
 
 ## Media And Device Integration
 
@@ -68,6 +96,9 @@ The Python package intentionally excludes model weights.
 
 Verify downloaded files with `SHA256SUMS.txt` or `checksums.json`.
 
+Android lane: install the signed `MORICE-Android-0.8.0-android.apk`, compare its SHA-256 value with
+the adjacent manifest, then pair it from **Panel > Pair a device**. See `docs/android-companion.md`.
+
 ## Honest Boundaries
 
 - General hosted conversational LLM providers are not integrated.
@@ -75,5 +106,7 @@ Verify downloaded files with `SHA256SUMS.txt` or `checksums.json`.
 - Vision speed and accuracy depend on the local CPU/GPU, camera frame, model, and prompt.
 - Bluetooth discovery is not equivalent to device pairing or active connection control.
 - The Windows build does not claim operational control over Linux, macOS, Android, vehicles,
-  robots, or unsupported physical devices.
+  robots, or unsupported physical devices beyond explicitly paired and granted MORICE node tasks.
+- Android background camera capture, remote screen streaming, Bluetooth transport, shared-memory
+  sync, file transfer, and internet relay remain future work.
 - Windows binaries are unsigned unless a trusted publisher certificate is explicitly configured.

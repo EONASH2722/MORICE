@@ -16,6 +16,10 @@ build-qwen/
 dist-qwen/
 build-*/
 dist-*/
+android/.gradle/
+android/local.properties
+*.jks
+*.keystore
 artifacts/qa/
 
 # Local configs

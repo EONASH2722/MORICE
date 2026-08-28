@@ -530,9 +530,17 @@ class ElevenLabsProvider:
     ) -> Iterator[bytes]:
         client, voice_settings_type = self._client_and_settings(config)
         settings = (
-            voice_settings_type(speed=float(config.speech_speed))
+            voice_settings_type(
+                speed=float(config.speech_speed),
+                stability=float(config.stability),
+                style=float(config.style),
+            )
             if voice_settings_type is not None
-            else {"speed": float(config.speech_speed)}
+            else {
+                "speed": float(config.speech_speed),
+                "stability": float(config.stability),
+                "style": float(config.style),
+            }
         )
         if config.streaming:
             audio = client.text_to_speech.convert_realtime(
@@ -629,6 +637,7 @@ class _SpeechRequest:
     streaming_input: bool
     prechunked: bool
     event_callback: Callable[[str, Mapping[str, Any]], Any] | None
+    delivery: Mapping[str, float]
 
 
 class _TextTracker:
@@ -739,9 +748,10 @@ class VoiceRuntime:
         *,
         request_id: str | None = None,
         on_event: Callable[[str, Mapping[str, Any]], Any] | None = None,
+        delivery: Mapping[str, float] | None = None,
     ) -> SpeechHandle:
         return self._submit(
-            (str(text or ""),), False, False, request_id, on_event
+            (str(text or ""),), False, False, request_id, on_event, delivery
         )
 
     def speak_stream(
@@ -750,8 +760,9 @@ class VoiceRuntime:
         *,
         request_id: str | None = None,
         on_event: Callable[[str, Mapping[str, Any]], Any] | None = None,
+        delivery: Mapping[str, float] | None = None,
     ) -> SpeechHandle:
-        return self._submit(tokens, True, False, request_id, on_event)
+        return self._submit(tokens, True, False, request_id, on_event, delivery)
 
     def speak_chunks(
         self,
@@ -759,10 +770,11 @@ class VoiceRuntime:
         *,
         request_id: str | None = None,
         on_event: Callable[[str, Mapping[str, Any]], Any] | None = None,
+        delivery: Mapping[str, float] | None = None,
     ) -> SpeechHandle:
         """Speak already-normalized semantic chunks without buffering them again."""
 
-        return self._submit(chunks, True, True, request_id, on_event)
+        return self._submit(chunks, True, True, request_id, on_event, delivery)
 
     def interrupt(self, reason: str = "barge-in") -> bool:  # noqa: ARG002
         started = self._clock()
@@ -922,6 +934,7 @@ class VoiceRuntime:
         prechunked: bool,
         request_id: str | None,
         event_callback: Callable[[str, Mapping[str, Any]], Any] | None,
+        delivery: Mapping[str, float] | None,
     ) -> SpeechHandle:
         clean_request_id = self._request_id(request_id)
         handle = SpeechHandle(clean_request_id, self._cancel_handle)
@@ -953,6 +966,12 @@ class VoiceRuntime:
             streaming_input=streaming_input,
             prechunked=prechunked,
             event_callback=event_callback,
+            delivery={
+                str(key): float(value)
+                for key, value in dict(delivery or {}).items()
+                if str(key) in {"speed", "stability", "style"}
+                and isinstance(value, (int, float))
+            },
         )
         try:
             self._queue.put_nowait(request)
@@ -1015,7 +1034,22 @@ class VoiceRuntime:
                 self._finish_cancelled(request)
                 return
             self._active_request = request
-            config = self._config
+            base_config = self._config
+            config = replace(
+                base_config,
+                speech_speed=max(
+                    0.7,
+                    min(1.2, request.delivery.get("speed", base_config.speech_speed)),
+                ),
+                stability=max(
+                    0.0,
+                    min(1.0, request.delivery.get("stability", base_config.stability)),
+                ),
+                style=max(
+                    0.0,
+                    min(1.0, request.delivery.get("style", base_config.style)),
+                ),
+            )
             self._state = VoiceState.SYNTHESIZING
             self._message = ""
 
@@ -1025,7 +1059,7 @@ class VoiceRuntime:
         primary_error = VoiceErrorCode.NONE
         try:
             try:
-                provider = self._provider(config)
+                provider = self._provider(base_config)
                 metrics = self._attempt(
                     request,
                     provider,
@@ -1419,6 +1453,7 @@ class VoiceRuntime:
             False,
             False,
             None,
+            {},
         )
         handle._finish(
             self._result(
