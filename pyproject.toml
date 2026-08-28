@@ -45,6 +45,7 @@ local-python = ["llama-cpp-python>=0.2.90"]
 dev = [
   "build>=1.2",
   "pyinstaller>=6.0",
+  "pytest>=8,<10",
   "twine>=5.1",
 ]
 
