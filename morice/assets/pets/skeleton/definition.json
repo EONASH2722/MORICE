@@ -1,0 +1,15 @@
+{
+  "id": "skeleton",
+  "name": "Skeleton",
+  "renderer": "skeleton",
+  "movement": "ground",
+  "click_feedback": "rattle",
+  "accent": "#e8eef2",
+  "behavior_states": [
+    "idle", "patrol", "special", "react", "skeleton_collapse",
+    "skeleton_scatter", "skeleton_reform"
+  ],
+  "special_events": ["skeleton_collapse_chain"],
+  "asset_status": "original_development_placeholder",
+  "sprite_pack_slots": ["idle", "walk", "run", "collapse", "reform", "reaction"]
+}

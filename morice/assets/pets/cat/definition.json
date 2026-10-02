@@ -1,0 +1,15 @@
+{
+  "id": "cat",
+  "name": "Cat",
+  "renderer": "cat",
+  "movement": "ground",
+  "click_feedback": "ear_twitch",
+  "accent": "#c8a7ef",
+  "behavior_states": [
+    "idle", "patrol", "play", "sleep", "react", "cat_bed",
+    "cat_deep_sleep", "cat_stretch"
+  ],
+  "special_events": ["cat_deep_sleep"],
+  "asset_status": "original_development_placeholder",
+  "sprite_pack_slots": ["idle", "walk", "stretch", "loaf", "sleep", "reaction"]
+}

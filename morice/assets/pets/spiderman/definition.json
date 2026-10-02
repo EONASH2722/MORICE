@@ -1,0 +1,17 @@
+{
+  "id": "spiderman",
+  "name": "Spider-Man",
+  "renderer": "web_hero",
+  "movement": "acrobat",
+  "click_feedback": "eye_focus",
+  "accent": "#f5f7ff",
+  "behavior_states": [
+    "idle", "perch", "swing", "patrol", "special", "react",
+    "enemy_alert", "enemy_chase", "enemy_web", "enemy_victory",
+    "symbiote_notice", "symbiote_transform", "symbiote_active",
+    "symbiote_struggle", "symbiote_remove"
+  ],
+  "special_events": ["spiderman_symbiote", "spiderman_villain"],
+  "asset_status": "original_development_placeholder",
+  "sprite_pack_slots": ["idle", "run", "crawl", "swing", "perch", "reaction", "special", "effects"]
+}

@@ -3,11 +3,11 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $script = Join-Path $root "morice_wake_listener.py"
 $venvPython = Join-Path $root ".venv\Scripts\pythonw.exe"
 
-# The wake daemon performs keyword/double-clap detection only. It automatically
-# releases the microphone while Live Action owns STT, then resumes after Voice
-# exits. Set MORICE_ENABLE_ALWAYS_ON_WAKE=0 to opt out entirely.
+# The wake daemon performs keyword/double-clap detection only. It is opt-in
+# because it keeps a microphone open while MORICE is closed. Live Action
+# remains available from the app without this background process.
 $alwaysOnWake = [string]$env:MORICE_ENABLE_ALWAYS_ON_WAKE
-if ($alwaysOnWake.Trim().ToLowerInvariant() -in @("0", "false", "no", "off", "disabled")) {
+if ($alwaysOnWake.Trim().ToLowerInvariant() -notin @("1", "true", "yes", "on", "enabled")) {
     exit 0
 }
 

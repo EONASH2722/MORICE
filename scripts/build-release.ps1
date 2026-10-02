@@ -47,7 +47,7 @@ if (-not $SkipTests) {
             python (Join-Path $PSScriptRoot "validate_version.py") --root $Root
         }
         Invoke-Checked "Python tests" {
-            python -m unittest discover -s tests
+            python -m pytest tests -q
         }
         Push-Location (Join-Path $Root "vnext")
         try {

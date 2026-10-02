@@ -125,6 +125,18 @@ Changing the model changes reply and coding quality; it does not bypass host ren
 
 The top-bar sun/moon control switches the active theme. Settings includes search and live preview.
 
+## Desktop Pets
+
+Open **Panel > Desktop companion**, enable **Show desktop pet**, then choose Iron Man — Mark 42, Spider-Man, Horse, Skeleton, Dog, or Cat. Size and animation speed are independent of the main interface motion setting. **Pet click action** defaults to **Open MORICE** and can instead open chat directly or do nothing.
+
+Use **Pet special events** to select Off, Low, Normal, High, or Showcase. Normal keeps armor-off, symbiote, enemy fights, fetch, deep sleep, grazing, and collapse/reform scenes rare; Showcase makes them appear within seconds for a demo. Cooldowns persist across restarts and scenes stop cleanly if you grab the pet or enter fullscreen.
+
+A short primary-button press plays the character's reaction and immediately restores, raises, and focuses the existing MORICE window. If MORICE is not running, one new instance is launched. Moving beyond the Windows/Qt DPI-aware drag threshold changes the gesture into a pet interaction and cannot open MORICE on release. Rapid clicks are coalesced by the launcher and MORICE's per-user single-instance endpoint.
+
+Leave **Hide pet during fullscreen/games** enabled to remove both the overlay and its click target while another application owns a fullscreen monitor. MORICE returns the pet afterward. A restored MORICE window keeps its previous valid monitor position; it is moved only when that display no longer exists. **Remove Pet** stops the resident host and disables the setting.
+
+See the [desktop-pet guide](desktop-pets.md) for behavior details and transparent animation/screenshots.
+
 ## Live Action Mode
 
 Choose **Mode > Live Action**, or press the speaker button beside the composer. Entering Live Action also wakes MORICE, so no second wake phrase is required. MORICE starts offline Vosk transcription, auto-sends the recognized turn when configured, streams an ElevenLabs reply when reply speech and a key are configured, and then resumes listening. Live Action replaces chat bubbles/history with a camera-centered workspace, a live transcript, a glass streaming-response overlay, and its own typed composer. Chat, graphs, Lab, Tools, attachments, PC control, and Project build requests still use their normal pipelines.
@@ -141,7 +153,7 @@ Open **Tools > Diagnostics > Voice** to inspect the selected/default input devic
 python diagnose-wake-listener.py
 ```
 
-The installed application enables a lightweight local background listener by default. It recognizes MORICE, configured magic words, or a double-clap, starts the app minimized without stealing foreground focus, and releases its microphone lease while Live Action is active. It never turns on the camera. Set `MORICE_ENABLE_ALWAYS_ON_WAKE=0` or disable **MORICE Wake Listener** in Windows Startup Apps to opt out.
+Background microphone wake is off by default. Live Action only uses the microphone after you enter that mode. If you deliberately want local wake-word or double-clap detection while MORICE is closed, set `MORICE_ENABLE_ALWAYS_ON_WAKE=1` before starting `MORICE.exe --morice-wake-listener`; it starts MORICE minimized without stealing foreground focus and releases its microphone lease while Live Action is active. It never turns on the camera.
 
 ## Keyboard Shortcuts
 

@@ -49,6 +49,15 @@ DEFAULT_SETTINGS = {
     "camera_fps": "30",
     "camera_mirror": "true",
     "continuous_visual_awareness": "false",
+    "pet_enabled": "false",
+    "active_pet": "dog",
+    "pet_size": "medium",
+    "pet_animation_speed": "normal",
+    "pet_sounds_enabled": "false",
+    "pet_fullscreen_autohide": "true",
+    "pet_interaction_enabled": "true",
+    "pet_click_action": "open_morice",
+    "pet_event_frequency": "normal",
 }
 
 
@@ -184,6 +193,55 @@ def normalize_gpu_vram_mb(value: str) -> str:
 def normalize_animation_speed(value: str) -> str:
     text = str(value or "").strip().lower()
     return text if text in {"slow", "normal", "fast"} else DEFAULT_SETTINGS["animation_speed"]
+
+
+def normalize_pet_id(value: str) -> str:
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "ironman": "ironman_mark42",
+        "mark42": "ironman_mark42",
+        "spider_man": "spiderman",
+        "spider": "spiderman",
+    }
+    text = aliases.get(text, text)
+    return (
+        text
+        if text in {"ironman_mark42", "spiderman", "horse", "skeleton", "dog", "cat"}
+        else DEFAULT_SETTINGS["active_pet"]
+    )
+
+
+def normalize_pet_size(value: str) -> str:
+    text = str(value or "").strip().lower()
+    return text if text in {"small", "medium", "large"} else DEFAULT_SETTINGS["pet_size"]
+
+
+def normalize_pet_click_action(value: str) -> str:
+    text = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "open": "open_morice",
+        "morice": "open_morice",
+        "chat": "open_chat",
+        "open_morice_chat": "open_chat",
+        "none": "nothing",
+        "off": "nothing",
+        "do_nothing": "nothing",
+    }
+    text = aliases.get(text, text)
+    return (
+        text
+        if text in {"open_morice", "open_chat", "nothing"}
+        else DEFAULT_SETTINGS["pet_click_action"]
+    )
+
+
+def normalize_pet_event_frequency(value: str) -> str:
+    text = str(value or "").strip().lower()
+    return (
+        text
+        if text in {"off", "low", "normal", "high", "showcase"}
+        else DEFAULT_SETTINGS["pet_event_frequency"]
+    )
 
 
 def normalize_boolean_setting(value: str, *, default: bool = False) -> bool:
@@ -477,6 +535,33 @@ def load_settings() -> dict:
     settings["continuous_visual_awareness"] = str(
         normalize_boolean_setting(settings.get("continuous_visual_awareness", ""))
     ).lower()
+    settings["pet_enabled"] = str(
+        normalize_boolean_setting(settings.get("pet_enabled", ""))
+    ).lower()
+    settings["active_pet"] = normalize_pet_id(settings.get("active_pet", ""))
+    settings["pet_size"] = normalize_pet_size(settings.get("pet_size", ""))
+    settings["pet_animation_speed"] = normalize_animation_speed(
+        settings.get("pet_animation_speed", "")
+    )
+    settings["pet_sounds_enabled"] = str(
+        normalize_boolean_setting(settings.get("pet_sounds_enabled", ""))
+    ).lower()
+    settings["pet_fullscreen_autohide"] = str(
+        normalize_boolean_setting(
+            settings.get("pet_fullscreen_autohide", ""), default=True
+        )
+    ).lower()
+    settings["pet_interaction_enabled"] = str(
+        normalize_boolean_setting(
+            settings.get("pet_interaction_enabled", ""), default=True
+        )
+    ).lower()
+    settings["pet_click_action"] = normalize_pet_click_action(
+        settings.get("pet_click_action", "")
+    )
+    settings["pet_event_frequency"] = normalize_pet_event_frequency(
+        settings.get("pet_event_frequency", "")
+    )
     return settings
 
 
@@ -591,5 +676,32 @@ def save_settings(settings: dict) -> None:
     clean["continuous_visual_awareness"] = str(
         normalize_boolean_setting(settings.get("continuous_visual_awareness", ""))
     ).lower()
+    clean["pet_enabled"] = str(
+        normalize_boolean_setting(settings.get("pet_enabled", ""))
+    ).lower()
+    clean["active_pet"] = normalize_pet_id(settings.get("active_pet", ""))
+    clean["pet_size"] = normalize_pet_size(settings.get("pet_size", ""))
+    clean["pet_animation_speed"] = normalize_animation_speed(
+        settings.get("pet_animation_speed", "")
+    )
+    clean["pet_sounds_enabled"] = str(
+        normalize_boolean_setting(settings.get("pet_sounds_enabled", ""))
+    ).lower()
+    clean["pet_fullscreen_autohide"] = str(
+        normalize_boolean_setting(
+            settings.get("pet_fullscreen_autohide", ""), default=True
+        )
+    ).lower()
+    clean["pet_interaction_enabled"] = str(
+        normalize_boolean_setting(
+            settings.get("pet_interaction_enabled", ""), default=True
+        )
+    ).lower()
+    clean["pet_click_action"] = normalize_pet_click_action(
+        settings.get("pet_click_action", "")
+    )
+    clean["pet_event_frequency"] = normalize_pet_event_frequency(
+        settings.get("pet_event_frequency", "")
+    )
     with open(settings_path(), "w", encoding="utf-8") as handle:
         json.dump(clean, handle, indent=2)

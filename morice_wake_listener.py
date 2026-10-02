@@ -786,14 +786,26 @@ def list_devices() -> int:
     return 0
 
 
+def background_wake_enabled(environ: dict[str, str] | None = None) -> bool:
+    """Return whether the user explicitly opted into always-on microphone wake.
+
+    This process owns a microphone while MORICE is closed, so it must be
+    opt-in. Live Action remains available whenever the user opens MORICE and
+    selects it; this only controls background magic-word and clap detection.
+    """
+
+    values = os.environ if environ is None else environ
+    value = str(values.get("MORICE_ENABLE_ALWAYS_ON_WAKE", "")).strip().casefold()
+    return value in {"1", "true", "yes", "on", "enabled"}
+
+
 def main() -> int:
     if "--self-test" in sys.argv:
         return self_test()
     if "--list-devices" in sys.argv:
         return list_devices()
-    enabled = os.getenv("MORICE_ENABLE_ALWAYS_ON_WAKE", "1").strip().casefold()
-    if enabled in {"0", "false", "no", "off", "disabled"}:
-        log("background wake is disabled by MORICE_ENABLE_ALWAYS_ON_WAKE")
+    if not background_wake_enabled():
+        log("background wake is disabled until MORICE_ENABLE_ALWAYS_ON_WAKE=1")
         return 0
     if not acquire_listener_instance():
         log("another wake listener is already active")

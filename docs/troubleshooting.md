@@ -36,6 +36,24 @@ The authoritative source is the active-model status and model manager, not the m
 
 General hosted LLM-provider configuration is not integrated. Model inference remains local GGUF/Ollama. ElevenLabs is supported only for optional text-to-speech and its key is stored with Windows DPAPI or supplied through the ignored local `.env` file.
 
+## Desktop pet
+
+### Clicking the pet does not open MORICE
+
+Confirm **Panel > Desktop companion > Pet click action** is **Open MORICE** or **Open MORICE Chat**. A press that moves beyond the operating-system drag threshold is intentionally classified as interaction rather than a click. If another application is fullscreen, the pet and its input surface are intentionally removed until fullscreen ends.
+
+### More than one pet or MORICE window appears
+
+Close all old development builds before starting the current build. The shipped pet host and MORICE process each use a per-user lock, while the main app also exposes a local activation endpoint. If duplicate windows persist, record the exact executable paths in Task Manager because separately installed or stale portable builds have different binaries even though their window titles match.
+
+### The pet is off-screen after a monitor change
+
+Restart the pet host or toggle **Show desktop pet** off and on. The overlay clamps itself to the active virtual desktop after a drag. MORICE preserves a previous valid window location, but repairs it onto a visible display if that monitor was disconnected.
+
+### Pet animation is too fast or uses too much motion
+
+Choose **Slow** under **Pet animation speed**, or use **Remove Pet** to stop the lightweight resident host. Sleep and idle states automatically use lower timer rates, and animation pauses completely while fullscreen suspension is active.
+
 ## Visualization
 
 ### Visualization unavailable
@@ -81,7 +99,7 @@ Use the close control on Project changes/Lab, then reset the workspace layout if
 python diagnose-wake-listener.py
 ```
 
-First enter **Mode > Live Action**. Grant Windows microphone permission, choose the intended input, reduce competing background audio, and recalibrate. Adaptive gain and noise-floor learning improve weak microphones but cannot recover clipped or absent audio. The installed background listener releases its microphone lease while Live Action is active. Disable it with `MORICE_ENABLE_ALWAYS_ON_WAKE=0` or Windows Startup Apps when diagnosing another application's exclusive microphone access.
+First enter **Mode > Live Action**. Grant Windows microphone permission, choose the intended input, reduce competing background audio, and recalibrate. Adaptive gain and noise-floor learning improve weak microphones but cannot recover clipped or absent audio. Background wake is off by default; if you explicitly enabled it, the listener releases its microphone lease while Live Action is active. Disable it with `MORICE_ENABLE_ALWAYS_ON_WAKE=0` when diagnosing another application's exclusive microphone access.
 
 ### Speech input or spoken replies do not work
 

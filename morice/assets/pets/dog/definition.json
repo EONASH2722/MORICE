@@ -1,0 +1,15 @@
+{
+  "id": "dog",
+  "name": "Dog",
+  "renderer": "dog",
+  "movement": "ground",
+  "click_feedback": "tail_wag",
+  "accent": "#f5bd67",
+  "behavior_states": [
+    "idle", "patrol", "play", "sleep", "react", "fetch_ready",
+    "fetch_chase", "fetch_return", "fetch_celebrate"
+  ],
+  "special_events": ["dog_special_play"],
+  "asset_status": "original_development_placeholder",
+  "sprite_pack_slots": ["idle", "walk", "run", "sit", "sleep", "fetch", "reaction"]
+}

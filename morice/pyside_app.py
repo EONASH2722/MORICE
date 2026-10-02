@@ -13,6 +13,7 @@ import time
 import subprocess
 import tempfile
 import queue
+import uuid
 from dataclasses import replace
 from ctypes import wintypes
 from datetime import datetime
@@ -234,6 +235,12 @@ from .config import load_tts_config
 from .live_action_ui import LiveActionWorkspace
 from .live_camera import LiveCameraController
 from .live_vision import VisionResult, visual_follow_up, visual_intent
+from .desktop_pet import PetProcessController
+from .pet_launcher import (
+    SingleInstanceController,
+    repaired_window_geometry,
+    restore_morice_window,
+)
 from .speech_runtime import SpeechInputConfig, TranscriptResult
 from .voice_runtime import BoundedSpeechStream
 from .wake_runtime import (
@@ -263,6 +270,7 @@ from .settings import (
     normalize_custom_font_path,
     normalize_animation_speed,
     normalize_boolean_setting,
+    normalize_pet_event_frequency,
     normalize_settings_profile,
     normalize_music_provider,
     normalize_transparency,
@@ -5988,6 +5996,13 @@ class MoriceWindow(QWidget):
         self.last_notes_hits = []
         self.last_notes_term = ""
         self.pending_image_path = ""
+        self.pending_research_paths = []
+        self._research_service = None
+        self._research_project_id = ""
+        self._chat_id = uuid.uuid4().hex
+        self._chat_history_store = None
+        self._history_saved_key = None
+        self._history_deleted_id = ""
         self.precision_mode = True
         self.math_steps_mode = False
         self.follow_latest = True
@@ -6088,10 +6103,10 @@ class MoriceWindow(QWidget):
                     max(8, round(self._base_font_point_size * scale)),
                 )
             )
-        loaded_chat_mode = normalize_chat_mode(self.settings.get("chat_mode", ""))
-        # Voice is an explicit, session-only mode. Never reopen a microphone
-        # merely because the previous process closed while Voice mode was active.
-        self.chat_mode = "normal" if loaded_chat_mode == "voice" else loaded_chat_mode
+        # Every ordinary process launch begins in a clean Normal Chat session.
+        # Project and Live Action are explicit per-session choices; restoring
+        # either here can expose a half-switched workspace or reopen a mic.
+        self.chat_mode = "normal"
         self._voice_return_mode = self.chat_mode
         self.project_folder = normalize_project_folder(self.settings.get("project_folder", ""))
         self.project_access = normalize_project_access(self.settings.get("project_access", ""))
@@ -6384,6 +6399,13 @@ class MoriceWindow(QWidget):
 
         mode_layout.addWidget(mode_title)
         mode_layout.addWidget(mode_hint)
+        self.chat_history_btn = QPushButton("↶")
+        self.chat_history_btn.setObjectName("TitleButton")
+        self.chat_history_btn.setFixedWidth(36)
+        self.chat_history_btn.setToolTip("Chat history — search, reopen, name and protect conversations")
+        self.chat_history_btn.setAccessibleName("Chat history")
+        self.chat_history_btn.clicked.connect(self._open_chat_history)
+        mode_layout.addWidget(self.chat_history_btn)
         mode_layout.addSpacing(6)
         mode_layout.addWidget(self.normal_mode_btn)
         mode_layout.addWidget(self.project_mode_btn)
@@ -7082,6 +7104,122 @@ class MoriceWindow(QWidget):
         )
         self.advanced_settings_btn.clicked.connect(self.open_premium_settings)
 
+        pet_label = QLabel("Desktop companion")
+        pet_label.setObjectName("SidebarSectionLabel")
+        self.pet_enabled_check = QCheckBox("Show desktop pet")
+        self.pet_enabled_check.setChecked(
+            normalize_boolean_setting(self.settings.get("pet_enabled", "false"))
+        )
+
+        active_pet_label = QLabel("Pet")
+        active_pet_label.setObjectName("StyleLabel")
+        self.active_pet_select = QComboBox()
+        self.active_pet_select.setObjectName("AppearanceSelect")
+        for label, pet_id in (
+            ("Iron Man — Mark 42", "ironman_mark42"),
+            ("Spider-Man", "spiderman"),
+            ("Horse", "horse"),
+            ("Skeleton", "skeleton"),
+            ("Dog", "dog"),
+            ("Cat", "cat"),
+        ):
+            self.active_pet_select.addItem(label, pet_id)
+        self.active_pet_select.setCurrentIndex(
+            max(0, self.active_pet_select.findData(self.settings.get("active_pet", "dog")))
+        )
+
+        pet_size_label = QLabel("Pet size")
+        pet_size_label.setObjectName("StyleLabel")
+        self.pet_size_select = QComboBox()
+        self.pet_size_select.setObjectName("AppearanceSelect")
+        for label, size in (("Small", "small"), ("Medium", "medium"), ("Large", "large")):
+            self.pet_size_select.addItem(label, size)
+        self.pet_size_select.setCurrentIndex(
+            max(0, self.pet_size_select.findData(self.settings.get("pet_size", "medium")))
+        )
+
+        pet_animation_label = QLabel("Pet animation speed")
+        pet_animation_label.setObjectName("StyleLabel")
+        self.pet_animation_speed_select = QComboBox()
+        self.pet_animation_speed_select.setObjectName("AppearanceSelect")
+        for label, speed in (("Slow", "slow"), ("Normal", "normal"), ("Fast", "fast")):
+            self.pet_animation_speed_select.addItem(label, speed)
+        self.pet_animation_speed_select.setCurrentIndex(
+            max(
+                0,
+                self.pet_animation_speed_select.findData(
+                    self.settings.get("pet_animation_speed", "normal")
+                ),
+            )
+        )
+
+        pet_click_label = QLabel("Pet click action")
+        pet_click_label.setObjectName("StyleLabel")
+        self.pet_click_action_select = QComboBox()
+        self.pet_click_action_select.setObjectName("AppearanceSelect")
+        self.pet_click_action_select.addItem("Open MORICE", "open_morice")
+        self.pet_click_action_select.addItem("Open MORICE Chat", "open_chat")
+        self.pet_click_action_select.addItem("Do nothing", "nothing")
+        self.pet_click_action_select.setCurrentIndex(
+            max(
+                0,
+                self.pet_click_action_select.findData(
+                    self.settings.get("pet_click_action", "open_morice")
+                ),
+            )
+        )
+        pet_event_label = QLabel("Pet special events")
+        pet_event_label.setObjectName("StyleLabel")
+        self.pet_event_frequency_select = QComboBox()
+        self.pet_event_frequency_select.setObjectName("AppearanceSelect")
+        for label, frequency in (
+            ("Off", "off"),
+            ("Low", "low"),
+            ("Normal", "normal"),
+            ("High", "high"),
+            ("Showcase (demo)", "showcase"),
+        ):
+            self.pet_event_frequency_select.addItem(label, frequency)
+        self.pet_event_frequency_select.setCurrentIndex(
+            max(
+                0,
+                self.pet_event_frequency_select.findData(
+                    normalize_pet_event_frequency(
+                        self.settings.get("pet_event_frequency", "normal")
+                    )
+                ),
+            )
+        )
+        self.pet_fullscreen_check = QCheckBox("Hide pet during fullscreen/games")
+        self.pet_fullscreen_check.setChecked(
+            normalize_boolean_setting(
+                self.settings.get("pet_fullscreen_autohide", "true"), default=True
+            )
+        )
+        self.pet_interaction_check = QCheckBox("Allow pet dragging and interaction")
+        self.pet_interaction_check.setChecked(
+            normalize_boolean_setting(
+                self.settings.get("pet_interaction_enabled", "true"), default=True
+            )
+        )
+        self.remove_pet_btn = QPushButton("Remove Pet")
+        self.remove_pet_btn.setObjectName("QueueButton")
+        self.remove_pet_btn.setToolTip("Hide the companion without deleting its settings")
+
+        self.pet_enabled_check.toggled.connect(self._on_pet_settings_changed)
+        self.active_pet_select.currentIndexChanged.connect(self._on_pet_settings_changed)
+        self.pet_size_select.currentIndexChanged.connect(self._on_pet_settings_changed)
+        self.pet_animation_speed_select.currentIndexChanged.connect(
+            self._on_pet_settings_changed
+        )
+        self.pet_click_action_select.currentIndexChanged.connect(self._on_pet_settings_changed)
+        self.pet_event_frequency_select.currentIndexChanged.connect(
+            self._on_pet_settings_changed
+        )
+        self.pet_fullscreen_check.toggled.connect(self._on_pet_settings_changed)
+        self.pet_interaction_check.toggled.connect(self._on_pet_settings_changed)
+        self.remove_pet_btn.clicked.connect(self._remove_desktop_pet)
+
         voice_label = QLabel("Live Action voice configuration")
         voice_label.setObjectName("SidebarSectionLabel")
         self.tts_enabled_check = QCheckBox("Speak MORICE replies in Live Action")
@@ -7272,6 +7410,22 @@ class MoriceWindow(QWidget):
         sidebar_layout.addWidget(layout_label)
         sidebar_layout.addWidget(self.workspace_preset_select)
         sidebar_layout.addWidget(self.advanced_settings_btn)
+        sidebar_layout.addSpacing(8)
+        sidebar_layout.addWidget(pet_label)
+        sidebar_layout.addWidget(self.pet_enabled_check)
+        sidebar_layout.addWidget(active_pet_label)
+        sidebar_layout.addWidget(self.active_pet_select)
+        sidebar_layout.addWidget(pet_size_label)
+        sidebar_layout.addWidget(self.pet_size_select)
+        sidebar_layout.addWidget(pet_animation_label)
+        sidebar_layout.addWidget(self.pet_animation_speed_select)
+        sidebar_layout.addWidget(pet_click_label)
+        sidebar_layout.addWidget(self.pet_click_action_select)
+        sidebar_layout.addWidget(pet_event_label)
+        sidebar_layout.addWidget(self.pet_event_frequency_select)
+        sidebar_layout.addWidget(self.pet_fullscreen_check)
+        sidebar_layout.addWidget(self.pet_interaction_check)
+        sidebar_layout.addWidget(self.remove_pet_btn)
         sidebar_layout.addSpacing(8)
         sidebar_layout.addWidget(voice_label)
         sidebar_layout.addWidget(self.tts_enabled_check)
@@ -8316,29 +8470,15 @@ class MoriceWindow(QWidget):
         self._refresh_top_bar_status()
         if len(self.workspace_state.geometry) == 4:
             x, y, width, height = self.workspace_state.geometry
-            target = QRect(x, y, max(860, width), max(580, height))
-            screen = QApplication.primaryScreen()
-            if screen is not None:
-                available = screen.availableGeometry()
-                target.setWidth(min(target.width(), available.width()))
-                target.setHeight(min(target.height(), available.height()))
-                if not target.intersects(available):
-                    target.moveTopLeft(
-                        available.topLeft() + QPoint(32, 32)
-                    )
-                target.moveLeft(
-                    max(
-                        available.left(),
-                        min(target.left(), available.right() - target.width() + 1),
-                    )
-                )
-                target.moveTop(
-                    max(
-                        available.top(),
-                        min(target.top(), available.bottom() - target.height() + 1),
-                    )
-                )
-            self.setGeometry(target)
+            screens = [screen.availableGeometry() for screen in QApplication.screens()]
+            repaired = repaired_window_geometry(
+                (x, y, max(860, width), max(580, height)),
+                [
+                    (screen.x(), screen.y(), screen.width(), screen.height())
+                    for screen in screens
+                ],
+            )
+            self.setGeometry(QRect(*repaired))
 
         if len(self.workspace_state.splitter_sizes) == self.workspace_splitter.count():
             QTimer.singleShot(
@@ -8396,6 +8536,8 @@ class MoriceWindow(QWidget):
         self.wake_signal_timer = QTimer(self)
         self.wake_signal_timer.timeout.connect(self._check_external_wake_signal)
         self.wake_signal_timer.start(1000)
+        self.pet_manager = PetProcessController(settings=self.settings, parent=self)
+        QTimer.singleShot(0, self.pet_manager.start)
 
     def _post_init(self):
         hwnd = int(self.winId())
@@ -8411,8 +8553,12 @@ class MoriceWindow(QWidget):
         prewarm_disabled = os.getenv(
             "MORICE_DISABLE_MODEL_PREWARM", "0"
         ).strip().casefold() in {"1", "true", "yes"}
+        preload_enabled = os.getenv(
+            "MORICE_PRELOAD", "1"
+        ).strip().casefold() not in {"0", "false", "no", "off"}
         if (
             not headless
+            and preload_enabled
             and not prewarm_disabled
             and model_path
             and os.path.isfile(model_path)
@@ -8466,8 +8612,9 @@ class MoriceWindow(QWidget):
                 )
 
             _start_background_task("model-prewarm", prewarm)
-        _start_background_task("stt-prewarm", self.runtime.speech_input.prewarm)
-        if self.runtime.voice.config.enabled:
+        if not headless and preload_enabled:
+            _start_background_task("stt-prewarm", self.runtime.speech_input.prewarm)
+        if not headless and preload_enabled and self.runtime.voice.config.enabled:
             # Keep the first ElevenLabs/Pydantic import on Qt's main thread.
             # Frozen Python 3.14 builds can fault inside python314.dll when the
             # SDK is imported for the first time from ThreadPoolExecutor while
@@ -8498,8 +8645,20 @@ class MoriceWindow(QWidget):
             "minimal",
         }:
             _start_background_task("application-index", refresh_application_index)
-        if self.recovery_info.available:
+        # Recovery data can contain private prior conversation. Never show or
+        # restore it automatically at launch. An advanced user can explicitly
+        # opt in for a one-time recovery with MORICE_RESTORE_CRASH_SESSION=1.
+        restore_crash_session = os.getenv(
+            "MORICE_RESTORE_CRASH_SESSION", ""
+        ).strip().casefold() in {"1", "true", "yes", "on"}
+        if self.recovery_info.available and restore_crash_session:
             QTimer.singleShot(350, self._offer_crash_recovery)
+        elif self.recovery_info.available:
+            self.runtime.logs.log(
+                "INFO",
+                "Previous crash conversation was kept private and was not restored.",
+                category="recovery",
+            )
         if (
             os.getenv("MORICE_DISABLE_FIRST_RUN", "0") != "1"
             and os.getenv("MORICE_DISABLE_SESSION", "0") != "1"
@@ -8744,6 +8903,11 @@ class MoriceWindow(QWidget):
         history = payload.get("history", [])
         if not isinstance(history, list):
             history = []
+        if self.chat_mode == "voice" or self._voice_conversation_active:
+            self._stop_voice_mode_io("crash-recovery")
+        self.chat_mode = "normal"
+        self._voice_return_mode = "normal"
+        self.settings["chat_mode"] = "normal"
         self._start_new_chat()
         restored: list[dict[str, str]] = []
         for entry in history[-160:]:
@@ -9864,6 +10028,7 @@ class MoriceWindow(QWidget):
     def _save_workspace_session(self):
         if not self._session_enabled:
             return
+        self._persist_chat_history()
         geometry = self._normal_geometry if self._custom_maximized else self.geometry()
         self.workspace_state.theme = self.current_theme
         self.workspace_state.accent = self.accent_color
@@ -10464,6 +10629,15 @@ class MoriceWindow(QWidget):
                 "Wait for the current response before clearing this chat.", "error"
             )
             return
+        self._persist_chat_history()
+        if self._chat_history_store is not None:
+            self._chat_history_store.expire(ended_id=self._chat_id)
+        self._chat_id = uuid.uuid4().hex
+        self._history_saved_key = None
+        self._history_deleted_id = ""
+        self._research_project_id = ""
+        self.pending_research_paths.clear()
+        self.pending_image_path = ""
         for index in reversed(range(self.chat_list_layout.count())):
             item = self.chat_list_layout.itemAt(index)
             widget = item.widget() if item is not None else None
@@ -11585,6 +11759,36 @@ class MoriceWindow(QWidget):
         if not self._session_enabled:
             return
         save_settings(self.settings)
+
+    def _on_pet_settings_changed(self, *_args):
+        self.settings["pet_enabled"] = str(self.pet_enabled_check.isChecked()).lower()
+        self.settings["active_pet"] = str(self.active_pet_select.currentData() or "dog")
+        self.settings["pet_size"] = str(self.pet_size_select.currentData() or "medium")
+        self.settings["pet_animation_speed"] = str(
+            self.pet_animation_speed_select.currentData() or "normal"
+        )
+        self.settings["pet_click_action"] = str(
+            self.pet_click_action_select.currentData() or "open_morice"
+        )
+        self.settings["pet_event_frequency"] = str(
+            self.pet_event_frequency_select.currentData() or "normal"
+        )
+        self.settings["pet_fullscreen_autohide"] = str(
+            self.pet_fullscreen_check.isChecked()
+        ).lower()
+        self.settings["pet_interaction_enabled"] = str(
+            self.pet_interaction_check.isChecked()
+        ).lower()
+        save_settings(self.settings)
+        if hasattr(self, "pet_manager"):
+            self.pet_manager.configure(self.settings)
+        enabled_text = "enabled" if self.pet_enabled_check.isChecked() else "disabled"
+        self.style_status.setText(f"Desktop pet {enabled_text}.")
+
+    def _remove_desktop_pet(self):
+        self.pet_enabled_check.setChecked(False)
+        if hasattr(self, "pet_manager"):
+            self.pet_manager.remove_pet()
 
     def _save_default_music_provider(self, provider: str) -> None:
         clean = normalize_music_provider(provider)
@@ -13730,7 +13934,8 @@ class MoriceWindow(QWidget):
             self.history.append({"role": "user", "content": user_text})
         if reply_text:
             self.history.append({"role": "assistant", "content": reply_text})
-        self.history = self.history[-160:]
+        # Rendering and model context are bounded separately. Do not truncate
+        # the transcript that the explicit chat-history store must preserve.
 
     def _append_direct_reply(
         self,
@@ -14986,6 +15191,14 @@ class MoriceWindow(QWidget):
             self._append_direct_reply(user_input, summary)
             return
 
+        from .research.service import research_intent
+        research_request = research_intent(
+            user_input, self.pending_research_paths, bool(self._research_project_id)
+        )
+        if research_request:
+            self._run_research_request(user_input, realtime_request, image_path)
+            return
+
         if self._handle_science_request(user_input):
             realtime_request.trace.mark_event("first_visible_token")
             self.runtime.realtime.complete_generation(realtime_request.epoch)
@@ -15644,16 +15857,132 @@ class MoriceWindow(QWidget):
 
         _start_background_task("chat-reply", worker)
 
+    def _get_chat_history(self):
+        if self._chat_history_store is None:
+            from .research.history import ChatHistory
+            self._chat_history_store = ChatHistory(
+                self.runtime.platform_services.orchestrator.knowledge.path
+            )
+        return self._chat_history_store
+
+    def _persist_chat_history(self):
+        if not self._session_enabled or not self.history or self._history_deleted_id == self._chat_id:
+            return
+        key = (self._chat_id, len(self.history), self.history[-1].get("content"), self._research_project_id)
+        if key == self._history_saved_key:
+            return
+        try:
+            self._get_chat_history().save(self._chat_id, self.history, self._research_project_id)
+            self._history_saved_key = key
+        except Exception as exc:
+            self.runtime.logs.log("ERROR", f"Chat history save failed: {exc}", category="history")
+
+    def _open_chat_history(self):
+        if self.is_busy:
+            self._show_notification("Finish or cancel the current response before opening history.", "error")
+            return
+        from .research.history_ui import ChatHistoryDialog
+        self._persist_chat_history()
+        history = self._get_chat_history()
+        history.expire(active_id=self._chat_id)
+        dialog = ChatHistoryDialog(history, self._restore_history_chat, self)
+        dialog.exec()
+
+    def _restore_history_chat(self, chat_id):
+        if self.is_busy:
+            raise RuntimeError("Finish or cancel the current response first.")
+        if chat_id == self._chat_id:
+            return  # Already open; do not end a session-retention conversation.
+        restored = self._get_chat_history().open(chat_id)
+        self._start_new_chat()
+        self._chat_id = restored["id"]
+        self._research_project_id = restored["project_id"]
+        self.history = restored["messages"]
+        self.user_messages = [m["content"] for m in self.history if m["role"] == "user"]
+        self.first_user_message = self.user_messages[0] if self.user_messages else ""
+        self.awake = True
+        for message in self.history[-160:]:
+            self.append_message(self.user_title if message["role"] == "user" else MORICE_NAME,
+                                message["content"], is_user=message["role"] == "user")
+        self._history_saved_key = None
+        self._save_workspace_session()
+
+    def _get_research_service(self):
+        if self._research_service is None:
+            from .research.service import ResearchService
+            graph = self.runtime.platform_services.orchestrator.knowledge
+            self._research_service = ResearchService(
+                graph.path, self.runtime.directory / "research"
+            )
+        return self._research_service
+
+    def _run_research_request(self, user_input, realtime_request, image_path=""):
+        paths = list(self.pending_research_paths)
+        self.pending_research_paths.clear()
+        if image_path:
+            paths.append(image_path)
+        self._set_busy(True)
+        self._show_thinking("Opening the research project and checking supplied evidence.")
+        # Capture UI-owned settings before dispatch; no model or parser loads
+        # on the GUI thread. Reuse the existing cancellation and worker pool.
+        project_id = self._research_project_id or None
+        match = re.search(r"\b(?:resume|open) research\s+([a-f0-9]{32})\b", user_input, re.I)
+        if match:
+            project_id = match.group(1).lower()
+        new_project = bool(re.search(r"\bnew research\b", user_input, re.I))
+        if new_project:
+            project_id = None
+        model, gguf = self.model_name, self.model_path
+        chat_id = self._chat_id
+
+        def research_worker():
+            try:
+                from .research.providers import selected_local_provider
+                service = self._get_research_service()
+                service.models.register(selected_local_provider(model, gguf))
+                if re.fullmatch(r"(?:list|show) research projects[.!? ]*", user_input, re.I):
+                    projects = service.store.list_projects()
+                    message = "Research projects:\n" + "\n".join(
+                        f"{p['id']} — {p['objective'][:160]}" for p in projects
+                    ) if projects else "No research projects yet. Attach evidence or describe a research objective."
+                else:
+                    result = service.run(
+                        user_input, project_id=project_id, attachments=paths,
+                        chat_id=chat_id, new_project=new_project,
+                        cancel=realtime_request.cancellation.event,
+                        progress=lambda text: self._emit_background("thinking_update", text),
+                        synthesize=bool(model or gguf) and "```calculation" not in user_input and "```research" not in user_input,
+                    )
+                    self._research_project_id = result["project_id"]
+                    message = service.reply(result)
+                if realtime_request.cancellation.cancelled:
+                    raise InterruptedError("Research cancelled")
+                self.history.extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": message}])
+                self.runtime.realtime.complete_generation(realtime_request.epoch)
+                self.runtime.realtime.finish_speech(realtime_request.epoch)
+                self._emit_background("message_ready", MORICE_NAME, message, False)
+            except InterruptedError:
+                self._emit_background("response_cancelled", realtime_request.request_id)
+            except Exception as exc:
+                self.runtime.realtime.complete_generation(realtime_request.epoch)
+                self.runtime.realtime.finish_speech(realtime_request.epoch)
+                self._emit_background("message_ready", MORICE_NAME, f"Research could not complete: {exc}. Completed evidence remains stored.", False)
+
+        _start_background_task("research-analysis", research_worker)
+
     def on_attach(self):
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select an image",
+            "Attach images or research evidence",
             "",
-            "Images (*.png *.jpg *.jpeg *.webp *.bmp *.gif)",
+            "Research and images (*.pdf *.docx *.csv *.tsv *.xlsx *.json *.xml *.ipynb *.txt *.md *.log *.png *.jpg *.jpeg *.webp *.bmp *.gif);;All files (*)",
         )
-        if file_path:
-            self.pending_image_path = file_path
-            self.append_message(MORICE_NAME, self._address("Image attached. Ask your question."))
+        if file_paths:
+            if len(file_paths) == 1 and os.path.splitext(file_paths[0])[1].lower() in {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"} and not self._research_project_id:
+                self.pending_image_path = file_paths[0]
+            else:
+                self.pending_research_paths = list(dict.fromkeys(self.pending_research_paths + file_paths))[:20]
+            self.append_message(MORICE_NAME, self._address(f"Attached {len(file_paths)} file(s). Ask your question."))
 
     def on_toggle_precision(self):
         self._set_precision_state(not self.precision_mode)
@@ -15671,7 +16000,11 @@ class MoriceWindow(QWidget):
         self._is_closing = True
         set_voice_session_active(False)
         self._save_workspace_session()
+        if self._chat_history_store is not None:
+            self._chat_history_store.expire(ended_id=self._chat_id)
         self._save_recovery_snapshot()
+        if hasattr(self, "pet_manager"):
+            self.pet_manager.shutdown()
         if (
             self._motion_enabled
             and self.isVisible()
@@ -15730,21 +16063,35 @@ def _show_window_for_launch(window: QWidget, environ: dict[str, str] | None = No
 
 def run_app():
     _set_windows_app_id()
-    # Publish the UI identity before model/runtime prewarm. The background
-    # listener can otherwise observe a long cold start as "no app" and launch
-    # duplicate hidden copies while a game or media audio is still playing.
-    set_app_session_active(True)
-    runtime = get_runtime_services()
-    recovery_info = runtime.start()
     app = QApplication(sys.argv)
     _load_ui_fonts()
     app.setApplicationName("MORICE")
     app.setApplicationDisplayName("MORICE")
     app.setOrganizationName("EONASH2722")
+    instance = SingleInstanceController(app)
+    if not instance.acquire_or_notify():
+        return 0
+    # Publish the UI identity before model/runtime prewarm. The background
+    # listener can otherwise observe a long cold start as "no app" and launch
+    # duplicate hidden copies while a game or media audio is still playing.
+    set_app_session_active(True)
+    runtime = get_runtime_services()
+    try:
+        recovery_info = runtime.start()
+    except Exception:
+        set_app_session_active(False)
+        instance.close()
+        runtime.shutdown(clean=False)
+        raise
     icon_path = _icon_path()
     if os.path.exists(icon_path):
         app.setWindowIcon(QIcon(icon_path))
     window = MoriceWindow(runtime, recovery_info)
+    instance.activation_requested.connect(
+        lambda action: restore_morice_window(window, action)
+    )
+    for pending_action in instance.take_pending_actions():
+        restore_morice_window(window, pending_action)
     health_report = window._run_startup_health_check()
     if health_report.critical_failures:
         failure_text = "\n".join(
@@ -15758,6 +16105,7 @@ def run_app():
             + failure_text,
         )
         set_app_session_active(False)
+        instance.close()
         runtime.shutdown(clean=True)
         return 2
     _show_window_for_launch(window)
@@ -15765,6 +16113,7 @@ def run_app():
         return app.exec()
     finally:
         set_app_session_active(False)
+        instance.close()
         reset_model_runtime()
         runtime.shutdown(clean=True)
 

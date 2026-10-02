@@ -1,0 +1,12 @@
+{
+  "id": "horse",
+  "name": "Horse",
+  "renderer": "horse",
+  "movement": "ground",
+  "click_feedback": "head_nod",
+  "accent": "#d7a76e",
+  "behavior_states": ["idle", "patrol", "play", "react", "graze", "rear", "gallop"],
+  "special_events": ["horse_graze_and_rear"],
+  "asset_status": "original_development_placeholder",
+  "sprite_pack_slots": ["idle", "walk", "run", "graze", "reaction", "sleep"]
+}

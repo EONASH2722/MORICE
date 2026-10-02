@@ -41,6 +41,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+research = ["pypdf>=5,<7", "openpyxl>=3.1,<4", "pint>=0.24,<1"]
 local-python = ["llama-cpp-python>=0.2.90"]
 dev = [
   "build>=1.2",
@@ -57,6 +58,7 @@ Repository = "https://github.com/EONASH2722/MORICE.git"
 
 [project.gui-scripts]
 morice = "morice.pyside_app:run_app"
+morice-pet = "morice.desktop_pet:run_pet_host"
 
 [project.scripts]
 morice-cli = "morice.cli:main"
@@ -76,4 +78,5 @@ morice = [
   "assets/web/fonts/*.ttf",
   "assets/web/fonts/*.woff",
   "assets/web/fonts/*.woff2",
+  "assets/pets/*/*.json",
 ]

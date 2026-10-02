@@ -142,6 +142,37 @@ class WorkspaceUiTests(unittest.TestCase):
         self.window.close()
         self.app.processEvents()
 
+    def test_current_history_reopen_does_not_end_session(self):
+        with patch.object(self.window, "_start_new_chat") as start, patch.object(self.window, "_get_chat_history") as store:
+            self.window._restore_history_chat(self.window._chat_id)
+        start.assert_not_called()
+        store.assert_not_called()
+
+    def test_disabled_sessions_do_not_persist_history(self):
+        self.window.history = [{"role": "user", "content": "Do not save"}]
+        with patch.object(self.window, "_get_chat_history") as store:
+            self.window._persist_chat_history()
+        store.assert_not_called()
+
+    def test_history_dialog_search_and_reopen(self):
+        from morice.research.history import ChatHistory
+        from morice.research.history_ui import ChatHistoryDialog
+        with tempfile.TemporaryDirectory() as directory:
+            history = ChatHistory(os.path.join(directory, "knowledge.db"))
+            history.save("study", [{"role": "user", "content": "Battery research"}])
+            opened = Mock()
+            dialog = ChatHistoryDialog(history, opened, self.window)
+            dialog.query.setText("battery")
+            self.assertEqual(dialog.chats.count(), 1)
+            dialog.chats.setCurrentRow(0)
+            dialog.name.setText("Battery experiment")
+            dialog.save()
+            self.assertEqual(history.search()[0]["name"], "Battery experiment")
+            dialog.chats.setCurrentRow(0)
+            dialog.open_selected()
+            opened.assert_called_once_with("study")
+            dialog.close()
+
     def test_workspace_is_split_resizable_and_feature_complete(self):
         names = [
             self.window.workspace_splitter.widget(index).objectName()

@@ -27,7 +27,12 @@
 
 MORICE combines local model inference with a desktop workspace that can answer questions, build projects, operate permission-aware tools, and mount validated interactive artifacts directly in chat. Language models provide reasoning and structured proposals; MORICE validates and executes the result through its own renderers, project engine, and desktop services.
 
-![MORICE normal chat](docs/screenshots/morice-home.png)
+![MORICE normal chat](website/public/morice-home.png)
+
+**Current-source previews:** the scientific research core, named chat history,
+and desktop companions described below are not guaranteed to be present in older
+release downloads. See the [research audit](docs/research-core-audit.md) for what
+was tested and what remains unimplemented.
 
 ## Highlights
 
@@ -39,13 +44,39 @@ MORICE combines local model inference with a desktop workspace that can answer q
 - **Desktop assistance:** permission-aware file search, system information, clipboard actions, media controls, workspace tools, tasks, notes, and diagnostics.
 - **Live Action:** a separate camera-centered voice workspace that retains Chat, Lab, Tools, graphs, attachments, desktop control, and Project builds; camera access is explicit and exiting stops camera, STT, TTS, and visual work.
 - **Automatic context:** relevant local notes are selected without special commands; freshness-sensitive questions use source-linked web context when online and fall back locally when offline.
-- **Local background wake:** the packaged listener recognizes MORICE, configured magic words, or a double-clap, releases the microphone while Live Action owns it, and opens without stealing foreground focus.
+- **Local background wake (opt-in):** when explicitly enabled, the listener recognizes MORICE, configured magic words, or a double-clap, releases the microphone while Live Action owns it, and opens without stealing foreground focus.
 - **Adaptive execution:** goal state, capability discovery, device context, network/Bluetooth observation, and platform adapters keep execution grounded in verified host abilities.
 - **Model manager:** inspect detected GPU/VRAM, compare run plans, validate GGUF files, and switch models without editing configuration files.
 - **Extensible platform:** isolated plugins, permission manifests, renderer contributions, lifecycle controls, diagnostics, and package validation.
 - **Recovery and updates:** bounded workspace state, backups, verified update staging, rollback protection, activity history, and resumable tasks.
 - **Personalization:** name and wake-line preferences, dark/light themes, custom fonts, emoji amount, response maturity, motion, opacity, contrast, and text sizing.
+- **Living desktop launcher:** six animated desktop companions distinguish clicks from DPI-aware drags, react immediately, hide completely over fullscreen apps, and restore or launch exactly one MORICE window without invoking the model pipeline.
 - **Android companion:** unified chat, opt-in voice, on-demand Live Vision, and encrypted device-scoped PC/phone tasks without copying desktop Project Mode onto the phone.
+
+## Desktop Companions
+
+Click a pet to restore and focus MORICE, or drag it to interact without opening the app. Iron Man patrols the whole desktop, removes and recalls his Mark 42 armor, and fights rogue drones; Spider-Man pendulum-swings, temporarily meets a symbiote, and webs masked tech raiders. Dog fetch, cat deep-sleep/stretch, horse graze/rear/gallop, and skeleton collapse/scatter/reform scenes use persistent randomized cooldowns. The behavior loop is local and deterministic; it does not load a model, use the network, or wait for an agent.
+
+The characters currently use procedural artwork and still need visual refinement;
+movie-accurate Mark 42 detail and fully polished animation are not claimed.
+The [desktop-pet guide](docs/desktop-pets.md) explains behavior and settings.
+
+## Scientific Research Core — Preview
+
+Attach research files in ordinary chat to preserve hashed evidence, profile CSV/XLSX
+datasets, and maintain a persistent research project. Explicit calculation blocks
+support physical units and bounded parameter sweeps. Export actual JSON records,
+CSV statistics, sampled SVG plots, Markdown summaries, and original evidence with
+checksums. Selected local-model interpretations are labeled **unverified inference**.
+
+The **↶ Chat history** button supports named, searchable, compressed conversations,
+reopening their research projects, archive, protection, and per-chat retention.
+The default is **Never delete**.
+
+This is not the completed Universal Scientific Research Core: automated literature
+retrieval, research-image interpretation, general solver integrations, formal
+hypothesis testing, and scientific validation remain unavailable. Read the
+[workflow, examples, and limits](docs/research-core.md).
 
 ## Interactive Rendering
 
@@ -108,7 +139,7 @@ model chain-of-thought. MORICE reports file, build, test, editor, and playtest s
 
 Choose **Mode > Live Action**, or use the speaker button beside the composer, to enter and wake the camera-centered workspace; no second wake phrase is required. Live Action uses offline Vosk speech-to-text for user turns and interruptible ElevenLabs streaming speech for MORICE replies. Its live transcript, glass response overlay, and typed composer retain attachments, graphs, Lab, Tools, desktop actions, and project-building. The camera remains off until explicitly enabled, frames stay in memory, and visual inference runs on demand rather than on every preview frame.
 
-Choose **Normal Chat** or **Project**, press the active speaker button again, or use **Exit Live Action** to exit. MORICE immediately stops the camera, cancels microphone capture, reply playback, and vision inference, clears temporary frames/visual memory, and ignores late callbacks. The installed build starts a lightweight local wake listener with Windows so MORICE can respond to its name, configured magic words, or a double-clap while the main window is closed. It does not activate the camera and releases the microphone whenever Live Action is already listening. Set `MORICE_ENABLE_ALWAYS_ON_WAKE=0` or disable **MORICE Wake Listener** in Windows Startup Apps to turn it off.
+Choose **Normal Chat** or **Project**, press the active speaker button again, or use **Exit Live Action** to exit. MORICE immediately stops the camera, cancels microphone capture, reply playback, and vision inference, clears temporary frames/visual memory, and ignores late callbacks. Background wake is now opt-in: explicitly set `MORICE_ENABLE_ALWAYS_ON_WAKE=1` before running the listener. It never activates the camera and yields the microphone to Live Action. The installer no longer enables it by default.
 
 ![MORICE Project Mode setup](docs/screenshots/morice-project-setup.png)
 
@@ -173,14 +204,15 @@ git clone https://github.com/EONASH2722/MORICE.git
 cd MORICE
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -e ".[research]"
 python morice_app_launcher.py
 ```
 
 ## Verify
 
 ```powershell
-python -m unittest discover -s tests
+python -m pip install -e ".[dev,research]"
+python -m pytest tests -q
 cd vnext
 pnpm test
 pnpm run typecheck
@@ -200,6 +232,7 @@ The release pipeline produces the Windows installer, portable package, source an
 - [Feature matrix](docs/feature-matrix.md)
 - [Project Mode](docs/project-mode.md)
 - [Android companion](docs/android-companion.md)
+- [Desktop pets](docs/desktop-pets.md)
 - [VNext rendering](docs/vnext-science-workspace.md)
 - [Models and performance](docs/model-guide.md)
 - [Advanced configuration](docs/advanced-configuration.md)

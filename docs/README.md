@@ -1,6 +1,6 @@
 # MORICE Documentation
 
-This documentation describes the current `0.8.0` Windows application. Claims are tied to source code, tests, real hardware checks, or packaged-build UI inspection; planned capabilities are not presented as shipped features.
+This documentation describes the current source and the `0.8.0` Windows application. The research core and desktop-companion additions are source previews; older release downloads may not contain them. Validation scope and remaining work are listed in each guide.
 
 ## Start Here
 
@@ -11,6 +11,9 @@ This documentation describes the current `0.8.0` Windows application. Claims are
 | [Models and performance](model-guide.md) | GGUF/Ollama setup, GPU fit, and tuning |
 | [Project Mode](project-mode.md) | Folder access, project generation, review, apply, tests, and Git status |
 | [Android companion](android-companion.md) | APK installation, secure pairing, voice, Live Vision, task grants, and validation limits |
+| [Desktop pets](desktop-pets.md) | Animated companions, click-to-open behavior, drag interactions, fullscreen handling, and transparent showcase assets |
+| [Scientific research core](research-core.md) | Evidence ingestion, unit-aware calculations, project persistence, exports, named history, and explicit limitations |
+| [Research implementation audit](research-core-audit.md) | Before/after evidence and the remaining original-specification gaps |
 | [Troubleshooting](troubleshooting.md) | Launch, model, renderer, voice, display, and project problems |
 | [FAQ](faq.md) | Short answers about privacy, models, rendering, projects, VRAM, and support |
 

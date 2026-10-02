@@ -2,6 +2,17 @@
 
 This matrix is the release boundary for MORICE `0.8.0`. It is intentionally narrower than MORICE's long-term roadmap.
 
+## Current-source previews (not all present in older release downloads)
+
+| Capability | Status | Boundary |
+| --- | --- | --- |
+| Research projects and provenance | Preview | Persistent records in existing SQLite database; stored revisions and dependency invalidation through Python API |
+| Research evidence ingestion | Preview | Text PDF/DOCX and structured tables; image metadata only; no OCR or scientific image interpretation |
+| Calculations | Preview | Explicit arithmetic inputs, Pint units, bounded sweeps; no general scientific solver |
+| Research export | Preview | Actual JSON, CSV, sampled SVG, Markdown and copied sources; checksums, not scientific peer review |
+| Named chat history | Preview | Search, reopen, archive, protect and per-chat retention; see [limits](research-core.md) |
+| Desktop special events | Preview | Local scheduled pet sequences and enemy scenes; procedural visuals still require refinement |
+
 ## Desktop And Conversation
 
 | Capability | Status | Evidence or condition |
@@ -15,12 +26,13 @@ This matrix is the release boundary for MORICE `0.8.0`. It is intentionally narr
 | Themes, custom fonts, emoji amount, maturity | Supported | Panel and Settings appearance controls |
 | Motion, contrast, large text, interface scale | Supported | Accessibility controls and settings profiles |
 | Message queue and steer while replying | Supported | Queue controls and active-response composer |
+| Animated desktop pets | Supported, optional | Six data-driven companions with click/drag classification, concurrent reactions, animation speed, fullscreen suspension, monitor-safe restore, direct open/chat action, and per-user single-instance launch protection |
 | Live Action isolation | Supported | Camera, STT, TTS, visual frames, and short visual memory are session-only; leaving stops/cancels and clears them |
 | Live camera preview | Supported, local | Real Qt Multimedia device discovery, format selection, reconnect/error state, mirror, memory-only frames, and explicit activation |
 | On-demand visual inference | Supported, local | llama.cpp multimodal provider with fresh-frame and quality gates; no visual claim is produced when processing fails |
 | Scene awareness | Optional, local | Lightweight scene-change tracking only; disabled by default and never runs the visual LLM per frame |
 | Visual targeting | Conditional | Drawn only when the visual provider returns a valid normalized region; otherwise no box is shown |
-| Background wake listener | Supported, local | Installed startup listener recognizes MORICE, configured magic words, and double-clap; launches minimized without taking focus, never starts the camera, and yields microphone ownership to Live Action |
+| Background wake listener | Supported, local, opt-in | When explicitly enabled, recognizes MORICE, configured magic words, and double-clap; launches minimized without taking focus, never starts the camera, and yields microphone ownership to Live Action |
 | Speech-to-text | Supported, local | Vosk conversation input in Live Action; requires the bundled model, audio device, and Windows permission |
 | Text-to-speech | Conditional | ElevenLabs streaming PCM in Live Action; requires a securely configured API key and network access |
 | Context-aware speech delivery | Supported | Verified actions use short truthful acknowledgements while explanations and warnings use distinct pace/stability/style metadata; a failed action is never spoken as complete |

@@ -2,7 +2,7 @@
 
 
 import os
-from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 project_dir = os.path.abspath(SPECPATH)
 model_candidates = [
@@ -41,6 +41,7 @@ data_files = [
     (os.path.join(project_dir, 'morice', 'assets', 'morice_logo.ico'), 'morice\\assets'),
     (os.path.join(project_dir, 'morice', 'assets', 'morice-logo-rgb.png'), 'morice\\assets'),
     (os.path.join(project_dir, 'morice', 'assets', 'web'), 'morice\\assets\\web'),
+    (os.path.join(project_dir, 'morice', 'assets', 'pets'), 'morice\\assets\\pets'),
     (bundled_model, 'morice\\assets'),
     (os.path.join(project_dir, 'third_party', 'llama-win-cpu'), 'morice\\assets\\llama-bin'),
 ]
@@ -49,6 +50,11 @@ if os.path.isdir(voice_model):
 if vision_files:
     for vision_file in vision_files:
         data_files.append((vision_file, 'morice\\assets\\vision'))
+
+# Pint loads its unit definitions from package data at runtime.
+# Release builders install .[dev,research]; fail here if it is missing.
+import pint
+data_files += collect_data_files('pint')
 
 a = Analysis(
     [os.path.join(project_dir, 'morice_app_launcher.py')],

@@ -48,10 +48,11 @@ Name: "{autoprograms}\MORICE"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{
 Name: "{autodesktop}\MORICE"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MORICE Wake Listener"; ValueData: """{app}\{#MyAppExeName}"" --morice-wake-listener"; Flags: uninsdeletevalue
+; Remove the legacy startup listener on upgrade. Background microphone wake is
+; now an explicit user opt-in, never an installer default.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "MORICE Wake Listener"; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--morice-wake-listener"; Description: "Start MORICE background wake listener"; Flags: nowait postinstall skipifsilent runhidden
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch MORICE"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]

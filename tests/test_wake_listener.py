@@ -13,6 +13,7 @@ from morice_wake_listener import (
     DoubleClapDetector,
     RollingTranscript,
     audio_stream_options,
+    background_wake_enabled,
     confident_wake_result,
     detect_clap,
     launch_in_progress,
@@ -28,6 +29,11 @@ from morice_wake_listener import (
 
 
 class WakeAudioFrontendTests(unittest.TestCase):
+    def test_background_wake_requires_explicit_opt_in(self):
+        self.assertFalse(background_wake_enabled({}))
+        self.assertFalse(background_wake_enabled({"MORICE_ENABLE_ALWAYS_ON_WAKE": "off"}))
+        self.assertTrue(background_wake_enabled({"MORICE_ENABLE_ALWAYS_ON_WAKE": "1"}))
+
     def test_high_sensitivity_amplifies_weak_speech_without_clipping(self):
         phase = np.linspace(0.0, math.tau * 8, 640, endpoint=False)
         weak_voice = (np.sin(phase) * 52.0).astype(np.int16)

@@ -27,10 +27,13 @@ const features = [
   ['09', 'Model selection', 'Choose the local model and runtime that fit your machine.'],
   ['10', 'Prompt steering', 'Queue, redirect, cancel, and resume work while MORICE is active.'],
   ['11', 'Desktop native', 'A focused Windows workspace with tools, files, and diagnostics.'],
-  ['12', 'Background wake', 'Wake locally by name, a configured magic word, or double-clap without taking focus.'],
+  ['12', 'Background wake', 'Opt in to local wake by name, a configured magic word, or double-clap without taking focus.'],
   ['13', 'Adaptive execution', 'Match goals to verified tools, device context, and review boundaries before acting.'],
   ['14', 'MORICE Android', 'Carry chat, voice, Live Vision, and approved device controls in a lightweight companion.'],
   ['15', 'Verified Project Mode', 'Detect Unity, Unreal, Roblox, Visual Studio, web, and other toolchains—and report real files, builds, and tests.'],
+  ['16', 'Research core preview', 'Keep hashed evidence, profile datasets, calculate with units, and export reproducible records from chat. Available in current source.'],
+  ['17', 'Searchable chat history', 'Name, reopen, archive, and protect local conversations. Retention defaults to never delete. Available in current source.'],
+  ['18', 'Desktop companions', 'Click a companion to open MORICE, or drag to interact. Six procedural characters include local special-event sequences. Available in current source.'],
 ]
 
 const showcase = {
@@ -103,6 +106,19 @@ function Visualizations() {
   </section>
 }
 
+function Research() {
+  return <section className="section intro" id="research">
+    <div className="section-heading"><p>Current-source preview · October 2026</p><h2>Evidence before conclusions.</h2><span>The scientific core now stores research projects alongside MORICE’s existing knowledge database. Its records distinguish supplied data, deterministic calculations, and unverified model interpretations.</span></div>
+    <div className="feature-rail">
+      <article><b>01</b><h3>Bring your evidence</h3><p>Attach text PDFs, documents, CSV or XLSX datasets. Preserve file hashes and inspect missing values, duplicates, and descriptive statistics.</p></article>
+      <article><b>02</b><h3>Check the numbers</h3><p>Use explicit expressions with physical units and bounded parameter sweeps. Stored dependency revisions mark affected results stale.</p></article>
+      <article><b>03</b><h3>Keep the record</h3><p>Reopen named chats and export source files, JSON records, CSV statistics, and sampled SVG plots with checksums.</p></article>
+      <article><b>Scope</b><h3>A foundation, not a universal scientist</h3><p>No automatic literature retrieval, research-image interpretation, CAD/FEA/SPICE solver integration, or scientific peer review is claimed. Pet artwork is procedural and still needs visual refinement.</p></article>
+    </div>
+    <p>These additions are in the current source; older release downloads may not include them. <a href={`${repo}/blob/main/docs/research-core.md`}>Read the workflow and limits →</a></p>
+  </section>
+}
+
 const contextRoute = [
   ['Local first', 'Checks local knowledge and available tools.'],
   ['Notes when relevant', 'Brings in useful local notes automatically.'],
@@ -115,7 +131,7 @@ function LiveAction() {
     <div className="live-action-inner">
       <div className="live-action-copy">
         <h2>Present when <em>called.</em><br />Quiet when <em>not.</em></h2>
-        <p>Say MORICE, use a magic word, or double-clap. Live Action opens without stealing focus.</p>
+        <p>With background wake explicitly enabled, say MORICE, use a magic word, or double-clap. Camera access remains an explicit Live Action choice.</p>
         <div className="local-listening"><i aria-hidden="true" /><span>Listening locally…</span></div>
         <div className="live-wave" aria-hidden="true">{Array.from({ length: 34 }, (_, i) => <i key={i} style={{ '--i': i, '--h': `${6 + Math.abs(Math.sin(i * .73)) * 29}px` } as React.CSSProperties} />)}</div>
         <div className="camera-privacy"><span aria-hidden="true">▣</span> Camera stays off until you enter Live Action.</div>
@@ -176,5 +192,5 @@ function Download() {
 
 export default function App() {
   const [quality, setQuality] = useState<Quality>('auto')
-  return <><a className="skip-link" href="#features">Skip cinematic introduction</a><Header quality={quality} setQuality={setQuality} /><main><Hero quality={quality} /><Intro /><Visualizations /><LiveAction /><Devices /><Privacy /><Download /></main><footer><a className="brand" href="#top"><span className="brand-logo-frame" aria-hidden="true"><img className="brand-logo" src="./morice-logo.png" alt="" /></span>MORICE</a><span>Local intelligence, under your control.</span><a href={repo}>GitHub ↗</a></footer></>
+  return <><a className="skip-link" href="#features">Skip cinematic introduction</a><Header quality={quality} setQuality={setQuality} /><main><Hero quality={quality} /><Intro /><Research /><Visualizations /><LiveAction /><Devices /><Privacy /><Download /></main><footer><a className="brand" href="#top"><span className="brand-logo-frame" aria-hidden="true"><img className="brand-logo" src="./morice-logo.png" alt="" /></span>MORICE</a><span>Local intelligence, under your control.</span><a href={repo}>GitHub ↗</a></footer></>
 }

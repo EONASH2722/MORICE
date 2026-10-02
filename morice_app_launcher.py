@@ -98,6 +98,12 @@ if "--morice-wake-listener" in sys.argv:
 
     raise SystemExit(run_wake_listener())
 
+if "--morice-pet" in sys.argv:
+    from morice.desktop_pet import run_pet_host
+
+    sys.argv.remove("--morice-pet")
+    raise SystemExit(run_pet_host())
+
 
 def _handoff_pending_update() -> bool:
     if not getattr(sys, "frozen", False):
