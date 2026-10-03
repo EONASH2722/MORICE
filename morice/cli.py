@@ -110,7 +110,8 @@ def run_cli() -> None:
 
     while True:
         try:
-            user_input = input("All Father: ")
+            from .personalization import resolve_user_address
+            user_input = input((resolve_user_address() or "You") + ": ")
         except (EOFError, KeyboardInterrupt):
             print()
             break
@@ -265,11 +266,13 @@ def run_cli() -> None:
                 script = unity_3d_movement_script()
             else:
                 script = unity_2d_movement_script()
-            print(f"{MORICE_NAME}: All Father, here is the script.\n{script}")
+            from .personalization import address_message
+            print(f"{MORICE_NAME}: {address_message('Here is the script.')}\n{script}")
             continue
 
         if wants_html_cube_movement(user_input):
-            print(f"{MORICE_NAME}: All Father, here is the script.\n{html_cube_movement_script()}")
+            from .personalization import address_message
+            print(f"{MORICE_NAME}: {address_message('Here is the script.')}\n{html_cube_movement_script()}")
             continue
 
         if not math_steps_mode and not wants_steps_detail(user_input):

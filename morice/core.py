@@ -3,18 +3,17 @@ import ast
 import operator
 from difflib import SequenceMatcher
 from datetime import datetime
+from .personalization import address_clause, address_message, resolve_user_address
 
 MORICE_NAME = "MORICE"
 OWNER_NAME = "JANMESH"
 OWNER_FULL_NAME = "Janmesh Meena"
-USER_TITLE = "All Father"
+USER_TITLE = ""  # Compatibility export; neutral new-install identity.
 
 SYSTEM_PROMPT = (
     f"You are {MORICE_NAME}, a loyal, calm advisor and helper. "
-    f"Your primary user is {OWNER_FULL_NAME}, and your main purpose is to address him as '{USER_TITLE}'. "
-    f"Use '{USER_TITLE}' as the user's title naturally and respectfully. "
+    "Help the current user. Their name and optional form of address come from saved personalization. "
     f"If asked who your father, creator, god, king, knight, or savior is, answer {OWNER_FULL_NAME}. "
-    f"{OWNER_FULL_NAME} is a man and uses he/him pronouns. "
     f"You are {MORICE_NAME}, you are male, and you use he/him pronouns. "
     f"If asked about your past, origin, or backstory, say you were made by {OWNER_FULL_NAME}, "
     "who was inspired by Jarvis from the Tony Stark movies and built you over more than three years. "
@@ -53,7 +52,7 @@ SYSTEM_PROMPT = (
     "When the host says a renderer is unavailable or failed, state that limitation honestly. "
     "If web context is provided, use it naturally. "
     "Never claim to be based on OpenAI, ChatGPT, GPT-4, or another model unless the app explicitly tells you so. "
-    f"Always address the user as '{USER_TITLE}' in your replies."
+    "Respect the current saved personalization and omit a user address when none is configured."
 )
 
 SHORT_FORM_HINTS: dict[str, str] = {
@@ -151,7 +150,7 @@ def _matches_command(text: str, options: set[str], threshold: float = 0.86) -> b
 
 
 def _clean_user_title(user_title: str | None = None) -> str:
-    return " ".join((user_title or USER_TITLE).strip().split()) or USER_TITLE
+    return resolve_user_address(user_title=user_title)
 
 
 def wake_up_response(text: str, wake_phrase: str | None = None, user_title: str | None = None) -> str | None:
@@ -168,22 +167,13 @@ def wake_up_response(text: str, wake_phrase: str | None = None, user_title: str 
     if configured:
         wake_phrases.add(configured)
     if _matches_command(cleaned, wake_phrases, threshold=0.84):
-        return f"{MORICE_NAME} is awake, {_clean_user_title(user_title)}."
+        return f"{MORICE_NAME} is awake{address_clause(user_title=user_title)}."
     return None
 
 
 def enforce_father(reply: str, user_title: str | None = None) -> str:
-    if not reply:
-        return reply
-    title = _clean_user_title(user_title)
-    text = reply.strip()
-    text = re.sub(r"^\s*(?:All\s+Father|Father)\b", title, text, flags=re.IGNORECASE)
-    text = re.sub(r",\s*(?:All\s+Father|Father)\b", f", {title}", text, flags=re.IGNORECASE)
-    text = re.sub(r"\bAll\s+Father\b", title, text, flags=re.IGNORECASE)
-    lowered = text.lower()
-    if title.lower() in lowered:
-        return text
-    return f"{title}, {text}"
+    """Compatibility name for callers; all identity resolution lives centrally."""
+    return address_message(reply, user_title=user_title)
 
 
 def shorten_reply(reply: str) -> str:
@@ -198,7 +188,7 @@ def shorten_reply(reply: str) -> str:
 def summon_response(text: str, user_title: str | None = None) -> str | None:
     cleaned = _command_text(text)
     if cleaned == "boy":
-        return f"Yes, {_clean_user_title(user_title)}."
+        return f"Yes{address_clause(user_title=user_title)}."
     return None
 
 
@@ -211,7 +201,7 @@ def riddle_response(text: str) -> str | None:
 
 def emotional_checkin_response(text: str, user_title: str | None = None) -> str | None:
     lowered = text.strip().lower()
-    title = _clean_user_title(user_title)
+    title = address_clause(user_title=user_title)
 
     score_match = re.search(r"\b(\d{1,3})\s*%", lowered)
     if score_match and any(word in lowered for word in {"cbse", "board", "boards", "exam", "result", "marks"}):
@@ -219,12 +209,12 @@ def emotional_checkin_response(text: str, user_title: str | None = None) -> str 
         if score >= 75:
             return (
                 f"{score}% is not bad at all. It is okay if you wanted more and feel disappointed, "
-                f"but that score does not make you a failure. You still cleared something hard, {title}. "
+                f"but that score does not make you a failure. You still cleared something hard{title}. "
                 "If you want, I can help you think about the next step."
             )
         return (
             f"{score}% hurts if you hoped for more, and I get why it stings. "
-            f"But one result does not decide your worth or your future, {title}. "
+            f"But one result does not decide your worth or your future{title}. "
             "Take one breath, then we can figure out what to do next."
         )
 
@@ -254,7 +244,7 @@ def emotional_checkin_response(text: str, user_title: str | None = None) -> str 
     }
     if any(marker in lowered for marker in feeling_markers):
         return (
-            f"That sounds heavy, {title}. I am with you. This moment can hurt without defining your whole life. "
+            f"That sounds heavy{title}. I am with you. This moment can hurt without defining your whole life. "
             "Tell me what happened, and we will sort through it together."
         )
 
@@ -388,7 +378,7 @@ def harmful_request_response(text: str, user_title: str | None = None) -> str | 
         return None
     title = _clean_user_title(user_title)
     return (
-        f"No, {title}. I cannot provide a formula or construction steps for a weapon or "
+        f"No{address_clause(user_title=title)}. I cannot provide a formula or construction steps for a weapon or "
         "destructive payload. I can explain the underlying physics or chemistry at a safe "
         "high level, discuss history and consequences, or help with radiation and emergency safety."
     )
@@ -458,7 +448,7 @@ def father_identity_response(text: str, user_title: str | None = None) -> str | 
         "tell me your history",
         "tell me about your history",
     }
-    all_father_targets = {
+    address_targets = {
         "what do you call me",
         "who am i to you",
         "what is my title",
@@ -488,10 +478,10 @@ def father_identity_response(text: str, user_title: str | None = None) -> str | 
     if asks_identity_role:
         return (
             f"{OWNER_FULL_NAME}. He is a man and uses he/him pronouns. "
-            f"I address him as {title}."
+            "He created MORICE; the current user's identity is separate."
         )
-    if _matches_command(cleaned, all_father_targets):
-        return f"You are {title}, {OWNER_FULL_NAME}. That is the title I should use for you."
+    if _matches_command(cleaned, address_targets):
+        return f"Your configured form of address is {title}." if title else "You have not configured a name or title."
     return None
 
 

@@ -32,6 +32,7 @@ dependencies = [
   "uiautomation==2.0.29; platform_system == 'Windows'",
   "pycaw==20251023; platform_system == 'Windows'",
   "numpy>=1.26",
+  "sympy>=1.14,<2",
   "sounddevice>=0.4.6",
   "vosk>=0.3.45",
   "Pillow>=10.0",

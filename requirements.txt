@@ -7,6 +7,7 @@ winrt-Windows.Media.Control==3.2.1
 uiautomation==2.0.29
 pycaw==20251023
 numpy>=1.26
+sympy>=1.14,<2
 sounddevice>=0.4.6
 vosk>=0.3.45
 Pillow>=10.0

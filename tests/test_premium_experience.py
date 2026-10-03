@@ -170,7 +170,8 @@ class PremiumUiTests(unittest.TestCase):
         self.assertTrue(self.window.attach_btn.isVisible())
         self.assertFalse(self.window.voice_btn.isVisible())
         self.assertFalse(self.window.model_selector_btn.isVisible())
-        self.assertTrue(self.window.precision_btn.isVisible())
+        self.assertFalse(self.window.precision_btn.isVisible())
+        self.assertTrue(self.window.quick_actions_btn.isVisible())
         self.assertFalse(self.window.personalization_btn.isVisible())
         self.assertTrue(self.window.send_btn.isVisible())
 

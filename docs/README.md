@@ -9,6 +9,7 @@ This documentation describes the current source and the `0.8.0` Windows applicat
 | [User manual](user-manual.md) | Installation, first launch, chat, visuals, settings, and everyday workflows |
 | [Feature matrix](feature-matrix.md) | Exact implemented, conditional, and unavailable capabilities |
 | [Models and performance](model-guide.md) | GGUF/Ollama setup, GPU fit, and tuning |
+| [Reviewer fixes](reviewer-fixes.md) | Neutral personalization, composer help, Precision behavior, computed graph insights and readable numbers |
 | [Project Mode](project-mode.md) | Folder access, project generation, review, apply, tests, and Git status |
 | [Android companion](android-companion.md) | APK installation, secure pairing, voice, Live Vision, task grants, and validation limits |
 | [Desktop pets](desktop-pets.md) | Animated companions, click-to-open behavior, drag interactions, fullscreen handling, and transparent showcase assets |

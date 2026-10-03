@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 
 import numpy as np
+from .graph_insight import GraphInsight, analyze_graph
 
 
 SAFE_FUNCTIONS = {
@@ -41,6 +42,7 @@ class GraphSeries:
     y: list[float]
     color: str
     inspection_points: list[dict] = field(default_factory=list)
+    insight: GraphInsight | None = None
 
 
 @dataclass
@@ -989,6 +991,8 @@ def build_graph_artifact(text: str) -> ScienceArtifact | None:
         )
     if not series:
         return None
+    for item in series:
+        item.insight = analyze_graph(_normalize_expression(item.expression), item.inspection_points, (-10.0, 10.0))
     y_range = _graph_view_y_range(series)
     title = (
         f"y = {series[0].expression}"

@@ -86,7 +86,13 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QColorDialog,
     QStyle,
+    QMenu,
 )
+
+from .personalization import PersonalizationProfile, normalize_identity, resolve_user_address, address_clause, address_message
+from .composer_help import CONTROLS, PRECISION_HELP
+from .numeric_format import format_number
+from .graph_insight import summarize_insight
 
 from . import __version__
 from .core import (
@@ -1994,6 +2000,13 @@ class GraphCanvas(QWidget):
         self.pan_y = 0.0
         self.update()
 
+    def _plot_rect(self):
+        x0, x1, y0, y1 = self._ranges()
+        metrics = self.fontMetrics()
+        x_width = max(metrics.horizontalAdvance(format_number(x0 + (x1-x0)*i/10, spacing=(x1-x0)/10)) for i in range(11))
+        y_width = max(metrics.horizontalAdvance(format_number(y0 + (y1-y0)*i/10, spacing=(y1-y0)/10)) for i in range(11))
+        return self.rect().adjusted(max(58, y_width+18, x_width//2+8), 30, -max(18, x_width//2+8), -56)
+
     def export_png(self, path: str) -> bool:
         return bool(path and self.grab().save(path, "PNG"))
 
@@ -2076,7 +2089,7 @@ class GraphCanvas(QWidget):
 
     def mouseMoveEvent(self, event):
         pos = event.position().toPoint()
-        plot = self.rect().adjusted(58, 30, -18, -56)
+        plot = self._plot_rect()
         if self._dragging:
             x0, x1, y0, y1 = self._ranges()
             dx = pos.x() - self._last_mouse.x()
@@ -2096,8 +2109,8 @@ class GraphCanvas(QWidget):
                     distance = abs(sx - x) + abs(sy - y)
                     if distance < best:
                         best = distance
-                        nearest = f"{series.label}: x={sx:.3g}, y={sy:.3g}"
-            self.inspected.emit(nearest or f"x={x:.3g}, y={y:.3g}")
+                        nearest = f"{series.label}: x={format_number(sx)}, y={format_number(sy)}"
+            self.inspected.emit(nearest or f"x={format_number(x)}, y={format_number(y)}")
         event.accept()
 
     def mouseReleaseEvent(self, event):
@@ -2108,7 +2121,7 @@ class GraphCanvas(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing, True)
         rect = self.rect()
-        plot = rect.adjusted(58, 30, -18, -56)
+        plot = self._plot_rect()
         painter.fillRect(rect, QColor(5, 7, 12, 235))
         painter.setPen(QPen(QColor(150, 120, 225, 70), 1))
         painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), 12, 12)
@@ -2128,8 +2141,12 @@ class GraphCanvas(QWidget):
             x_value = x0 + (x1 - x0) * i / 10
             y_value = y1 - (y1 - y0) * i / 10
             painter.setPen(QColor(195, 205, 225, 150))
-            painter.drawText(QRect(x - 28, plot.bottom() + 5, 56, 18), Qt.AlignHCenter | Qt.AlignTop, f"{x_value:.3g}")
-            painter.drawText(QRect(2, y - 9, 40, 18), Qt.AlignRight | Qt.AlignVCenter, f"{y_value:.3g}")
+            x_label = format_number(x_value, spacing=(x1-x0)/10)
+            label_width = max(56, painter.fontMetrics().horizontalAdvance(x_label)+12)
+            label_stride = max(1, math.ceil(label_width / max(1, plot.width()/10)))
+            if i % label_stride == 0:
+                painter.drawText(QRect(x-label_width//2, plot.bottom()+5, label_width, 18), Qt.AlignHCenter | Qt.AlignTop, x_label)
+            painter.drawText(QRect(2, y-9, plot.left()-12, 18), Qt.AlignRight | Qt.AlignVCenter, format_number(y_value, spacing=(y1-y0)/10))
             painter.setPen(QPen(QColor(255, 255, 255, 42), 1))
 
         zero = self._to_screen(0.0, 0.0, plot)
@@ -2192,7 +2209,7 @@ class GraphCanvas(QWidget):
                 if labels_drawn >= 8:
                     continue
                 label = str(inspection.get("label") or "point")
-                value = f"{ix:.3g}, {iy:.3g}"
+                value = f"{format_number(ix)}, {format_number(iy)}"
                 text = f"{label}\n{value}"
                 metrics = painter.fontMetrics()
                 width = max(metrics.horizontalAdvance(label), metrics.horizontalAdvance(value)) + 26
@@ -2528,8 +2545,8 @@ class SurfaceCanvas(QWidget):
             painter.setPen(self._surface_color(value, low, high))
             painter.drawLine(legend.left(), legend.top() + offset, legend.right(), legend.top() + offset)
         painter.setPen(QColor(230, 238, 250, 205))
-        painter.drawText(QRect(legend.left() - 44, legend.top() - 18, 56, 18), Qt.AlignRight, f"{high:.3g}")
-        painter.drawText(QRect(legend.left() - 44, legend.bottom(), 56, 18), Qt.AlignRight, f"{low:.3g}")
+        painter.drawText(QRect(legend.left() - 44, legend.top() - 18, 56, 18), Qt.AlignRight, f"{format_number(high)}")
+        painter.drawText(QRect(legend.left() - 44, legend.bottom(), 56, 18), Qt.AlignRight, f"{format_number(low)}")
         painter.setPen(QColor(255, 255, 255, 225))
         painter.drawText(rect.adjusted(12, 7, -12, -7), Qt.AlignTop | Qt.AlignLeft, self.artifact.title)
 
@@ -6071,6 +6088,8 @@ class MoriceWindow(QWidget):
         self.response_style = self.settings.get("response_style", "").strip()
         self.wake_phrase = normalize_wake_phrase(self.settings.get("wake_phrase", ""))
         self.user_title = normalize_user_title(self.settings.get("user_title", ""))
+        self.preferred_name = normalize_identity(self.settings.get("preferred_name", ""))
+        self.precision_mode = PersonalizationProfile.from_settings(self.settings).precision
         self.emoji_level = normalize_emoji_level(
             self.settings.get("emoji_level", "")
         )
@@ -6936,8 +6955,16 @@ class MoriceWindow(QWidget):
 
         self.title_input = QLineEdit()
         self.title_input.setObjectName("TitleInput")
-        self.title_input.setPlaceholderText("Example: Boss, Captain, Janmesh...")
+        self.title_input.setPlaceholderText("Optional title; leave blank for neutral replies")
         self.title_input.setText(self.user_title)
+        self.name_input = QLineEdit(self.preferred_name)
+        self.name_input.setAccessibleName("Preferred name, optional")
+        self.name_input.setPlaceholderText("Optional preferred name")
+        self.title_preview = QLabel()
+        self.title_preview.setWordWrap(True)
+        self.title_input.textChanged.connect(self._update_identity_preview)
+        self.name_input.textChanged.connect(self._update_identity_preview)
+        self._update_identity_preview()
 
         wake_label = QLabel("Wake line")
         wake_label.setObjectName("StyleLabel")
@@ -7383,6 +7410,8 @@ class MoriceWindow(QWidget):
         sidebar_layout.addWidget(self.style_input)
         sidebar_layout.addWidget(title_label)
         sidebar_layout.addWidget(self.title_input)
+        sidebar_layout.addWidget(self.name_input)
+        sidebar_layout.addWidget(self.title_preview)
         sidebar_layout.addWidget(wake_label)
         sidebar_layout.addWidget(self.wake_input)
         sidebar_layout.addLayout(style_buttons)
@@ -7487,7 +7516,7 @@ class MoriceWindow(QWidget):
 
         self._prompt_history_index = -1
         self.input = AdaptivePromptEdit()
-        self.input.setPlaceholderText(f"{self.user_title}: type here...")
+        self.input.setPlaceholderText(self._input_placeholder())
         self.input.setObjectName("InputBox")
         self.input.returnPressed.connect(self.on_send)
         self.input.historyRequested.connect(self._navigate_prompt_history)
@@ -7496,7 +7525,7 @@ class MoriceWindow(QWidget):
         self.attach_btn = QPushButton()
         self.attach_btn.setObjectName("ComposerToolButton")
         self.attach_btn.setIcon(
-            QApplication.style().standardIcon(QStyle.SP_DialogOpenButton)
+            QApplication.style().standardIcon(QStyle.SP_FileIcon)
         )
         self.attach_btn.setToolTip("Attach an image (Ctrl+O)")
         self.attach_btn.setAccessibleName("Attach image")
@@ -7507,6 +7536,17 @@ class MoriceWindow(QWidget):
         self.voice_btn.setIcon(
             QApplication.style().standardIcon(QStyle.SP_MediaVolume)
         )
+        microphone = QPixmap(24, 24)
+        microphone.fill(Qt.transparent)
+        icon_painter = QPainter(microphone)
+        icon_painter.setRenderHint(QPainter.Antialiasing)
+        icon_painter.setPen(QPen(QColor("#7186ee"), 2))
+        icon_painter.drawRoundedRect(QRect(9, 3, 6, 12), 3, 3)
+        icon_painter.drawArc(QRect(6, 6, 12, 12), 0, -180*16)
+        icon_painter.drawLine(12, 18, 12, 21)
+        icon_painter.drawLine(8, 21, 16, 21)
+        icon_painter.end()
+        self.voice_btn.setIcon(QIcon(microphone))
         self.voice_btn.setToolTip("Enter Live Action")
         self.voice_btn.setAccessibleName("Enter or exit Live Action")
         self.voice_btn.clicked.connect(self._toggle_voice_input)
@@ -7536,29 +7576,39 @@ class MoriceWindow(QWidget):
         )
         self.quick_actions_btn.setToolTip("Quick actions (Ctrl+K)")
         self.quick_actions_btn.setAccessibleName("Open quick actions")
-        self.quick_actions_btn.clicked.connect(self.open_command_palette)
+        self.quick_actions_btn.clicked.connect(self._open_composer_actions)
 
-        for tool_button in (
+        for key, tool_button in zip(CONTROLS, (
             self.attach_btn,
             self.voice_btn,
             self.model_selector_btn,
             self.project_selector_btn,
             self.quick_actions_btn,
-        ):
+        )):
             tool_button.setFixedSize(38, 38)
+            label, help_text = CONTROLS[key]
+            tool_button.setToolTip(help_text)
+            tool_button.setAccessibleName(label)
+            tool_button.setFocusPolicy(Qt.StrongFocus)
 
-        precision_btn = QPushButton("Precision: ON")
+        precision_btn = QPushButton("Precision: On" if self.precision_mode else "Precision: Off")
         precision_btn.setObjectName("PrecisionButton")
         precision_btn.clicked.connect(self.on_toggle_precision)
         self.precision_btn = precision_btn
-        self.precision_btn.setProperty("active", "true")
+        self.precision_btn.setProperty("active", "true" if self.precision_mode else "false")
+        self.precision_btn.setToolTip(PRECISION_HELP)
+        self.precision_btn.setAccessibleName("Precision")
+        self.precision_btn.setCheckable(True)
+        self.precision_btn.setChecked(self.precision_mode)
         self.precision_btn.setMinimumWidth(106)
 
         personalization_btn = QPushButton()
         personalization_btn.setObjectName("PersonalizationStatus")
         personalization_btn.clicked.connect(self.toggle_sidebar)
         self.personalization_btn = personalization_btn
-        self.personalization_btn.setMinimumWidth(112)
+        self.personalization_btn.setMinimumWidth(128)
+        self.personalization_btn.setToolTip("Personalization\nSet or clear an optional name, title, response style, or wake line.")
+        self.personalization_btn.setAccessibleName("Personalization settings")
 
         access_status_btn = QPushButton()
         access_status_btn.setObjectName("ProjectAccessStatus")
@@ -7594,14 +7644,14 @@ class MoriceWindow(QWidget):
         stage_layout.setContentsMargins(18, 20, 18, 42)
         stage_layout.setSpacing(16)
 
-        self.hero_label = QLabel(f"{MORICE_NAME}, what shall we do, {self.user_title}?")
+        self.hero_label = QLabel("What shall we do" + self._address_clause() + "?")
         self.hero_label.setObjectName("HeroPrompt")
         self.hero_label.setAlignment(Qt.AlignCenter)
         self.hero_label.setWordWrap(True)
 
         self.center_input_host = QWidget()
         self.center_input_host.setObjectName("CenterInputHost")
-        self.center_input_host.setMaximumWidth(820)
+        self.center_input_host.setMaximumWidth(1100)
         self.center_input_layout = QVBoxLayout(self.center_input_host)
         self.center_input_layout.setContentsMargins(0, 0, 0, 0)
         self.center_input_layout.setSpacing(0)
@@ -8502,7 +8552,7 @@ class MoriceWindow(QWidget):
                 role = entry.get("role", "")
                 content = entry.get("content", "")
                 if role == "user":
-                    self.append_message(self.user_title, content, is_user=True, force_scroll=False)
+                    self.append_message(resolve_user_address(self._identity_profile()) or "You", content, is_user=True, force_scroll=False)
                 elif role == "assistant":
                     self.append_message(MORICE_NAME, self._address(content), force_scroll=False)
             self._dock_composer_immediate()
@@ -8519,11 +8569,11 @@ class MoriceWindow(QWidget):
             else:
                     self.append_message(MORICE_NAME, "Relevant local notes are selected automatically when available.")
             if self.awake:
-                self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {self.user_title}.")
+                self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake{self._address_clause()}.")
             else:
                 self.append_message(
                     MORICE_NAME,
-                    f"{MORICE_NAME} is asleep, {self.user_title}. Type '{self.wake_phrase}' to wake me.",
+                    f"{MORICE_NAME} is asleep{self._address_clause()}. Type '{self.wake_phrase}' to wake me.",
                 )
 
         QTimer.singleShot(200, self._post_init)
@@ -8564,7 +8614,7 @@ class MoriceWindow(QWidget):
             and os.path.isfile(model_path)
         ):
             stable_system = saved_settings_instruction(
-                self.user_title,
+                resolve_user_address(self._identity_profile()),
                 self.response_style,
                 emoji_preference_instruction(self.emoji_level),
                 maturity_preference_instruction(self.maturity_level),
@@ -8747,7 +8797,7 @@ class MoriceWindow(QWidget):
             if item
         )
         persistent_context = saved_settings_instruction(
-            self.user_title,
+            resolve_user_address(self._identity_profile()),
             self.response_style,
             emoji_preference_instruction(self.emoji_level),
             maturity_preference_instruction(self.maturity_level),
@@ -8920,7 +8970,7 @@ class MoriceWindow(QWidget):
             restored.append({"role": role, "content": content[:120_000]})
             if role == "user":
                 self.append_message(
-                    self.user_title,
+                    resolve_user_address(self._identity_profile()) or "You",
                     content,
                     is_user=True,
                     force_scroll=False,
@@ -9004,18 +9054,46 @@ class MoriceWindow(QWidget):
                 QTimer.singleShot(180, self._begin_voice_listening)
             return
         self.awake = True
-        self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake, {self.user_title}.")
+        self.append_message(MORICE_NAME, f"{MORICE_NAME} is awake{self._address_clause()}.")
         self._last_external_wake_notice = now
         QTimer.singleShot(180, self._begin_voice_listening)
 
     def _address(self, reply: str) -> str:
-        addressed = enforce_father(reply, self.user_title)
+        addressed = address_message(reply, self._identity_profile())
         return apply_emoji_presentation(addressed, self.emoji_level)
 
+    def _identity_profile(self):
+        return PersonalizationProfile(self.preferred_name, self.user_title, interaction_style=self.response_style, precision=self.precision_mode)
+
+    def _address_clause(self):
+        return address_clause(self._identity_profile())
+
+    def _update_identity_preview(self):
+        profile = PersonalizationProfile(normalize_identity(self.name_input.text()), normalize_user_title(self.title_input.text()))
+        address = resolve_user_address(profile)
+        self.title_preview.setText("Preview: " + (f"Hello, {address}." if address else "Hello. Neutral replies omit a name or title.") + " Save to apply to text and voice.")
+
+    def _open_composer_actions(self):
+        menu = QMenu(self)
+        menu.setToolTipsVisible(True)
+        for key, callback in (("files", self.on_attach), ("voice", self._toggle_voice_input), ("model", self._choose_model_source), ("project", self._toggle_composer_project_mode)):
+            action = menu.addAction(CONTROLS[key][0], callback)
+            action.setToolTip(CONTROLS[key][1])
+        menu.addSeparator()
+        precision = menu.addAction(self.precision_btn.text(), self.on_toggle_precision)
+        precision.setCheckable(True)
+        precision.setChecked(self.precision_mode)
+        precision.setToolTip(PRECISION_HELP)
+        menu.addAction("Personalization settings", self.toggle_sidebar)
+        menu.addAction("Search all commands (Ctrl+K)", self.open_command_palette)
+        menu.exec(self.quick_actions_btn.mapToGlobal(QPoint(0, self.quick_actions_btn.height())))
+
     def _input_placeholder(self) -> str:
+        address = resolve_user_address(self._identity_profile())
+        prefix = address + ": " if address else ""
         if self.chat_mode == "voice":
-            return f"{self.user_title}: speak naturally or type here..."
-        return f"{self.user_title}: type here..."
+            return prefix + "Speak naturally or type here..."
+        return prefix + "Type here..."
 
     def _experience_profile(self) -> ExperienceProfile:
         return ExperienceProfile.from_value(
@@ -10657,7 +10735,7 @@ class MoriceWindow(QWidget):
         self._refresh_workspace_artifact_list()
         self.append_message(
             MORICE_NAME,
-            f"New chat ready, {self.user_title}.",
+            "New chat ready" + self._address_clause() + ".",
             force_scroll=True,
         )
         self._record_activity("New chat", category="chat")
@@ -11348,7 +11426,7 @@ class MoriceWindow(QWidget):
 
     def _refresh_name_dependent_text(self):
         if hasattr(self, "hero_label"):
-            self.hero_label.setText(f"{MORICE_NAME}, what shall we do, {self.user_title}?")
+            self.hero_label.setText("What shall we do" + self._address_clause() + "?")
         if hasattr(self, "input") and not self.is_busy:
             self.input.setPlaceholderText(self._input_placeholder())
 
@@ -13707,11 +13785,10 @@ class MoriceWindow(QWidget):
                     f"{timing}"
                 )
             equations = ", ".join(series.label for series in artifact.graph.series)
-            landmark_count = sum(len(series.inspection_points) for series in artifact.graph.series)
+            insights = "\n".join(summarize_insight(series.insight) for series in artifact.graph.series if series.insight)
             return (
-                f"The interactive graph above is live and validated. Equations: {equations}. "
-                f"I found {landmark_count} inspectable intercept, extrema, or inflection points. "
-                f"Hover for coordinates, drag to pan, use the wheel to zoom, or export PNG, SVG, or PDF.{timing}"
+                (insights or f"Equations: {equations}. This view has no global symbolic analysis.")
+                + f"\nRender validation passed. Hover for coordinates, pan, zoom, or export.{timing}"
             )
         if artifact and artifact.kind == "physics" and artifact.physics:
             views = (
@@ -14352,6 +14429,8 @@ class MoriceWindow(QWidget):
         current_lines = []
         if self._has_custom_user_title():
             current_lines.append(f"Calls you: {self.user_title}")
+        if self.preferred_name:
+            current_lines.append(f"Preferred name: {self.preferred_name}")
         if self.response_style:
             current_lines.append(self.response_style)
         if self._has_custom_wake_phrase():
@@ -14359,9 +14438,9 @@ class MoriceWindow(QWidget):
         if current_lines:
             self.current_style_value.setText("\n".join(current_lines))
         else:
-            self.current_style_value.setText("None")
+            self.current_style_value.setText("Personalization: Off")
         self.current_style_value.setProperty("empty", "false" if has_personalization else "true")
-        self.personalization_btn.setText("Personalised" if has_personalization else "None")
+        self.personalization_btn.setText("Personalization: Custom" if has_personalization else "Personalization: Off")
         self.personalization_btn.setProperty("personalized", "true" if has_personalization else "false")
         self._apply_personalization_theme(has_personalization)
 
@@ -14372,7 +14451,7 @@ class MoriceWindow(QWidget):
         return normalize_user_title(self.user_title).lower() != DEFAULT_SETTINGS["user_title"].lower()
 
     def _has_personalization(self) -> bool:
-        return bool(self.response_style.strip()) or self._has_custom_wake_phrase() or self._has_custom_user_title()
+        return bool(self.response_style.strip() or self.preferred_name) or self._has_custom_wake_phrase() or self._has_custom_user_title()
 
     def _apply_personalization_theme(self, has_personalization: bool):
         state = "true" if has_personalization else "false"
@@ -14431,7 +14510,7 @@ class MoriceWindow(QWidget):
         hovered_changed = self.input_frame.property("hovered") != hovered_state
         self.input_frame.setProperty("centered", centered_state)
         self.input_frame.setProperty("hovered", hovered_state)
-        self.input_frame.setMaximumWidth(820 if centered else 16777215)
+        self.input_frame.setMaximumWidth(1100 if centered else 16777215)
 
         if self.input_glow is None:
             self.input_glow = QGraphicsDropShadowEffect(self.input_frame)
@@ -14466,6 +14545,11 @@ class MoriceWindow(QWidget):
         if not hasattr(self, "input_frame"):
             return
 
+        if self.composer_centered:
+            host_width = min(1100, max(260, self.composer_stage.width()-48))
+            if self.center_input_host.width() != host_width:
+                self.center_input_host.setFixedWidth(host_width)
+
         available = self.input_frame.width()
         if available <= 0:
             return
@@ -14473,7 +14557,7 @@ class MoriceWindow(QWidget):
         is_project = self.chat_mode == "project"
         is_voice = self.chat_mode == "voice"
         project_capable = is_project or is_voice
-        if available >= 760:
+        if available >= 870:
             visible_tools = {
                 self.attach_btn,
                 self.voice_btn,
@@ -14481,24 +14565,27 @@ class MoriceWindow(QWidget):
                 self.project_selector_btn,
                 self.quick_actions_btn,
             }
-        elif available >= 620:
-            visible_tools = {self.attach_btn, self.voice_btn}
+        elif available >= 660:
+            visible_tools = {self.attach_btn, self.voice_btn, self.quick_actions_btn}
         elif available >= 480:
-            visible_tools = {self.attach_btn}
+            visible_tools = {self.attach_btn, self.quick_actions_btn}
         else:
-            visible_tools = set()
+            visible_tools = {self.quick_actions_btn}
 
-        for tool_button in (
+        for key, tool_button in zip(CONTROLS, (
             self.attach_btn,
             self.voice_btn,
             self.model_selector_btn,
             self.project_selector_btn,
             self.quick_actions_btn,
-        ):
+        )):
             tool_button.setVisible(tool_button in visible_tools)
+            show_label = available >= 1050
+            tool_button.setText(CONTROLS[key][0] if show_label else "")
+            tool_button.setFixedSize(70 if show_label else 38, 38)
 
-        self.precision_btn.setVisible(available >= 480)
-        self.personalization_btn.setVisible(not is_project and available >= 620)
+        self.precision_btn.setVisible(available >= 720)
+        self.personalization_btn.setVisible(not is_project and available >= 1000)
         self.access_status_btn.setVisible(project_capable and available >= 760)
         self.project_lookup_btn.setVisible(project_capable and available >= 920)
 
@@ -14644,12 +14731,15 @@ class MoriceWindow(QWidget):
         clean_style = normalize_response_style(raw_style)
         self.response_style = clean_style
         self.user_title = normalize_user_title(self.title_input.text())
+        self.preferred_name = normalize_identity(self.name_input.text())
         self.wake_phrase = normalize_wake_phrase(self.wake_input.text())
         self.style_input.setPlainText(self.response_style)
         self.title_input.setText(self.user_title)
         self.wake_input.setText(self.wake_phrase)
         self.settings["response_style"] = self.response_style
         self.settings["user_title"] = self.user_title
+        self.settings["preferred_name"] = self.preferred_name
+        self.name_input.setText(self.preferred_name)
         self.settings["wake_phrase"] = self.wake_phrase
         save_settings(self.settings)
         self._refresh_name_dependent_text()
@@ -14659,6 +14749,8 @@ class MoriceWindow(QWidget):
     def on_clear_response_style(self):
         self.response_style = ""
         self.user_title = DEFAULT_SETTINGS["user_title"]
+        self.preferred_name = ""
+        self.name_input.clear()
         self.wake_phrase = DEFAULT_SETTINGS["wake_phrase"]
         self.style_input.clear()
         self.title_input.setText(self.user_title)
@@ -14669,7 +14761,9 @@ class MoriceWindow(QWidget):
         save_settings(self.settings)
         self._refresh_name_dependent_text()
         self._update_style_badge()
-        self.style_status.setText("Cleared. Personalization is None.")
+        self.settings["preferred_name"] = ""
+        save_settings(self.settings)
+        self.style_status.setText("Cleared. Personalization: Off. Replies use neutral address.")
 
     def _on_scroll_change(self, value: int):
         if self._auto_scrolling:
@@ -14802,16 +14896,25 @@ class MoriceWindow(QWidget):
         self.runtime.speech_input.cancel("transcript-submitted")
         self.runtime.live_vision.cancel("new-user-request")
         user_input = self.input.text().strip()
+        if re.fullmatch(r"(?:what(?:'s| is) happening|how(?:'s| is) it going|what are the agents doing)[.!? ]*", user_input.casefold()):
+            self.input.clear()
+            self.append_message(MORICE_NAME, self.runtime.agents.status_text())
+            return
+        if user_input.casefold().rstrip(".!? ") == "show agent activity":
+            self.input.clear()
+            self._show_agent_activity()
+            return
         if self.is_busy:
             if re.fullmatch(
                 r"(?:stop|cancel|never mind|nevermind|stop that|cancel that)[.!? ]*",
                 user_input.casefold(),
             ):
                 active_request = self.runtime.realtime.active_request
+                self.runtime.agents.cancel_all()
                 self.runtime.realtime.cancel_active("user stop")
                 self.input.clear()
                 self.append_message(
-                    self.user_title,
+                    resolve_user_address(self._identity_profile()) or "You",
                     user_input,
                     is_user=True,
                     force_scroll=True,
@@ -14843,7 +14946,7 @@ class MoriceWindow(QWidget):
         self.input.clear()
         self._prompt_history_index = -1
         self._dock_composer()
-        self.append_message(self.user_title, user_input, is_user=True, force_scroll=True)
+        self.append_message(resolve_user_address(self._identity_profile()) or "You", user_input, is_user=True, force_scroll=True)
         transcript = self._pending_transcript
         self._pending_transcript = None
         initial_marks = {}
@@ -14959,7 +15062,7 @@ class MoriceWindow(QWidget):
         image_path = self.pending_image_path
         if image_path:
             self.pending_image_path = ""
-            self.append_message(self.user_title, f"Attached image: {os.path.basename(image_path)}", is_user=True)
+            self.append_message(resolve_user_address(self._identity_profile()) or "You", f"Attached image: {os.path.basename(image_path)}", is_user=True)
 
         if live_vision_result is not None and not live_vision_result.success:
             self._append_direct_reply(
@@ -14970,7 +15073,7 @@ class MoriceWindow(QWidget):
             )
             return
 
-        wake_message = wake_up_response(user_input, self.wake_phrase, self.user_title)
+        wake_message = wake_up_response(user_input, self.wake_phrase, resolve_user_address(self._identity_profile()))
         if wake_message:
             self._append_direct_reply(user_input, wake_message, address=False)
             self.awake = True
@@ -14983,7 +15086,7 @@ class MoriceWindow(QWidget):
         if not self.awake:
             self._append_direct_reply(
                 user_input,
-                f"I am asleep, {self.user_title}. Say '{self.wake_phrase}'.",
+                f"I am asleep{self._address_clause()}. Say '{self.wake_phrase}'.",
                 address=False,
             )
             return
@@ -15030,7 +15133,7 @@ class MoriceWindow(QWidget):
             self._save_workspace_session()
             return
 
-        summon_message = summon_response(user_input, self.user_title)
+        summon_message = summon_response(user_input, resolve_user_address(self._identity_profile()))
         if summon_message:
             self._append_direct_reply(user_input, summon_message, address=False)
             return
@@ -15040,17 +15143,17 @@ class MoriceWindow(QWidget):
             self._append_direct_reply(user_input, riddle_reply)
             return
 
-        emotional_reply = emotional_checkin_response(user_input, self.user_title)
+        emotional_reply = emotional_checkin_response(user_input, resolve_user_address(self._identity_profile()))
         if emotional_reply:
             self._append_direct_reply(user_input, emotional_reply)
             return
 
-        father_reply = father_identity_response(user_input, self.user_title)
+        father_reply = father_identity_response(user_input, resolve_user_address(self._identity_profile()))
         if father_reply:
             self._append_direct_reply(user_input, father_reply)
             return
 
-        harmful_reply = harmful_request_response(user_input, self.user_title)
+        harmful_reply = harmful_request_response(user_input, resolve_user_address(self._identity_profile()))
         if harmful_reply:
             self._append_direct_reply(user_input, harmful_reply, address=False)
             return
@@ -15144,7 +15247,7 @@ class MoriceWindow(QWidget):
                 script = unity_2d_movement_script()
             self._append_direct_reply(
                 user_input,
-                f"{self.user_title}, here is the script.\n{script}",
+                self._address(f"Here is the script.\n{script}"),
                 address=False,
             )
             return
@@ -15152,7 +15255,7 @@ class MoriceWindow(QWidget):
         if wants_html_cube_movement(user_input):
             self._append_direct_reply(
                 user_input,
-                f"{self.user_title}, here is the script.\n{html_cube_movement_script()}",
+                self._address(f"Here is the script.\n{html_cube_movement_script()}"),
                 address=False,
             )
             return
@@ -15335,7 +15438,7 @@ class MoriceWindow(QWidget):
                     max_chars=24_000 if project_build_request else 12_000,
                 )
                 extra_system = saved_settings_instruction(
-                    self.user_title,
+                    resolve_user_address(self._identity_profile()),
                     self.response_style,
                     emoji_preference_instruction(self.emoji_level),
                     maturity_preference_instruction(self.maturity_level),
@@ -15902,7 +16005,7 @@ class MoriceWindow(QWidget):
         self.first_user_message = self.user_messages[0] if self.user_messages else ""
         self.awake = True
         for message in self.history[-160:]:
-            self.append_message(self.user_title if message["role"] == "user" else MORICE_NAME,
+            self.append_message((resolve_user_address(self._identity_profile()) or "You") if message["role"] == "user" else MORICE_NAME,
                                 message["content"], is_user=message["role"] == "user")
         self._history_saved_key = None
         self._save_workspace_session()
@@ -15991,7 +16094,10 @@ class MoriceWindow(QWidget):
 
     def _set_precision_state(self, is_on: bool):
         self.precision_mode = is_on
-        self.precision_btn.setText("Precision: ON" if is_on else "Precision: OFF")
+        self.precision_btn.setText("Precision: On" if is_on else "Precision: Off")
+        self.precision_btn.setChecked(is_on)
+        self.settings["precision_mode"] = "true" if is_on else "false"
+        save_settings(self.settings)
         self.precision_btn.setProperty("active", "true" if is_on else "false")
         self.precision_btn.style().unpolish(self.precision_btn)
         self.precision_btn.style().polish(self.precision_btn)

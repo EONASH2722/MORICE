@@ -643,8 +643,8 @@ class InlineVisualizationTests(unittest.TestCase):
         self.assertTrue(self.window.voice_btn.isHidden())
         self.assertTrue(self.window.model_selector_btn.isHidden())
         self.assertTrue(self.window.project_selector_btn.isHidden())
-        self.assertTrue(self.window.quick_actions_btn.isHidden())
-        self.assertFalse(self.window.precision_btn.isHidden())
+        self.assertFalse(self.window.quick_actions_btn.isHidden())
+        self.assertTrue(self.window.precision_btn.isHidden())
         self.assertTrue(self.window.personalization_btn.isHidden())
         self.assertGreaterEqual(self.window.precision_btn.minimumWidth(), 106)
         self.assertGreaterEqual(self.window.personalization_btn.minimumWidth(), 112)
@@ -654,11 +654,18 @@ class InlineVisualizationTests(unittest.TestCase):
         self.window._update_composer_responsive_state()
         self.assertFalse(self.window.attach_btn.isHidden())
         self.assertFalse(self.window.voice_btn.isHidden())
-        self.assertFalse(self.window.model_selector_btn.isHidden())
-        self.assertFalse(self.window.project_selector_btn.isHidden())
+        self.assertTrue(self.window.model_selector_btn.isHidden())
+        self.assertTrue(self.window.project_selector_btn.isHidden())
         self.assertFalse(self.window.quick_actions_btn.isHidden())
         self.assertFalse(self.window.precision_btn.isHidden())
+        self.assertTrue(self.window.personalization_btn.isHidden())
+
+        self.window.input_frame.resize(1100, 64)
+        self.window._update_composer_responsive_state()
+        self.assertFalse(self.window.model_selector_btn.isHidden())
+        self.assertFalse(self.window.project_selector_btn.isHidden())
         self.assertFalse(self.window.personalization_btn.isHidden())
+        self.assertTrue(self.window.model_selector_btn.text())
 
     def test_project_manifest_writes_validated_files_atomically(self):
         with tempfile.TemporaryDirectory() as folder:

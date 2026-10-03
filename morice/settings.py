@@ -5,7 +5,9 @@ import os
 DEFAULT_SETTINGS = {
     "response_style": "",
     "wake_phrase": "wake up son",
-    "user_title": "All Father",
+    "user_title": "",
+    "preferred_name": "",
+    "precision_mode": "true",
     "emoji_level": "medium",
     "maturity_level": "none",
     "font_family": "Segoe UI",
@@ -72,9 +74,8 @@ def normalize_wake_phrase(value: str) -> str:
 
 
 def normalize_user_title(value: str) -> str:
-    text = " ".join((value or "").strip().split())
-    text = "".join(ch for ch in text if ch not in "\r\n\t")
-    return text[:42] or DEFAULT_SETTINGS["user_title"]
+    from .personalization import normalize_identity
+    return normalize_identity(value)
 
 
 def normalize_emoji_level(value: str) -> str:
@@ -430,6 +431,8 @@ def load_settings() -> dict:
     settings["response_style"] = normalize_response_style(settings.get("response_style", ""))
     settings["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
     settings["user_title"] = normalize_user_title(settings.get("user_title", ""))
+    settings["preferred_name"] = normalize_user_title(settings.get("preferred_name", ""))
+    settings["precision_mode"] = str(normalize_boolean_setting(settings.get("precision_mode", "true"), default=True)).lower()
     settings["emoji_level"] = normalize_emoji_level(settings.get("emoji_level", ""))
     settings["maturity_level"] = normalize_maturity_level(
         settings.get("maturity_level", "")
@@ -571,6 +574,8 @@ def save_settings(settings: dict) -> None:
     clean["response_style"] = normalize_response_style(settings.get("response_style", ""))
     clean["wake_phrase"] = normalize_wake_phrase(settings.get("wake_phrase", ""))
     clean["user_title"] = normalize_user_title(settings.get("user_title", ""))
+    clean["preferred_name"] = normalize_user_title(settings.get("preferred_name", ""))
+    clean["precision_mode"] = str(normalize_boolean_setting(settings.get("precision_mode", "true"), default=True)).lower()
     clean["emoji_level"] = normalize_emoji_level(settings.get("emoji_level", ""))
     clean["maturity_level"] = normalize_maturity_level(
         settings.get("maturity_level", "")

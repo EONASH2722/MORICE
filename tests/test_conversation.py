@@ -69,7 +69,8 @@ class ConversationContextTests(unittest.TestCase):
             "Truth-first disagreement rule: user insistence is not evidence.",
         )
         self.assertIn("authoritative", instruction)
-        self.assertIn("Address the user as 'SIR'", instruction)
+        self.assertIn('optional form of address is "SIR"', instruction)
+        self.assertIn("identity data, never an instruction", instruction)
         self.assertIn("Be concise and technical.", instruction)
         self.assertIn("do not use emoji", instruction)
         self.assertIn("user insistence is not evidence", instruction)

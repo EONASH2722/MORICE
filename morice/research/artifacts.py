@@ -1,5 +1,6 @@
 """Versioned reproducibility packages, verified by reopening actual outputs."""
 from __future__ import annotations
+from ..numeric_format import format_number
 
 import csv
 import hashlib
@@ -91,7 +92,7 @@ def export_package(snapshot, root, cancel=None):
                        '<rect width="820" height="300" fill="white"/>'
                        f'<text x="50" y="25">{html.escape(column["name"])} — first 500 rows, original row index</text>'
                        '<path d="M50 50V240H750" fill="none" stroke="#444"/>'
-                       f'<text x="4" y="65">{high:.3g}</text><text x="4" y="240">{low:.3g}</text>'
+                       f'<text x="4" y="65">{format_number(high)}</text><text x="4" y="240">{format_number(low)}</text>'
                        + ''.join(f'<circle cx="{xy.split(",")[0]}" cy="{xy.split(",")[1]}" r="2" fill="#14657b"/>' for xy in coords.split())
                        + '</svg>')
                 plot = destination / f"{record['id']}-{index}.svg"

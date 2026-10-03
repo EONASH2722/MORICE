@@ -11,6 +11,8 @@ from .core import SYSTEM_PROMPT, current_datetime_summary, emotional_checkin_res
 from .local_llama import chat as local_chat
 from .local_llama import stream_chat as local_stream_chat
 from .llama_server import ensure_server
+from .personalization import address_message, identity_instruction
+from .composer_help import sampling_settings
 
 DEFAULT_MODEL = os.getenv("MORICE_MODEL", "").strip()
 DEFAULT_BASE_URL = os.getenv("MORICE_OLLAMA_URL", "http://localhost:11434")
@@ -584,12 +586,12 @@ def _friendly_backend_reply(user_message, requested_model, fallback_used):
         fallback_hint = f" I also tried {fallback_used}."
     if requested_model:
         return (
-            f"My local model stumbled, All Father.{fallback_hint} "
+            address_message("My local model stumbled.") + fallback_hint + " "
             f"Fast fix: reopen Ollama or switch MORICE to a lighter model like deepseek-r1:1.5b. "
             f"Current model: {requested_model}."
         )
     return (
-        "My local model stumbled, All Father. Fast fix: reopen Ollama or set MORICE_MODEL to a lighter local model like "
+        address_message("My local model stumbled.") + " Fast fix: reopen Ollama or set MORICE_MODEL to a lighter local model like "
         "deepseek-r1:1.5b."
     )
 
@@ -682,7 +684,7 @@ def _try_ollama_messages_stream(
 
 def _friendly_local_timeout_reply() -> str:
     return (
-        "Qwen took too long on that one, All Father. I kept MORICE alive. "
+        address_message("The local model took too long on that one.") + " I kept MORICE alive. "
         "Try sending a shorter prompt, turning Precision off, or letting the queued message run next."
     )
 
@@ -721,7 +723,7 @@ def _conversation_messages(
     math_steps_mode: bool = False,
 ):
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    system_additions = []
+    system_additions = [identity_instruction()]
     if _needs_runtime_context(user_message):
         system_additions.append(_runtime_context())
     hints = short_form_hints(user_message)
@@ -760,8 +762,8 @@ def stream_chat(
 
     explicit_model = bool((model or "").strip())
     model = (model or DEFAULT_MODEL).strip()
-    temperature = 0.1 if precision_mode else (0.2 if _needs_precision(user_message) else 0.5)
-    top_p = 0.85 if precision_mode else 0.9
+    sampling = sampling_settings(precision_mode, _needs_precision(user_message))
+    temperature, top_p = sampling.temperature, sampling.top_p
     selected_path = (gguf_path or "").strip()
     if selected_path and os.path.splitext(selected_path)[1].lower() != ".gguf":
         yield "(MORICE) Selected model file is not a GGUF model."
@@ -924,11 +926,8 @@ def chat(
 ):
     explicit_model = bool((model or "").strip())
     model = (model or DEFAULT_MODEL).strip()
-    temperature = 0.2 if _needs_precision(user_message) else 0.5
-    top_p = 0.9 if _needs_precision(user_message) else 0.9
-    if precision_mode:
-        temperature = 0.1
-        top_p = 0.85
+    sampling = sampling_settings(precision_mode, _needs_precision(user_message))
+    temperature, top_p = sampling.temperature, sampling.top_p
     selected_path = (gguf_path or "").strip()
     if selected_path and os.path.splitext(selected_path)[1].lower() != ".gguf":
         return (
@@ -940,7 +939,7 @@ def chat(
         return "(MORICE) Selected model file was not found. Use Change model and pick the file again."
     if gguf_path:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        system_additions = [_runtime_context()]
+        system_additions = [_runtime_context(), identity_instruction()]
         hints = short_form_hints(user_message)
         if hints:
             system_additions.append(hints)
@@ -1009,7 +1008,7 @@ def chat(
     if not model:
         return "(MORICE) MORICE_MODEL is not set. Set it or configure MORICE_GGUF_PATH for offline mode."
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-    system_additions = [_runtime_context()]
+    system_additions = [_runtime_context(), identity_instruction()]
     hints = short_form_hints(user_message)
     if hints:
         system_additions.append(hints)

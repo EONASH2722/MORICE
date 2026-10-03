@@ -7,6 +7,7 @@ import math
 import os
 import platform
 import re
+import signal
 import shutil
 import subprocess
 import tempfile
@@ -74,6 +75,23 @@ def _atomic_write(path: Path, data: bytes) -> None:
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)
+
+
+def _terminate_process_tree(process: subprocess.Popen) -> None:
+    """Stop owned command descendants, including Windows venv launchers."""
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            if process.poll() is None:
+                process.kill()
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
 
 class ToolValidationError(ValueError):
@@ -706,7 +724,7 @@ class BuiltinTools:
         if process is None or process.poll() is not None:
             return False
         try:
-            process.terminate()
+            _terminate_process_tree(process)
         except OSError:
             return False
         # A successful terminate request does not guarantee that the process has
@@ -1289,6 +1307,7 @@ class BuiltinTools:
             errors="replace",
             shell=False,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            start_new_session=os.name != "nt",
         )
         with self._process_lock:
             self._active_processes[call_id] = process
@@ -1297,7 +1316,7 @@ class BuiltinTools:
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             timed_out = True
-            process.terminate()
+            _terminate_process_tree(process)
             try:
                 stdout, stderr = process.communicate(timeout=5)
             except subprocess.TimeoutExpired:

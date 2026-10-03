@@ -27,7 +27,7 @@
 
 MORICE combines local model inference with a desktop workspace that can answer questions, build projects, operate permission-aware tools, and mount validated interactive artifacts directly in chat. Language models provide reasoning and structured proposals; MORICE validates and executes the result through its own renderers, project engine, and desktop services.
 
-![MORICE normal chat](website/public/morice-home.png)
+![MORICE normal chat with neutral personalization](docs/reviewer-images/morice-home.png)
 
 **Current-source previews:** the scientific research core, named chat history,
 and desktop companions described below are not guaranteed to be present in older
@@ -49,7 +49,7 @@ was tested and what remains unimplemented.
 - **Model manager:** inspect detected GPU/VRAM, compare run plans, validate GGUF files, and switch models without editing configuration files.
 - **Extensible platform:** isolated plugins, permission manifests, renderer contributions, lifecycle controls, diagnostics, and package validation.
 - **Recovery and updates:** bounded workspace state, backups, verified update staging, rollback protection, activity history, and resumable tasks.
-- **Personalization:** name and wake-line preferences, dark/light themes, custom fonts, emoji amount, response maturity, motion, opacity, contrast, and text sizing.
+- **Personalization:** optional preferred name and title, live updates for text and spoken replies, wake-line preferences, dark/light themes, custom fonts, emoji amount, response maturity, motion, opacity, contrast, and text sizing. New users receive neutral replies with no assumed name or title.
 - **Living desktop launcher:** six animated desktop companions distinguish clicks from DPI-aware drags, react immediately, hide completely over fullscreen apps, and restore or launch exactly one MORICE window without invoking the model pipeline.
 - **Android companion:** unified chat, opt-in voice, on-demand Live Vision, and encrypted device-scoped PC/phone tasks without copying desktop Project Mode onto the phone.
 
@@ -82,10 +82,18 @@ hypothesis testing, and scientific validation remain unavailable. Read the
 
 MORICE never treats prose such as `[a graph appears]` as a successful render. Every completed visual artifact is parsed, typed, rendered, and validated by the host application. Unsupported input receives a visible failure state instead of an imaginary result.
 
+Graph replies explain computed mathematical properties before render status. Bounded
+SymPy analysis covers real roots and multiplicities, quadratic vertices and symmetry,
+polynomial extrema and end behavior, rational holes and asymptotes, and supported
+trigonometric, exponential, and logarithmic transforms. General expressions retain
+explicitly approximate, viewport-limited evidence; unknown global properties stay
+unknown. Axis labels show ordinary values such as **1,000** and **1,000,000** in decimal
+form, reserving scientific notation for extreme magnitudes.
+
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/morice-live-graph.png" alt="Interactive graph in MORICE"></td>
-    <td width="50%"><img src="docs/screenshots/morice-particle-simulation.png" alt="Particle simulation in MORICE"></td>
+    <td width="50%"><img src="docs/reviewer-images/morice-graph.png" alt="Computed quadratic analysis in MORICE"></td>
+    <td width="50%"><img src="docs/reviewer-images/morice-simulation.png" alt="Particle simulation in MORICE"></td>
   </tr>
   <tr>
     <td align="center"><strong>Graphs</strong><br>Pan, zoom, inspect, reset, and export</td>
@@ -141,7 +149,7 @@ Choose **Mode > Live Action**, or use the speaker button beside the composer, to
 
 Choose **Normal Chat** or **Project**, press the active speaker button again, or use **Exit Live Action** to exit. MORICE immediately stops the camera, cancels microphone capture, reply playback, and vision inference, clears temporary frames/visual memory, and ignores late callbacks. Background wake is now opt-in: explicitly set `MORICE_ENABLE_ALWAYS_ON_WAKE=1` before running the listener. It never activates the camera and yields the microphone to Live Action. The installer no longer enables it by default.
 
-![MORICE Project Mode setup](docs/screenshots/morice-project-setup.png)
+![MORICE Project Mode setup](docs/reviewer-images/morice-project.png)
 
 MORICE can work with text-based languages supported by the selected model and installed toolchain. See the [Project Mode guide](docs/project-mode.md) for access boundaries and workflow details.
 
@@ -149,26 +157,51 @@ MORICE can work with text-based languages supported by the selected model and in
 
 The model browser detects available GPU memory and presents a practical run plan before a model is selected.
 
-| Dedicated VRAM | Starting point for the release model |
+| Dedicated VRAM | Conservative starting guidance; not benchmark results |
 | ---: | --- |
 | 0-3 GB | CPU-first or small partial offload; use sufficient system RAM |
 | 4 GB | Conservative context and partial GPU offload |
-| 6 GB | Recommended balanced configuration |
+| 6 GB | Check the selected model's run plan and available memory before offloading |
 | 8 GB | Comfortable offload with additional context headroom |
 | 12 GB+ | Headroom for longer contexts or a larger replacement model |
 
 Actual performance depends on quantization, context length, GPU layers, drivers, system RAM, and other workloads. Use **Panel > Change model** to choose a GGUF or local Ollama model that fits the machine.
 
+The VRAM table is configuration guidance, not a measured RTX 3050 performance claim.
+No new model comparison or throughput result is published by this fix. The earlier
+local latency tool in `scripts/benchmark_latency.py` labels its character-based
+throughput estimate; it must not be presented as a backend token measurement.
+
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/morice-model-manager.png" alt="MORICE model manager"></td>
-    <td width="50%"><img src="docs/screenshots/morice-settings.png" alt="MORICE settings"></td>
+    <td width="50%"><img src="docs/reviewer-images/morice-project.png" alt="MORICE model and project controls"></td>
+    <td width="50%"><img src="docs/reviewer-images/morice-personalization.png" alt="MORICE personalization settings"></td>
   </tr>
   <tr>
-    <td align="center"><strong>Model manager</strong><br>Hardware-aware model selection</td>
+    <td align="center"><strong>Model and Project controls</strong><br>Hardware-aware model selection</td>
     <td align="center"><strong>Settings</strong><br>Appearance, voice, behavior, and accessibility</td>
   </tr>
 </table>
+
+## Composer Controls
+
+**Files**, **Voice**, **Model**, **Project**, and **Tools** show text labels when space
+allows, with tooltips and accessible names for their icons. Files uses a document
+icon; Project uses a folder icon. In compact layouts, **Tools** remains available
+and contains the hidden controls, Precision, and personalization settings.
+
+**Personalization: Off** means no custom name, title, style, or wake line is active.
+Set an optional preferred name or title in the panel, check the preview, then save.
+A title takes precedence over a name; clearing personalization restores neutral
+replies. Previously saved titles are preserved, including an intentionally chosen
+"All Father".
+
+**Precision: On** uses temperature **0.1** and top-p **0.85**, asks the model to be
+exact and avoid guesses, and persists across restarts. Its tooltip explains that
+this reduces sampling randomness; it does not guarantee correctness or run a
+separate verification pass. Deterministic graph calculations run independently
+of this switch. See the [reviewer-fix guide](docs/reviewer-fixes.md) for coverage
+and limits.
 
 ## Install
 

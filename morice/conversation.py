@@ -169,12 +169,12 @@ def saved_settings_instruction(
     emoji_instruction: str,
     maturity_instruction: str = "",
 ) -> str:
-    title = " ".join(str(user_title or "").split()) or "User"
+    from .personalization import identity_instruction
     style = str(response_style or "").strip()
     lines = [
         "Current saved app settings are authoritative for this reply and override conflicting "
         "preferences found in older conversation messages.",
-        f"Address the user as '{title}'. Do not substitute an older title from chat history.",
+        identity_instruction(user_title=user_title),
         emoji_instruction.strip(),
         maturity_instruction.strip(),
     ]
