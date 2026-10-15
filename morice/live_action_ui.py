@@ -38,7 +38,7 @@ class CameraPreview(QLabel):
         self._image = QImage()
         self._regions = ()
         self.clear()
-        self.setText(message)
+        self.setText('' if self.property('quiet_idle') else message)
 
     def set_regions(self, regions: tuple[object, ...]) -> None:
         self._regions = tuple(regions or ())
@@ -155,6 +155,9 @@ class GlassResponseOverlay(QFrame):
         self.setVisible(True)
         self.raise_()
         self._animation.stop()
+        if not getattr(self, '_motion_enabled', True):
+            self._opacity.setOpacity(1.0)
+            return
         self._animation.setStartValue(self._opacity.opacity())
         self._animation.setEndValue(1.0)
         self._animation.start()
@@ -276,11 +279,53 @@ class LiveActionWorkspace(QWidget):
         root.addLayout(composer_row)
         self.setStyleSheet(self._stylesheet())
 
+    def use_shared_presentation(self, flow_layout_factory):
+        """Adapt established camera/voice controls to the current desktop shell."""
+        if getattr(self, '_shared_presentation', False): return
+        self._shared_presentation = True
+        root = self.layout()
+        for index in (0, 1):
+            item = root.takeAt(index); previous = item.layout(); flow = flow_layout_factory()
+            while previous.count():
+                child = previous.takeAt(0)
+                if child.widget() is not None: flow.addItem(child)
+            root.insertLayout(index, flow); previous.setParent(None); previous.deleteLater()
+        # Keep all existing signals/controllers; only the shared shell's editor
+        # is visible, including when Live Action accepts a typed request.
+        for index in range(root.itemAt(root.count()-1).layout().count()):
+            widget = root.itemAt(root.count()-1).layout().itemAt(index).widget()
+            if widget is not None: widget.hide()
+        self.device_select.setMinimumWidth(0); self.device_select.setMaximumWidth(300)
+        self.preview.setMinimumSize(0, 160); self.preview.setProperty('quiet_idle', True)
+        if not self._camera_active: self.preview.clear_frame('')
+        self.overlay.response_label.setTextFormat(Qt.PlainText)
+        self.overlay._motion_enabled = False
+
+    def apply_design_tokens(self, tokens, *, reduced_motion=False):
+        if not getattr(self, '_shared_presentation', False): return
+        self.overlay._motion_enabled = not reduced_motion
+        if reduced_motion:
+            self.overlay._animation.stop()
+            if self.overlay.isVisible(): self.overlay._opacity.setOpacity(1.0)
+        self.setStyleSheet(f'''
+            #LiveActionTitle, #LiveGlassState {{ color: {tokens['accent_primary']}; font-weight: 600; }}
+            #LiveActionSubtitle, #LivePrivacyStatus, #LiveCameraPreview {{ color: {tokens['text_secondary']}; }}
+            #LiveCameraStage {{ background: {tokens['surface']}; border: 1px solid {tokens['border']}; border-radius: {tokens.radius_medium}px; }}
+            #LiveGlassOverlay {{ background: {tokens['surface_elevated']}; border: 1px solid {tokens['border_hover']}; border-radius: {tokens.radius_medium}px; }}
+            #LiveGlassResponse {{ color: {tokens['text_primary']}; }}
+            #LivePrimaryControl {{ background: {tokens['accent_primary']}; color: {tokens['accent_text']}; font-weight: 600; }}
+            #LiveTranscript {{ color: {tokens['text_secondary']}; background: {tokens['surface']}; border-radius: {tokens.radius_small}px; padding: 8px; }}
+        ''')
+
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
-        margin = 22
-        width = max(300, min(self.stage.width() - margin * 2, 860))
-        height = max(120, min(240, self.overlay.sizeHint().height()))
+        self._layout_overlay()
+
+    def _layout_overlay(self):
+        margin = min(16, max(0, self.stage.width() // 8))
+        width = max(1, min(self.stage.width() - margin * 2, 860))
+        height = min(max(1, self.stage.height() - margin * 2), 240,
+            max(100, self.overlay.layout().totalHeightForWidth(width)))
         self.overlay.setGeometry(
             max(margin, (self.stage.width() - width) // 2),
             max(margin, self.stage.height() - height - margin),
@@ -363,15 +408,7 @@ class LiveActionWorkspace(QWidget):
 
     def show_response(self, text: str, *, streaming: bool = False, state: str = "MORICE") -> None:
         self.overlay.set_response(text, streaming=streaming, state=state)
-        margin = 22
-        width = max(300, min(self.stage.width() - margin * 2, 860))
-        height = max(120, min(240, self.overlay.sizeHint().height()))
-        self.overlay.setGeometry(
-            max(margin, (self.stage.width() - width) // 2),
-            max(margin, self.stage.height() - height - margin),
-            width,
-            height,
-        )
+        self._layout_overlay()
 
     def finish_response(self, text: str = "") -> None:
         self.overlay.finish_stream(text)

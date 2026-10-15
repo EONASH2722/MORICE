@@ -6,7 +6,7 @@
 
 <h1 align="center">MORICE</h1>
 
-## Current source: 0.9.0
+## Current source: 0.9.1
 
 The renovated desktop uses a luminous Core, a visible message composer, authored vector icons and twelve distinct visual themes. Shapes turn, breathe, float and unfurl in continuous loops; particles follow closed paths without jumping between screen edges. LOW quality keeps inexpensive ambient motion, while Reduced Motion and hidden/minimized windows pause decoration. The original logo is unchanged and the Core contains no eyes or face.
 
@@ -44,9 +44,9 @@ Choose **Theme** in the top bar to preview a theme or toggle **Animate the works
 
 ![Deterministic Spatial workspace](docs/screenshots/morice-spatial.png)
 
-**Validation scope:** 1,077 tests and 62 subtests pass in 398.39 seconds. Current-source wheel/frozen integrity, all seventeen native routes, message sending, screen-bound maximize/restore, all twelve theme animations, isolated dependency startup and both installed launch paths pass. See [the full release audit](docs/release-audit-report.md) and [checksums/evidence](docs/release-audit-evidence.json). Battery mode measured roughly sixteen paint callbacks per second; compositor frame pacing is unmeasured. Physical audio/devices/monitor changes and fresh heavy inference remain scoped. Compatible providers and sufficient RAM/VRAM are still required; unavailable features stay labelled.
+**Validation scope:** the [0.9.1 follow-up audit](docs/followup-audit-0.9.1.md) covers the current fixes, including visible replies with animation enabled, long-message scrolling, typed requests without a wake phrase, identity edits and Live Action. A real local Qwen chat and six complete local spoken replies were exercised. The preceding [full release audit](docs/release-audit-report.md) records 1,077 tests and 62 subtests and the earlier package/installed checks at its own source fingerprint. Physical audio/devices, heavy media inference and compositor frame pacing remain scoped; compatible providers and sufficient RAM/VRAM are still required.
 
-**Download distinction:** the [published Windows 0.8.0 portable](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) are earlier builds. The current UI is available from source and the local validated distribution; a new public binary release has not been uploaded. [Latest published release](https://github.com/EONASH2722/MORICE/releases/latest).
+**Downloads:** [Windows 0.9.1 desktop preview and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.1) include the renovated interface and follow-up repairs. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest stable release](https://github.com/EONASH2722/MORICE/releases/latest).
 
 ### Installation
 
@@ -58,7 +58,7 @@ python -m venv .venv
 
 Use Python 3.12+ for the desktop. Local media model dependencies may require a separate compatible runtime; the main app remains usable when those providers are unavailable. See [troubleshooting](docs/troubleshooting.md), [architecture](docs/architecture.md) and [the renovation report](docs/renovation-report.md).
 
-For a locally built wheel, install `morice_ai-0.9.0-py3-none-any.whl`; this filename describes the current package, not a currently published download.
+The [0.9.1 desktop preview](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.1) contains the renovated Windows app and matching Python packages. Install `morice_ai-0.9.1-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
 
 
 <p align="center">
@@ -229,7 +229,7 @@ throughput estimate; it must not be presented as a backend token measurement.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/reviewer-images/morice-project.png" alt="MORICE model and project controls"></td>
+    <td width="50%"><img src="docs/reviewer-images/morice-project.png" alt="Current MORICE model settings"></td>
     <td width="50%"><img src="docs/reviewer-images/morice-personalization.png" alt="MORICE personalization settings"></td>
   </tr>
   <tr>
@@ -279,7 +279,7 @@ Download the signed APK from the [MORICE Android Release](https://github.com/EON
 Advanced users can install the model-free wheel included with the release:
 
 ```powershell
-python -m pip install .\morice_ai-0.9.0-py3-none-any.whl
+python -m pip install .\morice_ai-0.9.1-py3-none-any.whl
 morice
 ```
 

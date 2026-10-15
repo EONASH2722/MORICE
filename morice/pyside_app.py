@@ -1497,8 +1497,12 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
         super().__init__(parent)
         self.setObjectName("RichContentView")
         self.setFixedHeight(80)
-        self.setMaximumHeight(1400)
+        self._content_height_limit = 32768
+        self.setMaximumHeight(self._content_height_limit)
         self._appearance_values = None
+        self._content_overflows = False
+        self._measure_timer = QTimer(self); self._measure_timer.setSingleShot(True)
+        self._measure_timer.timeout.connect(self._measure_content)
         if QWebEngineView is None:
             fallback_layout = QVBoxLayout(self)
             fallback = QLabel(message)
@@ -1510,6 +1514,7 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
             return
         self.setContextMenuPolicy(Qt.DefaultContextMenu)
         self.page().setBackgroundColor(QColor(0, 0, 0, 0))
+        self.page().contentsSizeChanged.connect(lambda *_: self._measure_timer.start(30))
         self.loadFinished.connect(self._rich_loaded)
         source = json.dumps(message or "", ensure_ascii=False).replace("</", "<\\/")
         tokens = THEMES[normalize_theme(_ACTIVE_UI_THEME)]
@@ -1530,7 +1535,11 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
       --code-bg: {code_background}; --table-border: {table_border}; }}
     html, body {{ margin: 0; padding: 0; background: transparent; color: var(--text);
       font: var(--font-size)/1.58 var(--ui-font), "Segoe UI Emoji", "Segoe UI", sans-serif; letter-spacing: 0; }}
-    body {{ overflow-x: hidden; overflow-y: auto; }}
+    html, body {{ overflow-x: hidden; overflow-y: hidden; }}
+    main {{ display: flow-root; }}
+    ::-webkit-scrollbar {{ width: 9px; height: 9px; }}
+    ::-webkit-scrollbar-track {{ background: transparent; }}
+    ::-webkit-scrollbar-thumb {{ background: var(--table-border); border-radius: 5px; }}
     p {{ margin: 0 0 10px; }}
     h1, h2, h3, h4 {{ margin: 12px 0 7px; line-height: 1.25; }}
     h1 {{ font-size: 1.4em; }} h2 {{ font-size: 1.27em; }} h3 {{ font-size: 1.13em; }}
@@ -1641,16 +1650,49 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
         if QWebEngineView is None:
             return
         self.page().runJavaScript(
-            "Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)",
+            "(()=>{const content=document.getElementById('content');if(!content)return null;"
+            + "document.documentElement.style.width=" + json.dumps(f'{max(1,self.width())/self.zoomFactor()}px')
+            + ";return content.getBoundingClientRect().height;})()",
             self._resize_to_content,
         )
 
     def _resize_to_content(self, value):
+        from shiboken6 import isValid
+        if not isValid(self): return
         try:
-            height = max(80, min(1400, int(math.ceil(float(value))) + 6))
-        except (TypeError, ValueError):
+            measured = int(math.ceil(float(value))) + 6
+            height = max(80, min(self._content_height_limit, measured))
+        except (TypeError, ValueError, OverflowError):
             return
-        self.setFixedHeight(height)
+        if self.height() != height: self.setFixedHeight(height)
+        overflows = measured > self._content_height_limit
+        if overflows != self._content_overflows:
+            self._content_overflows = overflows
+            self.page().runJavaScript("document.documentElement.style.overflowY=document.body.style.overflowY="
+                + json.dumps('auto' if overflows else 'hidden'))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, '_measure_timer') and event.size().width() != event.oldSize().width():
+            self._measure_timer.start(60)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if QWebEngineView is not None:
+            proxy = self.focusProxy()
+            if proxy is not None: proxy.installEventFilter(self)
+
+    def eventFilter(self, source, event):
+        if event.type() == QEvent.Wheel and not self._content_overflows:
+            pixels = event.pixelDelta(); angle = event.angleDelta()
+            if abs(pixels.y()) > abs(pixels.x()) or abs(angle.y()) > abs(angle.x()):
+                ancestor = self.parentWidget()
+                while ancestor is not None and not isinstance(ancestor, QScrollArea): ancestor = ancestor.parentWidget()
+                if ancestor is not None:
+                    delta = pixels.y() or angle.y()/120 * QApplication.wheelScrollLines() * self.fontMetrics().height()
+                    bar = ancestor.verticalScrollBar(); bar.setValue(bar.value()-round(delta))
+                    event.accept(); return True
+        return super().eventFilter(source, event)
 
 
 
@@ -1775,9 +1817,12 @@ class ChatBubble(QFrame):
                 lambda: self.edit_requested.emit(self.message),
             )
             header.addWidget(edit_button)
-        reaction_button = QPushButton("M+")
+        from .ui_next.icons import icon
+        reaction_button = QPushButton()
         reaction_button.setObjectName("MessageAction")
-        reaction_button.setFixedSize(26, 26)
+        reaction_button.setProperty('morice_icon', 'reaction')
+        reaction_button.setIcon(icon('reaction'))
+        reaction_button.setFixedSize(32, 32)
         reaction_button.setToolTip("React to this message")
         reaction_button.setAccessibleName("React to message")
         reaction_button.clicked.connect(self._cycle_reaction)
@@ -1815,7 +1860,7 @@ class ChatBubble(QFrame):
         button = QPushButton()
         button.setObjectName("MessageAction")
         button.setIcon(icon)
-        button.setFixedSize(26, 26)
+        button.setFixedSize(32, 32)
         button.setToolTip(tooltip)
         button.setAccessibleName(tooltip)
         button.clicked.connect(callback)
@@ -1829,7 +1874,12 @@ class ChatBubble(QFrame):
     def _cycle_reaction(self) -> None:
         choices = ("", "M^", "Mv")
         self._reaction = choices[(choices.index(self._reaction) + 1) % len(choices)]
-        self.reaction_button.setText(self._reaction or "M+")
+        from .ui_next.icons import icon
+        mark, label = {'': ('reaction', 'React to message'), 'M^': ('helpful', 'Reaction: helpful'),
+            'Mv': ('unhelpful', 'Reaction: unhelpful')}[self._reaction]
+        self.reaction_button.setProperty('morice_icon', mark)
+        self.reaction_button.setIcon(icon(mark, color=self.reaction_button.palette().color(self.reaction_button.foregroundRole()).name()))
+        self.reaction_button.setAccessibleName(label); self.reaction_button.setToolTip(label)
         self.reaction_changed.emit(self._reaction)
 
 
@@ -8667,7 +8717,7 @@ class MoriceWindow(QWidget):
             else:
                 self.append_message(
                     MORICE_NAME,
-                    f"{MORICE_NAME} is asleep{self._address_clause()}. Type '{self.wake_phrase}' to wake me.",
+                    f"Ready for typed messages. Voice activation uses '{self.wake_phrase}'.",
                 )
 
         QTimer.singleShot(200, self._post_init)
@@ -9186,11 +9236,9 @@ class MoriceWindow(QWidget):
         menu.exec(self.quick_actions_btn.mapToGlobal(QPoint(0, self.quick_actions_btn.height())))
 
     def _input_placeholder(self) -> str:
-        address = resolve_user_address(self._identity_profile())
-        prefix = address + ": " if address else ""
         if self.chat_mode == "voice":
-            return prefix + "Speak naturally or type here..."
-        return prefix + "Type here..."
+            return "Speak naturally or type here…"
+        return "Ask MORICE…"
 
     def _experience_profile(self) -> ExperienceProfile:
         return ExperienceProfile.from_value(
@@ -14205,9 +14253,8 @@ class MoriceWindow(QWidget):
                 button.installEventFilter(self.micro_interactions)
             button.setCursor(Qt.PointingHandCursor)
 
-        opacity = QGraphicsOpacityEffect(row)
-        row.setGraphicsEffect(opacity)
-        opacity.setOpacity(0.0 if animate else 1.0)
+        # Native WebEngine surfaces and nested opacity/shadow effects do not
+        # compose reliably on Windows. Chat text must paint immediately.
         target_index = (
             max(1, int(insert_index))
             if insert_index is not None
@@ -14219,26 +14266,6 @@ class MoriceWindow(QWidget):
         else:
             self._message_rows.insert(max(0, row_list_index), row)
 
-        if animate and self._motion_enabled and self.isVisible():
-            animation = QPropertyAnimation(opacity, b"opacity", row)
-            animation.setDuration(self.animation_engine.duration(180))
-            animation.setStartValue(0.0)
-            animation.setEndValue(1.0)
-            animation.setEasingCurve(QEasingCurve.OutCubic)
-            if not is_user:
-                glow_color = QColor(self.accent_color)
-                glow_color.setAlpha(72)
-                animation.finished.connect(
-                    lambda bubble=bubble, color=glow_color: self.animation_engine.shadow(
-                        bubble,
-                        color=color,
-                        blur=16,
-                        duration=220,
-                    )
-                )
-            self._track_animation(animation).start()
-        else:
-            opacity.setOpacity(1.0)
         return row
 
     def _edit_chat_message(self, message: str) -> None:
@@ -15024,6 +15051,14 @@ class MoriceWindow(QWidget):
         self.follow_latest = True
         self._schedule_latest_scroll(force=True)
 
+    def on_save_identity(self):
+        self.user_title = normalize_user_title(self.title_input.text())
+        self.preferred_name = normalize_identity(self.name_input.text())
+        self.settings.update(user_title=self.user_title, preferred_name=self.preferred_name)
+        save_settings(self.settings)
+        self._refresh_name_dependent_text(); self._update_style_badge()
+        self.style_status.setText("Name and form of address saved.")
+
     def on_save_response_style(self):
         raw_style = self.style_input.toPlainText().strip()
         clean_style = normalize_response_style(raw_style)
@@ -15102,6 +15137,8 @@ class MoriceWindow(QWidget):
             QTimer.singleShot(delay, self._scroll_to_latest)
 
     def _scroll_to_latest(self):
+        from shiboken6 import isValid
+        if not isValid(self) or self._is_closing or not isValid(self.scroll): return
         if not self.follow_latest:
             return
 
@@ -15399,6 +15436,9 @@ class MoriceWindow(QWidget):
             )
             return
 
+        if request_source == "typed":
+            # Send is explicit user intent; passive speech keeps its wake gate.
+            self.awake = True
         wake_message = wake_up_response(user_input, self.wake_phrase, resolve_user_address(self._identity_profile()))
         if wake_message:
             self._append_direct_reply(user_input, wake_message, address=False)
@@ -16289,10 +16329,12 @@ class MoriceWindow(QWidget):
                     category="model",
                 )
                 self._complete_agent_ui(response_present=False, successful=False)
+                error_reply = self._address(f"I hit an app error: {exc}")
+                self._remember_conversation_turn(user_input, error_reply)
                 self._emit_background(
                     "assistant_stream_finished",
                     realtime_request.request_id,
-                    self._address(f"I hit an app error: {exc}"),
+                    error_reply,
                 )
 
         self._start_background_task("chat-reply", worker)

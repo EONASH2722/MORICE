@@ -1,0 +1,136 @@
+{
+  "schema": "morice.followup-validation.v1",
+  "version": "0.9.1",
+  "source_sha256": "f7dedf318b775650354645984f6f77b22d606cc3f0bbdb6ad13158a28cd55575",
+  "test_source_sha256": "f5b4024dd732cd1d6632811bb6082dcd0f7b68a02478fb498f5cb480120dcad0",
+  "full_regression": {
+    "passed": 1094,
+    "subtests_passed": 62,
+    "seconds": 479.18,
+    "exit_code": 0
+  },
+  "frozen": {
+    "status": "FROZEN_ARCHIVE_PARITY_PASSED",
+    "files": 3311,
+    "bytes": 950006911,
+    "exe_sha256": "24e3660f95886a7f52f415b29e3c98cbb93f2721ccb124fe70c7e16d6fd6cf5f",
+    "source_equal_modules": 215,
+    "generative_media_or_gguf_weights_embedded": false,
+    "existing_vosk_model_intentionally_embedded": true
+  },
+  "frozen_native_startup": {
+    "production_factory": true,
+    "outside_checkout": true,
+    "system_only_path": true,
+    "clean_shutdown": true,
+    "installed_canonical_and_root_alias": true,
+    "critical_failures": 0
+  },
+  "wheel": {
+    "status": "PRODUCTION_FACTORY_WHEEL_PASSED",
+    "bytes": 12961309,
+    "sha256": "5071ce3d1499ead9a0d14386ef041251b01dc0206f1be0d1db1f6249e70267e5",
+    "source_equal_modules": 217
+  },
+  "wheel_dependency_runtimes": [
+    "Existing development dependencies: PySide6 6.11.2",
+    "Separately installed clean dependencies: PySide6 6.12.0"
+  ],
+  "installed": {
+    "version": "0.9.1",
+    "retained_existing_gguf_files": 3,
+    "previous_installation_backed_up": true
+  },
+  "native_ui": {
+    "routes": [
+      "home",
+      "chats",
+      "projects",
+      "research",
+      "spatial",
+      "devices",
+      "media",
+      "automations",
+      "connectors",
+      "security",
+      "history",
+      "activity",
+      "tools",
+      "voice",
+      "artifacts",
+      "plugins",
+      "settings"
+    ],
+    "published_images": 23,
+    "manifest": "docs/screenshots/current-manifest.json",
+    "original_logo_preserved": true
+  },
+  "website_local": {
+    "status": "CURRENT_PRODUCTION_SITE_QA_PASSED",
+    "themes": {
+      "midnight": {
+        "animationChanged": true,
+        "animatedElements": 8
+      },
+      "glass": {
+        "animationChanged": true,
+        "animatedElements": 6
+      },
+      "ice": {
+        "animationChanged": true,
+        "animatedElements": 2
+      },
+      "solar": {
+        "animationChanged": true,
+        "animatedElements": 2
+      }
+    },
+    "captures": [
+      {
+        "name": "Core",
+        "sha256": "7f8de02646a2100636d7b8339dedd3104a22f82dbe89d6e35b07dd9b0005b796",
+        "loaded": true
+      },
+      {
+        "name": "Spatial",
+        "sha256": "4c46b08e0fda263bd54b292fa7cf30c67db2ca043dd18446c9bd1a260a92eed3",
+        "loaded": true
+      },
+      {
+        "name": "Research",
+        "sha256": "7b79eeb6a5e8d3caa665f7fa0b8a8fdf00d0034bc1306c26a2216920e9cd1340",
+        "loaded": true
+      },
+      {
+        "name": "Media",
+        "sha256": "58e688dbb956d90f24f4e6db2d8c8fb0591b2b2ce50f8ad70eef81f553c16b00",
+        "loaded": true
+      }
+    ],
+    "desktop": {
+      "width": 1440,
+      "scroll": 1440
+    },
+    "mobile": {
+      "width": 390,
+      "scroll": 390,
+      "brokenImages": 0
+    },
+    "keyboardResearch": true,
+    "pauseResume": true,
+    "consoleErrors": [],
+    "consoleWarnings": []
+  },
+  "real_local_chat": {
+    "status": "REAL_LOCAL_CHAT_PASSED",
+    "model": "Existing Parable Qwen3 4B GGUF with existing CUDA runtime",
+    "scope": "Actual local inference and visible typed UI reply; no provider stub or downloaded weights."
+  },
+  "real_local_speech": {
+    "status": "CONTROLLED_WAKE_SPATIAL_WORKFLOW_PASSED",
+    "complete_replies": 6,
+    "scope": "Actual Vosk and Windows SAPI; recorded input and bounded memory audio transports, not physical microphone/speaker certification."
+  },
+  "scope": "Software and owned native application checks. Existing Phase 2 authorities, permissions, verification and resource protections retained. Hardware/provider/RAM/SQLite/process-boundary limits remain documented; no zero-defect guarantee.",
+  "audit": "docs/followup-audit-0.9.1.md"
+}

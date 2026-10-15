@@ -147,7 +147,8 @@ class PremiumUiTests(unittest.TestCase):
             )
         )
         bubble.reaction_button.click()
-        self.assertEqual(bubble.reaction_button.text(), "M^")
+        self.assertEqual(bubble.reaction_button.accessibleName(), "Reaction: helpful")
+        self.assertFalse(bubble.reaction_button.icon().isNull())
 
     def test_user_and_assistant_messages_use_the_full_chat_row(self):
         user_row = self.window._create_message_row("Captain", "Build it", True, animate=False)

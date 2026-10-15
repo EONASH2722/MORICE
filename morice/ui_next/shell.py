@@ -178,7 +178,7 @@ class RenovatedWindow(ExistingPresenter):
         self.composer_details.setLayout(details)
         for widget, label in ((self.project_selector_btn, 'Project context'), (self.model_selector_btn, 'Model')):
             widget.setParent(self.composer_details); widget.setText(label); widget.setProperty('morice_icon', 'context' if label == 'Project context' else 'model'); widget.setMinimumWidth(0); widget.setMaximumWidth(240); widget.setFixedHeight(self.theme_engine.tokens.control_height); widget.show(); details.addWidget(widget)
-        self.quick_actions_btn.setParent(self.composer_details); self.quick_actions_btn.setText('Quick actions'); self.quick_actions_btn.setProperty('morice_icon','more'); self.quick_actions_btn.setMinimumWidth(0); self.quick_actions_btn.show(); details.addWidget(self.quick_actions_btn)
+        self.quick_actions_btn.setParent(self.composer_details); self.quick_actions_btn.setText('Quick actions'); self.quick_actions_btn.setProperty('morice_icon','more'); self.quick_actions_btn.setMinimumWidth(0); self.quick_actions_btn.setMaximumWidth(16777215); self.quick_actions_btn.show(); details.addWidget(self.quick_actions_btn)
         layout.addWidget(self.composer_details); self.composer_details.hide(); self.composer_options.toggled.connect(self.composer_details.setVisible)
         self.composer_options.toggled.connect(self._fit_renovated_composer)
         self.input_frame.hide(); self.input_frame = frame; self.input_glow = None
@@ -228,7 +228,13 @@ class RenovatedWindow(ExistingPresenter):
         view, layout = page('Voice', 'Live conversation and explicitly enabled camera context.')
         row = QHBoxLayout()
         for button in (self.voice_mode_btn, self.normal_mode_btn): row.addWidget(button)
-        layout.addLayout(row); self.live_action_workspace.setParent(view); layout.addWidget(self.live_action_workspace, 1)
+        layout.addLayout(row)
+        self.normal_mode_btn.clicked.connect(lambda: self.navigate('chats'))
+        self.live_action_workspace.use_shared_presentation(FlowLayout)
+        self.live_action_workspace.apply_design_tokens(self.theme_engine.tokens, reduced_motion=self.reduced_motion)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setWidget(self.live_action_workspace)
+        layout.addWidget(scroll, 1)
         return view
 
     def _artifacts_view(self):
@@ -351,6 +357,8 @@ class RenovatedWindow(ExistingPresenter):
         palette = self.palette(); palette.setColor(QPalette.Window, QColor(self.theme_engine.tokens['background'])); self.setPalette(palette)
         self.reduced_motion = self.theme_engine.profile.reduced_motion
         self._refresh_rich_appearance()
+        if getattr(self.live_action_workspace, '_shared_presentation', False):
+            self.live_action_workspace.apply_design_tokens(self.theme_engine.tokens, reduced_motion=self.reduced_motion)
         self._motion_enabled = not self.reduced_motion and self.theme_engine.profile.motion_strength > 0
         self.animation_engine.configure(enabled=self._motion_enabled)
         if hasattr(self, 'micro_interactions'): self.micro_interactions.set_enabled(False)
@@ -638,7 +646,7 @@ class RenovatedWindow(ExistingPresenter):
         self._fitting_composer = True
         try:
             layout = self.composer.layout(); layout.invalidate(); layout.activate()
-            height = layout.minimumSize().height()
+            height = max(layout.minimumSize().height(), layout.totalHeightForWidth(self.composer.width()))
             if self.composer.height() != height: self.composer.setFixedHeight(height)
         finally: self._fitting_composer = False
 

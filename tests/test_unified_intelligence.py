@@ -22,6 +22,24 @@ from morice.unified_intelligence import (
 
 
 class UnifiedGoalExecutionTests(unittest.TestCase):
+    def test_permission_iterables_do_not_add_spurious_exact_confirmation(self):
+        controller = PermissionController(states={"file_read": PermissionState.GRANTED})
+        for permission_source in (("file_read",), iter(("file_read",))):
+            decision = controller.authorize(task_id="read", capability_id="file.read",
+                arguments={}, permissions=permission_source, risk=RiskClass.MEDIUM)
+            self.assertTrue(decision.allowed, decision.reason)
+        for permissions, risk in ((iter(()), RiskClass.MEDIUM),
+                                  (iter(("file_read",)), RiskClass.HIGH)):
+            decision = controller.authorize(task_id="read", capability_id="file.read",
+                arguments={}, permissions=permissions, risk=risk)
+            self.assertFalse(decision.allowed)
+            self.assertIn("exact_action_confirmation", decision.required)
+        controller.set_state("file_read", PermissionState.DENIED)
+        decision = controller.authorize(task_id="read", capability_id="file.read",
+            arguments={}, permissions=iter(("file_read",)), risk=RiskClass.LOW)
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.denied, ("file_read",))
+
     def test_instant_route_never_invokes_semantic_backend(self):
         registry = CapabilityRegistry()
         registry.register(

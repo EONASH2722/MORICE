@@ -46,7 +46,7 @@ def button_rows(layout, buttons, columns=3):
 
 class ResearchWorkspace(ResearchDialog):
     def __init__(self, services, bridge, parent=None, *, theme=None):
-        self.bridge = bridge; self._bridge_preparing = False; self._ready = False
+        self.bridge = bridge; self._bridge_preparing = False; self._ready = False; self._creating_project = False
         self._meta_reading = False; self._meta_again = False; self._result_reading = False; self._result_key = None; self._meta_rows = {}; self._pending_select_id = None
         super().__init__(services.research, parent=parent)
         self.setWindowFlags(Qt.Widget); self.timer.stop(); self.pool.shutdown(wait=False, cancel_futures=True)
@@ -85,13 +85,21 @@ class ResearchWorkspace(ResearchDialog):
 
     def create_project(self):
         objective = self.objective.text().strip()
-        if not objective: return
-        self.bridge.submit('research-create-project', lambda: self.runtime.create(objective), self._created)
+        if not objective or self._creating_project: return
+        self._creating_project = True; self.create_button.setEnabled(False)
+        try:
+            self.bridge.submit('research-create-project', lambda: self.runtime.create(objective),
+                lambda envelope: self._created(envelope, objective))
+        except (ValueError, RuntimeError) as exc:
+            self._created({'ok': False, 'error': str(exc)}, objective)
 
-    def _created(self, envelope):
+    def _created(self, envelope, objective):
+        self._creating_project = False; self.create_button.setEnabled(True)
         if not envelope['ok']: self.detail.setPlainText(envelope['error']); return
-        self.project_id = envelope['value']; self.projects.addItem(self.objective.text(), self.project_id)
-        self.projects.setCurrentIndex(self.projects.findData(self.project_id)); self.objective.clear(); self.refresh()
+        self.project_id = envelope['value']; self.projects.addItem(objective, self.project_id)
+        self.projects.setCurrentIndex(self.projects.findData(self.project_id))
+        if self.objective.text().strip() == objective: self.objective.clear()
+        self.refresh()
 
     def _tab_changed(self, index):
         if index != 3: self.play_timer.stop()

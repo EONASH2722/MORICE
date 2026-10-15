@@ -123,6 +123,178 @@ def test_settings_search_and_local_provider_binding(window, app):
     assert not window.runtime.speech_input.status().listening
 
 
+def test_settings_search_empty_results_do_not_show_an_unrelated_category(window, app):
+    window.navigate('settings'); view = window.routes['settings']
+    try:
+        view.search.setText('no-setting-matches-this-query-3917'); app.processEvents()
+        assert all(view.list.item(i).isHidden() for i in range(view.list.count()))
+        assert view.stack.currentWidget() not in view.categories.values()
+        assert 'No settings match' in view.stack.currentWidget().accessibleName()
+        for _ in range(2):
+            view.search.setText('Models'); app.processEvents()
+            assert view.list.currentItem().text() == 'Models'
+            assert view.stack.currentWidget() is view.categories['Models']
+            view.search.setText('no-setting-matches-this-query-3917'); app.processEvents()
+    finally: view.search.clear()
+
+
+def test_typed_chat_does_not_require_a_wake_phrase(window, app):
+    window._set_chat_mode('normal'); window.navigate('chats'); window.awake = False
+    previous = len(window.history)
+    window.input.setText('2+3'); window.send_btn.click()
+    pump(app, lambda: len(window.history) > previous)
+    replies = [row['content'] for row in window.history[previous:] if row['role'] == 'assistant']
+    assert replies and '5' in replies[-1] and 'asleep' not in replies[-1].casefold()
+    assert window.awake
+
+
+def test_assistant_text_is_painted_when_message_motion_is_enabled(window, app):
+    from PySide6.QtCore import QRect, QPoint
+    from PySide6.QtGui import QColor
+    from morice.pyside_app import ChatBubble
+    old = window.theme_engine.profile
+    window.navigate('chats'); window.theme_engine.update(preset='GLASS', reduced_motion=False, persist=False)
+    try:
+        window.append_message('MORICE', 'Visible reply: the result is five.', force_scroll=True)
+        QTest.qWait(650); app.processEvents()
+        label = window._message_rows[-1].findChild(ChatBubble)._message_label
+        bounds = QRect(label.mapTo(window, QPoint()), label.size())
+        assert window.rect().contains(bounds)
+        rendered = window.grab(bounds).toImage(); target = QColor(window.theme_engine.tokens['text_background'])
+        pixels = sum(max(abs(pixel.red()-target.red()), abs(pixel.green()-target.green()), abs(pixel.blue()-target.blue())) < 35
+            for y in range(rendered.height()) for x in range(rendered.width()) for pixel in (rendered.pixelColor(x,y),))
+        assert pixels > 30, 'The reply exists in history but its text is not painted.'
+    finally: window.theme_engine.update(**old.to_dict(), persist=False)
+
+
+def test_identity_edit_applies_on_leaving_the_field(window, app):
+    previous_name, previous_title = window.preferred_name, window.user_title
+    window._select_settings_category('Personalization')
+    try:
+        window.title_input.setText('All Father'); window.on_save_response_style()
+        window.title_input.setText('Sir'); window.title_input.editingFinished.emit(); app.processEvents()
+        assert window.user_title == settings.load_settings()['user_title'] == 'Sir'
+        window.navigate('chats')
+        assert 'All Father' not in window.input.placeholderText()
+        assert window._address('Hello.').startswith('Sir,')
+    finally:
+        window.name_input.setText(previous_name); window.title_input.setText(previous_title); window.on_save_response_style()
+
+
+def test_long_rich_message_reflows_and_wheel_scrolls_the_conversation(window, app):
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QWheelEvent
+    from morice.pyside_app import RichContentView
+    old_size = window.size(); window.navigate('chats'); window.resize(1366,840)
+    message = '\n\n'.join(f'### Calculation {index}\nUse \\(x^2+1\\) and keep all intermediate terms in the analysis. '
+        'This long paragraph must wrap when the conversation becomes narrower.' for index in range(100))
+    window.append_message('MORICE',message,force_scroll=True)
+    rich = window._message_rows[-1].findChild(RichContentView)
+    try:
+        assert rich is not None
+        pump(app,lambda: rich.height()>1400,timeout=15)
+        QTest.qWait(200); app.processEvents()
+        state=[]; rich.page().runJavaScript("JSON.stringify({height:document.querySelector('main').getBoundingClientRect().height,overflow:getComputedStyle(document.body).overflowY})",state.append)
+        pump(app,lambda: bool(state))
+        measured=json.loads(state[0])
+        assert measured['overflow']=='hidden' and rich.height()>=measured['height']
+        height=rich.height(); width=rich.width(); window.resize(720,840)
+        QTest.qWait(200); app.processEvents()
+        assert rich.width()<width, (window.size(),rich.size(),width,height)
+        narrower=[]; rich.page().runJavaScript("JSON.stringify({height:document.querySelector('main').getBoundingClientRect().height,width:innerWidth})",narrower.append)
+        pump(app,lambda: bool(narrower)); narrowed=json.loads(narrower[0])
+        assert rich.height()>=narrowed['height'], (height,width,rich.size(),measured,narrowed)
+        assert narrowed['height']>measured['height'], (height,width,rich.size(),measured,narrowed)
+        bar=window.scroll.verticalScrollBar(); bar.setValue(bar.maximum()//2); previous=bar.value()
+        proxy=rich.focusProxy(); assert proxy is not None
+        wheel=QWheelEvent(QPointF(20,20),QPointF(proxy.mapToGlobal(QPoint(20,20))),QPoint(),QPoint(0,-120),
+            Qt.NoButton,Qt.NoModifier,Qt.NoScrollPhase,False)
+        QApplication.sendEvent(proxy,wheel); app.processEvents()
+        assert bar.value()>previous
+    finally: window.resize(old_size)
+
+
+@pytest.mark.parametrize('width,scale', [(1366,1), (720,1), (1020,1.8)])
+def test_composer_context_controls_fit_without_clipped_quick_actions(window, app, width, scale):
+    from PySide6.QtCore import QRect, QPoint
+    old_size, old_scale = window.size(), window.theme_engine.profile.font_scale
+    window.navigate('chats')
+    try:
+        window.theme_engine.update(font_scale=scale,persist=False); window.resize(width,840)
+        window.composer_options.setChecked(True); QTest.qWait(100); app.processEvents()
+        for control in (window.project_selector_btn, window.model_selector_btn, window.quick_actions_btn):
+            assert control.isVisible()
+            assert control.width() >= control.fontMetrics().horizontalAdvance(control.text()) + 24
+            assert window.composer.rect().contains(QRect(control.mapTo(window.composer,QPoint()),control.size()))
+    finally:
+        window.composer_options.setChecked(False); window.resize(old_size); window.theme_engine.update(font_scale=old_scale,persist=False)
+
+
+def test_live_action_uses_the_shared_composer_and_current_theme(window, app):
+    from PySide6.QtCore import QRect, QPoint
+    from PySide6.QtGui import QPalette
+    window.navigate('voice'); live = window.live_action_workspace; old = window.theme_engine.profile
+    try:
+        assert window.composer.isVisible() and not live.input.isVisible()
+        for preset in ('ICE','AMETHYST'):
+            window.theme_engine.update(preset=preset,persist=False); live.show(); app.processEvents()
+            assert live.camera_button.palette().color(QPalette.Button).name() == window.theme_engine.tokens['accent_primary']
+            for control in (live.device_select,live.camera_button,live.mic_button,live.awareness_check):
+                assert live.rect().contains(QRect(control.mapTo(live,QPoint()),control.size()))
+    finally: window.theme_engine.update(**old.to_dict(),persist=False); window.navigate('home')
+
+
+@pytest.mark.parametrize('mode,fails', [('normal',False),('normal',True),('voice',False),('voice',True)])
+def test_chat_and_live_action_show_pipeline_results_and_endpoint_errors(window, app, mode, fails):
+    from morice.pyside_app import ChatBubble
+    previous_mode = window.chat_mode
+    with patch.object(window,'_begin_voice_listening'), patch('morice.pyside_app.stream_chat',
+        side_effect=RuntimeError('Controlled endpoint unavailable') if fails else None,
+        return_value=iter(('Controlled reply: ', 'organize by topic.'))):
+        try:
+            window._set_chat_mode(mode); window.navigate('voice' if mode=='voice' else 'chats'); window.awake = False
+            start = len(window.history); window.input.setText('Suggest three ways to organize a weekend reading list.'); window.send_btn.click()
+            pump(app,lambda: not window.is_busy and any(row['role']=='assistant' for row in window.history[start:]),timeout=15)
+            expected = 'Controlled endpoint unavailable' if fails else 'Controlled reply: organize by topic.'
+            assert expected in window._message_rows[-1].findChild(ChatBubble).message
+            if mode=='voice': assert expected in window.live_action_workspace.overlay._text
+        finally: window._set_busy(False); window._set_chat_mode(previous_mode); window.navigate('home')
+
+
+def test_research_create_keeps_submitted_title_and_new_draft_during_delivery(window, app):
+    window.navigate('research'); view = window.routes['research']; submitted = []
+    original = 'Compare benign model densities for the delayed creation fixture'
+    draft = 'Keep this next research objective'
+    view.objective.setText(original)
+    with patch.object(view.bridge, 'submit', side_effect=lambda title, operation, callback: submitted.append((operation, callback))):
+        view.create_button.click(); view.create_button.click()
+        assert len(submitted) == 1
+        assert not view.create_button.isEnabled()
+        view.objective.setText(draft)
+    operation, callback = submitted[0]
+    project_id = operation(); callback({'ok': True, 'value': project_id}); app.processEvents()
+    assert view.create_button.isEnabled()
+    assert view.projects.itemText(view.projects.findData(project_id)) == original
+    assert view.runtime.project(project_id).objective == original
+    assert view.objective.text() == draft
+    pump(app, lambda: not view._meta_reading)
+    view.objective.clear(); window.navigate('home')
+
+
+@pytest.mark.parametrize('failure', ['admission', 'worker'])
+def test_research_create_error_keeps_draft_and_allows_retry(window, app, failure):
+    window.navigate('research'); view = window.routes['research']; submitted = []
+    draft = 'Retry this benign research objective'; view.objective.setText(draft)
+    def submit(title, operation, callback):
+        if failure == 'admission': raise ValueError('The UI queue is full')
+        submitted.append(callback)
+    with patch.object(view.bridge, 'submit', side_effect=submit): view.create_button.click()
+    if submitted: submitted[0]({'ok': False, 'error': 'Owned worker fixture failed'})
+    assert view.create_button.isEnabled() and view.objective.text() == draft
+    assert ('queue is full' if failure == 'admission' else 'worker fixture failed') in view.detail.toPlainText()
+    view.objective.clear(); window.navigate('home')
+
+
 def test_settings_categories_fit_large_text_and_keep_names_at_compact_width(window, app):
     old_size, old_scale = window.size(), window.theme_engine.profile.font_scale
     window.navigate('settings'); view = window.routes['settings']; view.search.clear()

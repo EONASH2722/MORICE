@@ -1,138 +1,233 @@
 {
-  "date": "2026-10-15",
-  "version": "0.9.0",
-  "source_sha256": "64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9",
-  "website_source_sha256": "82c154097245736a0d9d4c8e3366d5a82c3f7599a7d14de0d7ca6125ac9b831a",
+  "date": "2026-10-16",
+  "version": "0.9.1",
+  "source_sha256": "f7dedf318b775650354645984f6f77b22d606cc3f0bbdb6ad13158a28cd55575",
+  "website_source_sha256": "132d5c3cfeaadb5984cc3bf788b4c1a9367d126db859fe5d302eee220ae91479",
+  "website_fingerprint_method": "Sorted website/src and website/public files, POSIX relative path then bytes.",
   "qt_platform": "windows",
   "device_pixel_ratio": 1.25,
-  "scope": "Native production factory in isolated empty/test profiles, or owned browser over the local production site, as labelled per image. Original branding; no external desktop capture or user conversations. Stills do not establish compositor frame pacing.",
+  "scope": "Native owned application only, isolated demonstration data. Camera/microphone/providers remain off; graph, physics and geographic fixtures are actual computations. Stills do not certify frame pacing.",
   "routes": [
     "home",
     "chats",
-    "spatial",
-    "settings",
     "projects",
-    "tools",
-    "activity",
-    "voice",
-    "artifacts",
     "research",
+    "spatial",
     "devices",
     "media",
     "automations",
     "connectors",
     "security",
     "history",
-    "plugins"
+    "activity",
+    "tools",
+    "voice",
+    "artifacts",
+    "plugins",
+    "settings"
   ],
-  "theme_animation_and_composer_proof": "build/theme-composer-native/evidence.json",
+  "native_capture_script": "scripts/capture_current_ui.py",
+  "local_site_validation": "build/phase11-091-current-production-site-qa.json",
   "files": [
     {
       "path": "docs/screenshots/morice-home.png",
-      "sha256": "639d0a708b8540e2e00c5eb999ad17936d348c824d711863473315c6f26cf750",
-      "bytes": 335916,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "7f8de02646a2100636d7b8339dedd3104a22f82dbe89d6e35b07dd9b0005b796",
+      "bytes": 256256,
+      "route": "home",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "website/public/morice-home.png",
-      "sha256": "639d0a708b8540e2e00c5eb999ad17936d348c824d711863473315c6f26cf750",
-      "bytes": 335916,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "7f8de02646a2100636d7b8339dedd3104a22f82dbe89d6e35b07dd9b0005b796",
+      "bytes": 256256,
+      "route": "home",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "docs/screenshots/morice-spatial.png",
-      "sha256": "3558edf7210c9185edf1c96551182ccd5e1e55743a07470846c1d42832697442",
-      "bytes": 430148,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "4c46b08e0fda263bd54b292fa7cf30c67db2ca043dd18446c9bd1a260a92eed3",
+      "bytes": 345460,
+      "route": "spatial",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "website/public/morice-spatial.png",
-      "sha256": "3558edf7210c9185edf1c96551182ccd5e1e55743a07470846c1d42832697442",
-      "bytes": 430148,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "4c46b08e0fda263bd54b292fa7cf30c67db2ca043dd18446c9bd1a260a92eed3",
+      "bytes": 345460,
+      "route": "spatial",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "docs/screenshots/morice-research.png",
-      "sha256": "9f0a8abeaeac992d8bdd5807b6854bdfa36a092647473531a6bb63abbdae3eb1",
-      "bytes": 169241,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "7b79eeb6a5e8d3caa665f7fa0b8a8fdf00d0034bc1306c26a2216920e9cd1340",
+      "bytes": 134574,
+      "route": "research",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "website/public/morice-research.png",
-      "sha256": "9f0a8abeaeac992d8bdd5807b6854bdfa36a092647473531a6bb63abbdae3eb1",
-      "bytes": 169241,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "7b79eeb6a5e8d3caa665f7fa0b8a8fdf00d0034bc1306c26a2216920e9cd1340",
+      "bytes": 134574,
+      "route": "research",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "docs/screenshots/morice-media.png",
-      "sha256": "eff002f0a93f62940fc5bee75464ebe40ff288b3e668cf5734012c3314ab6f00",
-      "bytes": 256543,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "58e688dbb956d90f24f4e6db2d8c8fb0591b2b2ce50f8ad70eef81f553c16b00",
+      "bytes": 184584,
+      "route": "media",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "website/public/morice-media.png",
-      "sha256": "eff002f0a93f62940fc5bee75464ebe40ff288b3e668cf5734012c3314ab6f00",
-      "bytes": 256543,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "58e688dbb956d90f24f4e6db2d8c8fb0591b2b2ce50f8ad70eef81f553c16b00",
+      "bytes": 184584,
+      "route": "media",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "docs/screenshots/morice-projects.png",
-      "sha256": "20d50a1932c941a9baa544b7a7a20ee78796f3a4a5393e017665aea888f6cd54",
-      "bytes": 214646,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "20c35979d2a2f73a5254112810fb15c5690b6f2b8283aa3a7971a44203e12e44",
+      "bytes": 175375,
+      "route": "projects",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "docs/screenshots/morice-settings.png",
-      "sha256": "4b42659cfb2491d973d08209065460412f3915864066246e92526d564832ddbc",
-      "bytes": 265883,
-      "capture_kind": "native_owned_qt_window"
-    },
-    {
-      "path": "docs/screenshots/morice-activity.png",
-      "sha256": "e215fcd9bbb1b68f46656ff8d44e4ef8a12f21470761aaaf7f54096ea566cfa1",
-      "bytes": 244160,
-      "capture_kind": "native_owned_qt_window"
-    },
-    {
-      "path": "docs/screenshots/morice-voice.png",
-      "sha256": "17375a542372b0341ae41d89fb24d2d54061a31b68d13906914a00b1f244d7cd",
-      "bytes": 257672,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "d56da3a25fc3cf2bebd8a8995a7a97683253007475f110185cd4544214d403a8",
+      "bytes": 210751,
+      "route": "settings",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "docs/screenshots/morice-devices.png",
-      "sha256": "31da02aadb0109fe790634bf05e1e05aadec966b34791a453716a60c4c13f06c",
-      "bytes": 149016,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "36e2dd0fbc765490ebedde5391d5f42fc083b1ff8fbb1c138069d220afef7868",
+      "bytes": 118897,
+      "route": "devices",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
+    },
+    {
+      "path": "docs/screenshots/morice-activity.png",
+      "sha256": "aac0f616af2cdc18e2b2f2b5a54dac87db3d343cdbb0cf3f54a60d291db34536",
+      "bytes": 193199,
+      "route": "activity",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
+    },
+    {
+      "path": "docs/screenshots/morice-voice.png",
+      "sha256": "dc9bd8b54ec461e64a9bc725cc03d5897a640ae8101ed4e3a0109b8765508b32",
+      "bytes": 159461,
+      "route": "voice",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "docs/screenshots/morice-theme-glass.png",
-      "sha256": "67c930d7ca2c7dd66455e9c9f9db0f25ea7e3ddc14bb478f61239d37e79e2800",
-      "bytes": 252833,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "275ca8fe540725d869479d488f67b849873ad0b7836a34bae22a9e015aeca7a4",
+      "bytes": 202507,
+      "route": "home",
+      "preset": "GLASS",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "docs/screenshots/morice-theme-amethyst.png",
-      "sha256": "4660527ea052779e1bb2fb3666a8afb688187e9334de010f7d1da546233dd9e7",
-      "bytes": 313751,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "45a8bf4a0a065f8e6ded6439c287eecee94934719c5d002715b4eaf20e6724b7",
+      "bytes": 247027,
+      "route": "home",
+      "preset": "AMETHYST",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
     },
     {
       "path": "docs/screenshots/morice-theme-arctic.png",
-      "sha256": "4769edfb9ed88bbfb20d8f623c3be7603dc7a7223660bc887b6c1a3e5e2ed1cd",
-      "bytes": 286420,
-      "capture_kind": "native_owned_qt_window"
+      "sha256": "55a86b0c19e4520eb28da6de4eaa3272867a7e9b76dd4699dcf33b1abf56f979",
+      "bytes": 222747,
+      "route": "home",
+      "preset": "ARCTIC",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
+    },
+    {
+      "path": "docs/reviewer-images/morice-home.png",
+      "sha256": "1160a474742b8b955c5c9d6ce01b469b7be9b1dd02588b75433bb98df8e539bf",
+      "bytes": 240173,
+      "route": "home",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
+    },
+    {
+      "path": "docs/reviewer-images/morice-graph.png",
+      "sha256": "f2670e75a824e7eedd789ce20f59eb926b3ce8d83623cd9ff73e85918c015612",
+      "bytes": 186072,
+      "route": "artifacts",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": "Actual deterministic computation: Plot y=x^2-6*x+8"
+    },
+    {
+      "path": "docs/reviewer-images/morice-simulation.png",
+      "sha256": "cffd1b0eef84a7c86fcb1ae7bbef61b7241fc51f07ab72e4be2419eb4cb01109",
+      "bytes": 173014,
+      "route": "artifacts",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": "Actual deterministic computation: Simulate 80 particles with gravity and elastic collisions."
+    },
+    {
+      "path": "docs/reviewer-images/morice-project.png",
+      "sha256": "29d3b050d7415b944793bcc592c554d817978f1b4ad47bb285619c9a76769b09",
+      "bytes": 178111,
+      "route": "settings",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": null
+    },
+    {
+      "path": "docs/reviewer-images/morice-personalization.png",
+      "sha256": "ecf3775b1889c6a9506963f00ca4d03a2a22c7152144ab54bb15095fbcd30a5b",
+      "bytes": 178010,
+      "route": "settings",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": "Owned demonstration form of address: Sir"
     },
     {
       "path": "docs/screenshots/website-hero-current.png",
-      "sha256": "1cbcfe1332cf57623682a161045c0fcaa3625ee30857778ec4a1b073f2ac7b2c",
-      "bytes": 220851,
+      "sha256": "6df9da3b178a4d9fe894a8bd94c41bf168e6eaaced6f6d32a87bd924e98567c5",
+      "bytes": 220855,
       "capture_kind": "owned_browser_local_production_site"
     },
     {
       "path": "docs/screenshots/website-mobile-current.png",
-      "sha256": "9ee0b139dbd26c23907a544285e9e9fa7d2e6be12c0c827cd7d11e0c4682a461",
-      "bytes": 100661,
+      "sha256": "ff13b03787ee8cdf1a2d732b53305bfa7f0c5d13ed8cac8ec09ea70c54f0ff89",
+      "bytes": 100113,
       "capture_kind": "owned_browser_local_production_site"
     }
   ]

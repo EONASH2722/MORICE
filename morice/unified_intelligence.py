@@ -179,9 +179,10 @@ class PermissionController:
         approval_token: str = "",
     ) -> PermissionDecision:
         clean_risk = RiskClass(risk)
+        groups = tuple(dict.fromkeys(str(item) for item in permissions if str(item)))
         required: list[str] = []
         denied: list[str] = []
-        for group in dict.fromkeys(str(item) for item in permissions if str(item)):
+        for group in groups:
             state = self.state(group)
             if state in {PermissionState.DENIED, PermissionState.UNSUPPORTED}:
                 denied.append(group)
@@ -200,7 +201,7 @@ class PermissionController:
                 reason="Permission is required: " + ", ".join(required),
             )
         needs_exact = clean_risk in {RiskClass.HIGH, RiskClass.CRITICAL} or (
-            clean_risk == RiskClass.MEDIUM and not tuple(permissions)
+            clean_risk == RiskClass.MEDIUM and not groups
         )
         if needs_exact and not self._consume_one_use(
             approval_token,

@@ -117,6 +117,7 @@ def stylesheet(t):
     QPushButton#ActionCard QLabel[role="card-title"] {{ font-weight: 600; font-size: {t.body_size+2}px; }}
     QPushButton, QToolButton {{ background: {t['surface_elevated']}; color: {t['text_primary']}; border: 1px solid {t['border']}; border-radius: {t.radius_small}px; padding: 8px 12px; min-height: {max(20, t.control_height-18)}px; }}
     QPushButton[icon_only="true"], QToolButton[icon_only="true"] {{ padding: 6px; min-width: 0; }}
+    QPushButton#MessageAction {{ padding: 4px; min-width: 0; min-height: 0; }}
     QPushButton:hover, QToolButton:hover {{ background: {t['surface_hover']}; border-color: {t['border_hover']}; }}
     QPushButton:pressed, QToolButton:pressed {{ background: {t['surface_pressed']}; }}
     QFrame#NavigationRail QPushButton[role="navigation"] {{ background: transparent; border-color: transparent; text-align: left; padding: 8px 12px; }}

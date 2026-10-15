@@ -1,5 +1,7 @@
 # Phase 11 release audit — MORICE 0.9.0
 
+This is the preserved 0.9.0 audit. The [0.9.1 follow-up](followup-audit-0.9.1.md) records later user-reported UI repairs and the new preview release at a separate source fingerprint.
+
 Local software acceptance completed 2026-10-15: **1,077 tests and 62 subtests pass in 398.39 seconds**. Exact current-source wheel/frozen parity, isolated-dependency launch and both installed EXE paths pass. [Current evidence and checksums](release-audit-evidence.json) bind these results to source `64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9`. Authorized source/site publication is a separate final stage; no new public binary is claimed. Preexisting work, original models and user data are retained.
 
 The audit distinguishes actual execution, controlled fixtures, static review, historical evidence and unavailable physical/provider checks. Decoration never represents real task progress. Current software verification does not certify arbitrary external applications, scientific experiments, physical devices or every model configuration.

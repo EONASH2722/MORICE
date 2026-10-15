@@ -46,6 +46,10 @@ class SettingsWorkspace(QWidget):
             ('Remove selected pet', 'remove_pet_btn')))
         self.add_form('Workspace', (('Default music provider', 'music_provider_select'), ('Workspace preset', 'workspace_preset_select'),
             ('Font family', 'font_select'), ('Import font file', 'add_font_btn')))
+        self.empty_results = QLabel('No settings match your search. Try another word or clear the search.')
+        self.empty_results.setAccessibleName('No settings match your search')
+        self.empty_results.setAlignment(Qt.AlignCenter); self.empty_results.setWordWrap(True)
+        self.stack.addWidget(self.empty_results)
         # The selected family belongs to the central schema; the established
         # selector still owns installed/custom-font handling and preferences.
         self.list.currentRowChanged.connect(self.stack.setCurrentIndex)
@@ -83,6 +87,9 @@ class SettingsWorkspace(QWidget):
                 raise AttributeError('Settings parity binding missing: ' + str(reference))
             field.setParent(host); field.setMinimumWidth(0); field.setMaximumWidth(16777215)
             field.setAccessibleName(label); field.show(); form.addRow(label, field)
+            if name == 'Personalization' and reference in ('name_input', 'title_input'):
+                field.setToolTip('Applies when you leave this field.')
+                field.editingFinished.connect(self.owner.on_save_identity)
             self.rows[name].append((label, field, form.labelForField(field)))
         scroll.setWidget(host); self.add_category(name, scroll)
 
@@ -120,6 +127,11 @@ class SettingsWorkspace(QWidget):
                 self.categories[name].filter('' if matches_category else query)
             if name == 'Wake': visible |= any(query in key.replace('_', ' ') for key in self.wake_fields)
             self.list.item(index).setHidden(not visible)
-        if self.list.currentItem() is None or self.list.currentItem().isHidden():
-            for index in range(self.list.count()):
-                if not self.list.item(index).isHidden(): self.list.setCurrentRow(index); break
+        visible_rows = [index for index in range(self.list.count()) if not self.list.item(index).isHidden()]
+        if not visible_rows:
+            self.stack.setCurrentWidget(self.empty_results)
+        else:
+            if self.list.currentRow() not in visible_rows: self.list.setCurrentRow(visible_rows[0])
+            # Returning from an empty search can keep the same selected row,
+            # so currentRowChanged need not fire to restore its page.
+            self.stack.setCurrentIndex(self.list.currentRow())

@@ -4,6 +4,13 @@ All notable changes to MORICE are documented here.
 
 ## [Unreleased]
 
+## [0.9.1] — desktop preview
+
+- Prevent duplicate Research project creation, keep the submitted project title, and preserve a new draft while the request finishes. Queue admission and worker failures allow retry without losing the draft.
+- Show an accessible empty state when Settings search has no matches and restore the selected category when results return.
+- Normalize permission iterables once so granted medium-risk capabilities do not receive an unnecessary exact confirmation. Denied access and high-risk confirmations remain enforced.
+- Refresh the remaining earlier-interface screenshots and publish matching Windows and Python release artifacts. See the [release notes](docs/release-notes-0.9.1.md) for validation and remaining limits.
+
 ## [0.9.0] — release candidate
 
 ### Added
