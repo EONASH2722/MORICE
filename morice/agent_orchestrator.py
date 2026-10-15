@@ -43,6 +43,14 @@ class AgentOrchestrator:
         self._requests: dict[str, AgentRequestContext] = {}
         self._stage_status: dict[str, dict[str, str]] = {}
         self._lock = threading.RLock()
+        self.parallel_runtime = None
+
+    def plan_workflow(self, request: str, *, project_root: str = ""):
+        """Unsupported or simple requests retain the existing direct path."""
+        if self.parallel_runtime is None:
+            return None
+        from .kernel import ExecutionContext
+        return self.parallel_runtime.plan(request, ExecutionContext(project_id=project_root))
 
     def prepare_request(
         self,

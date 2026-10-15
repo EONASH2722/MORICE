@@ -179,7 +179,8 @@ class PetAnimationTests(unittest.TestCase):
 
     def test_hover_motion_stays_bounded_to_stable_anchor(self):
         overlay = PetOverlayWindow(
-            AssetLoader().load("ironman_mark42"), click_action="nothing"
+            AssetLoader().load("ironman_mark42"), click_action="nothing",
+            event_frequency="off",  # isolate hover from persisted ambient events
         )
         overlay.move(200, 120)
         overlay._position_x = 200.0

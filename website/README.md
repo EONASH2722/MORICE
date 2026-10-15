@@ -1,22 +1,24 @@
 # MORICE website
 
-The cinematic MORICE product site is a React + TypeScript application built with Vite and deployed to GitHub Pages by the repository workflow.
+The product overview is a React + TypeScript application built with Vite. The existing GitHub Pages workflow deploys `website/dist`. Current source is 0.9.0; published Windows/Android 0.8.0 downloads are explicitly labelled as earlier builds.
 
-## Screenshots
+## Current production-build previews
 
-| Desktop hero | Visualization workspace | Mobile hero |
-| --- | --- | --- |
-| ![MORICE website hero](../docs/screenshots/website-hero.png) | ![MORICE visualization showcase](../docs/screenshots/website-visualizations.png) | ![MORICE mobile hero](../docs/screenshots/website-mobile.png) |
+| Glass on desktop | Ice on mobile |
+| --- | --- |
+| ![Glass website hero](../docs/screenshots/website-hero-current.png) | ![Ice website scene and compact mobile workspace tabs](../docs/screenshots/website-mobile-current.png) |
+
+These owned-browser captures show the local production build on October 15, 2026. The embedded desktop images come from the actual renovated native app in isolated profiles. They do not establish live deployment or infer model activity.
 
 ## Development
 
 ```bash
 cd website
-npm install
+npm ci
 npm run dev
 ```
 
-Production checks:
+Build and preview:
 
 ```bash
 npm run typecheck
@@ -24,24 +26,18 @@ npm run build
 npm run preview
 ```
 
-## Architecture
+Vite's local preview serves the build at its root. Relative asset paths also support the repository's `/MORICE/` GitHub Pages deployment.
 
-- `src/App.tsx` owns the page sections, scroll-synchronized statement sequence, feature rail, interactive visualization modes, privacy comparison, and download calls to action.
-- `src/NeuralCanvas.tsx` renders the procedural neural environment and AI core. It selects high, medium, or low detail based on viewport size, device memory, and reduced-motion preference. The header lets visitors override the automatic choice.
-- `src/useScrollProgress.ts` maps native page scrolling to a reversible 0–1 hero timeline. There is no scroll hijacking.
-- `src/styles.css` contains the design tokens, responsive layouts, canvas fallback background, transitions, and reduced-motion behavior.
-- `public/` contains optimized copies of existing MORICE brand/product imagery.
+## Architecture and interaction
 
-## Editing the story
+`src/App.tsx` owns semantic sections, authored SVG pictograms, four scene presets, pause/resume, keyboard workspace tabs and truthful source/download links. Midnight uses an orbital star atlas; Ice blooms into a crystal; Solar rotates corona filaments; Glass floats refractive facets. The website Core is decorative and does not record audio, load a model or imply a live task.
 
-Change `statements` in `src/App.tsx` to replace the cinematic text sequence. The hero automatically divides the scroll timeline evenly between statements. Edit `features` and `showcase` in the same file to change the product content.
+`src/styles.css` defines theme variables, distinct closed animation cycles, focus states and responsive layouts. Animation endpoints return to the same pose. The website pauses decoration when hidden, exposes a visible motion control and honours the operating system's Reduced Motion setting. It uses system fonts and no icon pack.
 
-To replace the procedural scene, update `NeuralCanvas.tsx`; keep the canvas fixed inside `.hero-sticky` and derive every visual state from the `progress` prop so scrolling remains reversible.
+`public/` holds the original MORICE logo and four current native workspace captures. The older `NeuralCanvas.tsx` and `useScrollProgress.ts` remain unimported historical source; the current page does not mount a scrolling cinematic canvas.
 
-## Accessibility and mobile fallback
+## Verification and deployment
 
-The page uses native scrolling, semantic sections, keyboard-focusable navigation and controls, a skip link, descriptive image text, and visible focus behavior. `prefers-reduced-motion` collapses the long cinematic sequence to a static final frame and disables decorative animation. Small screens receive fewer canvas particles, a simplified core, compact navigation, and single-column content instead of a scaled-down desktop layout.
+The local production build was checked at 1440×1000 and 390×844: no horizontal overflow or broken loaded images, all four motifs present with changing transforms, pause/resume, arrow-key workspace switching and a fresh load with zero console errors/warnings. This is browser validation, not compositor or physical-device certification.
 
-## Deployment
-
-`.github/workflows/pages.yml` installs from `website/package-lock.json`, builds `website/dist`, and deploys that artifact with the official GitHub Pages actions. In the GitHub repository, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions** if it is not selected already.
+`.github/workflows/pages.yml` installs the locked dependencies, builds the site and deploys through the official GitHub Pages actions. Authorized publication is the final stage after the software candidate checks. A successful local build alone is not a live deployment result. See the [release audit](../docs/release-audit-report.md) for current scope and constraints.

@@ -35,6 +35,12 @@ class ExperienceProfile:
     ui_scale: float = 1.0
     transparency: int = 92
     workspace_preset: str = "balanced"
+    appearance: dict[str, Any] | None = None
+
+    def __post_init__(self):
+        if self.appearance is not None:
+            from .ui_next.appearance_profile import AppearanceProfile
+            object.__setattr__(self, "appearance", AppearanceProfile.from_dict(self.appearance).to_dict())
 
     @classmethod
     def from_value(
@@ -67,6 +73,7 @@ class ExperienceProfile:
             workspace_preset=normalize_workspace_preset(
                 str(data.get("workspace_preset", "balanced"))
             ),
+            appearance=data.get("appearance"),
         )
 
 
@@ -119,6 +126,8 @@ class ExperienceProfileStore:
 
     def _load(self) -> None:
         try:
+            if self.path.stat().st_size > 1024 * 1024:
+                raise ValueError("Profile storage exceeds its data budget.")
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError):
             data = {}
@@ -126,7 +135,10 @@ class ExperienceProfileStore:
         for value in values[:MAX_PROFILES]:
             if not isinstance(value, dict):
                 continue
-            profile = ExperienceProfile.from_value(value)
+            try:
+                profile = ExperienceProfile.from_value(value)
+            except (ValueError, TypeError):
+                continue
             self._profiles[profile.name.casefold()] = profile
 
     def list(self) -> tuple[ExperienceProfile, ...]:
@@ -173,6 +185,8 @@ class ExperienceProfileStore:
     def import_file(self, path: str | os.PathLike[str]) -> int:
         source = Path(path).expanduser().resolve()
         try:
+            if source.stat().st_size > 1024 * 1024:
+                raise ValueError("Profile import exceeds its data budget.")
             data = json.loads(source.read_text(encoding="utf-8"))
         except (OSError, ValueError, TypeError) as exc:
             raise ValueError("The selected profile file is not valid JSON.") from exc

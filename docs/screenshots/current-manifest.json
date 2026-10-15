@@ -1,0 +1,139 @@
+{
+  "date": "2026-10-15",
+  "version": "0.9.0",
+  "source_sha256": "64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9",
+  "website_source_sha256": "82c154097245736a0d9d4c8e3366d5a82c3f7599a7d14de0d7ca6125ac9b831a",
+  "qt_platform": "windows",
+  "device_pixel_ratio": 1.25,
+  "scope": "Native production factory in isolated empty/test profiles, or owned browser over the local production site, as labelled per image. Original branding; no external desktop capture or user conversations. Stills do not establish compositor frame pacing.",
+  "routes": [
+    "home",
+    "chats",
+    "spatial",
+    "settings",
+    "projects",
+    "tools",
+    "activity",
+    "voice",
+    "artifacts",
+    "research",
+    "devices",
+    "media",
+    "automations",
+    "connectors",
+    "security",
+    "history",
+    "plugins"
+  ],
+  "theme_animation_and_composer_proof": "build/theme-composer-native/evidence.json",
+  "files": [
+    {
+      "path": "docs/screenshots/morice-home.png",
+      "sha256": "639d0a708b8540e2e00c5eb999ad17936d348c824d711863473315c6f26cf750",
+      "bytes": 335916,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "website/public/morice-home.png",
+      "sha256": "639d0a708b8540e2e00c5eb999ad17936d348c824d711863473315c6f26cf750",
+      "bytes": 335916,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/morice-spatial.png",
+      "sha256": "3558edf7210c9185edf1c96551182ccd5e1e55743a07470846c1d42832697442",
+      "bytes": 430148,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "website/public/morice-spatial.png",
+      "sha256": "3558edf7210c9185edf1c96551182ccd5e1e55743a07470846c1d42832697442",
+      "bytes": 430148,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/morice-research.png",
+      "sha256": "9f0a8abeaeac992d8bdd5807b6854bdfa36a092647473531a6bb63abbdae3eb1",
+      "bytes": 169241,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "website/public/morice-research.png",
+      "sha256": "9f0a8abeaeac992d8bdd5807b6854bdfa36a092647473531a6bb63abbdae3eb1",
+      "bytes": 169241,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/morice-media.png",
+      "sha256": "eff002f0a93f62940fc5bee75464ebe40ff288b3e668cf5734012c3314ab6f00",
+      "bytes": 256543,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "website/public/morice-media.png",
+      "sha256": "eff002f0a93f62940fc5bee75464ebe40ff288b3e668cf5734012c3314ab6f00",
+      "bytes": 256543,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/morice-projects.png",
+      "sha256": "20d50a1932c941a9baa544b7a7a20ee78796f3a4a5393e017665aea888f6cd54",
+      "bytes": 214646,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/morice-settings.png",
+      "sha256": "4b42659cfb2491d973d08209065460412f3915864066246e92526d564832ddbc",
+      "bytes": 265883,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/morice-activity.png",
+      "sha256": "e215fcd9bbb1b68f46656ff8d44e4ef8a12f21470761aaaf7f54096ea566cfa1",
+      "bytes": 244160,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/morice-voice.png",
+      "sha256": "17375a542372b0341ae41d89fb24d2d54061a31b68d13906914a00b1f244d7cd",
+      "bytes": 257672,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/morice-devices.png",
+      "sha256": "31da02aadb0109fe790634bf05e1e05aadec966b34791a453716a60c4c13f06c",
+      "bytes": 149016,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/morice-theme-glass.png",
+      "sha256": "67c930d7ca2c7dd66455e9c9f9db0f25ea7e3ddc14bb478f61239d37e79e2800",
+      "bytes": 252833,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/morice-theme-amethyst.png",
+      "sha256": "4660527ea052779e1bb2fb3666a8afb688187e9334de010f7d1da546233dd9e7",
+      "bytes": 313751,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/morice-theme-arctic.png",
+      "sha256": "4769edfb9ed88bbfb20d8f623c3be7603dc7a7223660bc887b6c1a3e5e2ed1cd",
+      "bytes": 286420,
+      "capture_kind": "native_owned_qt_window"
+    },
+    {
+      "path": "docs/screenshots/website-hero-current.png",
+      "sha256": "1cbcfe1332cf57623682a161045c0fcaa3625ee30857778ec4a1b073f2ac7b2c",
+      "bytes": 220851,
+      "capture_kind": "owned_browser_local_production_site"
+    },
+    {
+      "path": "docs/screenshots/website-mobile-current.png",
+      "sha256": "9ee0b139dbd26c23907a544285e9e9fa7d2e6be12c0c827cd7d11e0c4682a461",
+      "bytes": 100661,
+      "capture_kind": "owned_browser_local_production_site"
+    }
+  ]
+}

@@ -578,11 +578,13 @@ class VisualizationManager:
     ):
         self.registry = registry or RendererRegistry()
         if registry is None:
+            # Explicit local file previews take precedence over incidental
+            # domain keywords in directory and file names.
+            self.registry.register(DocumentRendererPlugin())
             self.registry.register(BiologyRendererPlugin())
             self.registry.register(DataStructureRendererPlugin())
             self.registry.register(ChartRendererPlugin())
             self.registry.register(SceneRendererPlugin())
-            self.registry.register(DocumentRendererPlugin())
             self.registry.register(GraphRendererPlugin())
             self.registry.register(PhysicsRendererPlugin())
             self.registry.register(MoleculeRendererPlugin())
@@ -719,10 +721,10 @@ class VisualizationManager:
         return VisualizationRequest(uuid.uuid4().hex, prompt.strip(), decision)
 
     def submit(self, request: VisualizationRequest, progress: ProgressCallback) -> Future:
-        from .runtime_services import get_runtime_services
+        from .runtime_services import peek_runtime_services
 
-        runtime = get_runtime_services()
-        if runtime.started:
+        runtime = peek_runtime_services()
+        if runtime is not None and runtime.started:
             runtime.profiler.set_current_renderer(request.decision.renderer_id)
             runtime.logs.log(
                 "INFO",
@@ -733,7 +735,7 @@ class VisualizationManager:
         future = self.scheduler.submit(request.job_id, self.render, request, progress)
 
         def record_result(completed: Future) -> None:
-            if not runtime.started:
+            if runtime is None or not runtime.started:
                 return
             try:
                 result = completed.result()

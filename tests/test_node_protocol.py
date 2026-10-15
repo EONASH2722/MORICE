@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import base64
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from cryptography.exceptions import InvalidTag
 
 from morice.node_protocol import (
     MessageType,
@@ -68,8 +70,11 @@ class NodeProtocolTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             incoming.open(sealed)
         value = json.loads(sealed)
-        value["ciphertext"] = value["ciphertext"][:-2] + "AA"
-        with self.assertRaises(Exception):
+        encoded=value["ciphertext"]
+        ciphertext=bytearray(base64.urlsafe_b64decode(encoded+"="*(-len(encoded)%4)))
+        ciphertext[-1]^=1
+        value["ciphertext"]=base64.urlsafe_b64encode(ciphertext).decode("ascii").rstrip("=")
+        with self.assertRaises(InvalidTag):
             SecureChannel("desktop-1", "phone-1", key).open(value)
 
     def test_store_requires_approval_and_scopes_permissions(self) -> None:

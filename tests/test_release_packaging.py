@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 import zipfile
+from morice.version import VERSION
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +28,7 @@ validate_version = _load_script("validate_version.py")
 class ReleasePackagingTests(unittest.TestCase):
     def test_version_metadata_is_consistent(self):
         version, errors = validate_version.validate_version(ROOT)
-        self.assertEqual(version, "0.8.0")
+        self.assertEqual(version, VERSION)
         self.assertEqual(errors, [])
 
     def test_release_builder_uses_authoritative_version_for_notes(self):

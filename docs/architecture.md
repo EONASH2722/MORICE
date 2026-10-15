@@ -2,6 +2,8 @@
 
 MORICE is a PySide6 Windows desktop application with host-owned execution boundaries. Language models can propose text, project manifests, or visualization instructions; they cannot directly draw widgets, mutate files, control the desktop, install plugins, or publish Git changes.
 
+The production factory creates `ui_next.shell.RenovatedWindow` over the established controllers and RuntimeServices. Kernel, TaskGraph, AgentCoordinator, WorkerManager, SharedTaskState, permissions, verification and leases remain shared. The [Renovation architecture](renovation-architecture.md) describes themes, native vector scenes, geometry, navigation and the retained hidden compatibility constructor. The [release audit](release-audit-report.md) separates actual execution, controlled fixtures and unavailable hardware/provider certification.
+
 ## Request Flow
 
 ```text

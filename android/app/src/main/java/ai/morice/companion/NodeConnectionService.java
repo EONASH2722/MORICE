@@ -27,16 +27,28 @@ public final class NodeConnectionService extends Service {
     static final int PHONE_NODE_PORT = 47661;
     private static final String CHANNEL = "morice-node-connectivity";
     private static final int NOTIFICATION_ID = 4601;
-    private final ExecutorService workers = Executors.newCachedThreadPool();
+    private final java.util.concurrent.ThreadPoolExecutor workers = new java.util.concurrent.ThreadPoolExecutor(4, 4, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
+        new java.util.concurrent.ArrayBlockingQueue<>(8), new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
     private volatile boolean running;
     private ServerSocket server;
     private SecureNodeStore store;
     private MoriceProtocol.Descriptor local;
+    private MeshNode mesh;
+    private final java.util.Set<Socket> connections = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private long rateWindow = android.os.SystemClock.elapsedRealtime();
+    private int received;
+
+    private synchronized boolean admitConnection() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (now - rateWindow >= 60000) { rateWindow = now; received = 0; }
+        return ++received <= 3000;
+    }
 
     @Override public void onCreate() {
         super.onCreate();
         store = new SecureNodeStore(this);
         local = store.localDescriptor();
+        try { mesh = new MeshNode(this, store); } catch (Exception error) { mesh = null; }
         createChannel();
     }
 
@@ -46,15 +58,23 @@ public final class NodeConnectionService extends Service {
             running = true;
             workers.execute(this::acceptLoop);
         }
-        return START_STICKY;
+        return START_NOT_STICKY;
     }
 
     private void acceptLoop() {
-        try (ServerSocket value = new ServerSocket(PHONE_NODE_PORT)) {
+        try (ServerSocket value = mesh != null && mesh.identity.peers().length() > 0
+                ? mesh.identity.context(null, true).getServerSocketFactory().createServerSocket(PHONE_NODE_PORT)
+                : new ServerSocket(PHONE_NODE_PORT, 1, java.net.InetAddress.getLoopbackAddress())) {
+            if (value instanceof javax.net.ssl.SSLServerSocket) {
+                ((javax.net.ssl.SSLServerSocket) value).setNeedClientAuth(true);
+                ((javax.net.ssl.SSLServerSocket) value).setEnabledProtocols(new String[]{"TLSv1.3"});
+            }
             server = value;
             while (running) {
                 Socket connection = value.accept();
-                workers.execute(() -> handle(connection));
+                if (!admitConnection()) { connection.close(); continue; }
+                connections.add(connection);
+                try { workers.execute(() -> handle(connection)); } catch (java.util.concurrent.RejectedExecutionException error) { connections.remove(connection); connection.close(); }
             }
         } catch (Exception error) {
             if (running) updateNotification("Connection stopped: " + safe(error));
@@ -65,7 +85,18 @@ public final class NodeConnectionService extends Service {
 
     private void handle(Socket socket) {
         try (Socket connection = socket) {
-            connection.setSoTimeout(60_000);
+            connection.setSoTimeout(2500);
+            if (connection instanceof javax.net.ssl.SSLSocket) {
+                javax.net.ssl.SSLSocket tls = (javax.net.ssl.SSLSocket) connection;
+                tls.startHandshake();
+                String peer = MeshIdentity.id((java.security.cert.X509Certificate) tls.getSession().getPeerCertificates()[0]);
+                JSONObject request = MeshClient.read(new DataInputStream(connection.getInputStream()));
+                if (!peer.equals(request.getString("sender"))) throw new SecurityException("Authenticated sender mismatch.");
+                JSONObject response = mesh.dispatch(request.getString("op"), request.getJSONObject("payload"), peer);
+                MeshClient.write(new DataOutputStream(connection.getOutputStream()), new JSONObject().put("version", MeshClient.VERSION)
+                    .put("sender", mesh.identity.nodeId).put("request_id", request.getString("request_id")).put("payload", response));
+                return;
+            }
             DataInputStream input = new DataInputStream(connection.getInputStream());
             int size = input.readInt();
             if (size <= 0 || size > MoriceProtocol.MAX_FRAME_BYTES) throw new IllegalArgumentException("Invalid frame size.");
@@ -85,7 +116,7 @@ public final class NodeConnectionService extends Service {
         } catch (Exception ignored) {
             // Fail closed. Authentication errors are intentionally not reflected
             // to an unauthenticated network peer.
-        }
+        } finally { connections.remove(socket); }
     }
 
     private MoriceProtocol.Message dispatch(MoriceProtocol.Message request, SecureNodeStore.Peer peer) throws Exception {
@@ -180,6 +211,8 @@ public final class NodeConnectionService extends Service {
     @Override public void onDestroy() {
         running = false;
         try { if (server != null) server.close(); } catch (Exception ignored) {}
+        for (Socket socket : connections) try { socket.close(); } catch (Exception ignored) {}
+        connections.clear();
         workers.shutdownNow();
         super.onDestroy();
     }

@@ -4,7 +4,7 @@ Desktop pets are an optional, low-overhead companion process. The process loads
 PySide and pet metadata only; it does not start the language model, agent
 planner, network retrieval, microphone, or voice pipeline.
 
-![MORICE desktop-pet settings](screenshots/desktop-pets/22-pet-settings-panel.png)
+Open **Settings → Desktop pet** to select and configure a companion. See the [current Settings navigation](screenshots/morice-settings.png).
 
 ## Launcher behavior
 

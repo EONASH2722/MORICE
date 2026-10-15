@@ -4,14 +4,14 @@ Project Mode turns natural-language requests into reviewable workspace changes. 
 
 ## Start A Project
 
-1. Open **Panel** and select **Project**.
-2. Select `+` under Project setup.
+1. Open **Projects** from the Core launcher or workspace sidebar.
+2. Select `+` beside the project folder field.
 3. Choose or create a folder outside the MORICE application directory.
-4. Select **Limited to folder** for the recommended boundary, or **Full access** when the work genuinely spans other locations.
+4. Select **Limited to folder** for the recommended boundary, or **Full access** when the work spans other locations.
 5. Choose local or **Online+local** context.
 6. State the deliverable, language, framework, target platform, constraints, and verification command.
 
-![MORICE Project setup](screenshots/morice-project-setup.png)
+![Current MORICE Projects workspace in an owned empty profile](screenshots/morice-projects.png)
 
 ## Build Pipeline
 

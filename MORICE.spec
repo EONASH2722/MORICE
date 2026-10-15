@@ -11,8 +11,9 @@ model_candidates = [
     os.path.join(project_dir, 'qwen2.5-coder-7b-instruct-q4_k_m.gguf'),
 ]
 bundled_model = next((path for path in model_candidates if os.path.isfile(path)), None)
-if not bundled_model:
-    raise SystemExit('Install a Qwen2.5 Coder 7B GGUF before packaging MORICE.')
+bundle_models = os.environ.get('MORICE_BUNDLE_MODELS', '').strip().lower() in {'1', 'true', 'yes'}
+if bundle_models and not bundled_model:
+    raise SystemExit('MORICE_BUNDLE_MODELS requires an existing local GGUF.')
 vosk_binaries = collect_dynamic_libs('vosk')
 voice_model = os.path.join(project_dir, 'voice_models', 'vosk-model-small-en-us-0.15')
 vision_roots = [
@@ -38,16 +39,20 @@ for vision_root in (path for path in vision_roots if path):
         vision_files = (candidate_model, candidate_projector)
         break
 data_files = [
+    (os.path.join(project_dir, 'morice', 'media_lab', 'worker.py'), 'morice\\media_lab'),
+    (os.path.join(project_dir, 'morice', 'project_build', 'localtools.py'), 'morice\\project_build'),
     (os.path.join(project_dir, 'morice', 'assets', 'morice_logo.ico'), 'morice\\assets'),
     (os.path.join(project_dir, 'morice', 'assets', 'morice-logo-rgb.png'), 'morice\\assets'),
     (os.path.join(project_dir, 'morice', 'assets', 'web'), 'morice\\assets\\web'),
     (os.path.join(project_dir, 'morice', 'assets', 'pets'), 'morice\\assets\\pets'),
-    (bundled_model, 'morice\\assets'),
+    (os.path.join(project_dir, 'morice', 'assets', 'spatial'), 'morice\\assets\\spatial'),
     (os.path.join(project_dir, 'third_party', 'llama-win-cpu'), 'morice\\assets\\llama-bin'),
 ]
+if bundle_models:
+    data_files.append((bundled_model, 'morice\\assets'))
 if os.path.isdir(voice_model):
     data_files.append((voice_model, 'voice_models\\vosk-model-small-en-us-0.15'))
-if vision_files:
+if bundle_models and vision_files:
     for vision_file in vision_files:
         data_files.append((vision_file, 'morice\\assets\\vision'))
 
@@ -63,11 +68,24 @@ a = Analysis(
     datas=data_files,
     hiddenimports=(
         ['morice.plugin_host', 'morice_wake_listener', 'dotenv', 'websockets']
+        + collect_submodules('morice.kernel')
+        + collect_submodules('morice.agent_runtime')
+        + collect_submodules('morice.action_runtime')
+        + collect_submodules('morice.project_build')
+        + collect_submodules('morice.device_mesh')
+        + collect_submodules('morice.research')
+        + collect_submodules('morice.ambient')
+        + collect_submodules('morice.connectors')
+        + collect_submodules('morice.security')
+        + collect_submodules('morice.media_lab')
+        + collect_submodules('morice.spatial')
+        + collect_submodules('morice.ui_next')
+        + collect_submodules('geographiclib')
         + collect_submodules('elevenlabs')
         + collect_submodules('winrt')
         + collect_submodules('uiautomation')
         + collect_submodules('pycaw')
-        + collect_submodules('comtypes')
+        + collect_submodules('comtypes', filter=lambda name: not name.startswith('comtypes.test'))
     ),
     hookspath=[],
     hooksconfig={},

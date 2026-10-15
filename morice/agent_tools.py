@@ -29,6 +29,7 @@ from .agent_types import (
     ToolStatus,
 )
 from .project_index import ProjectIndexer, TEXT_EXTENSIONS
+from .process_ownership import spawn_owned_process,reap_owned_job,owned_process_running
 from .project_runtime import (
     ProjectValidationError,
     build_launch_plan,
@@ -78,7 +79,8 @@ def _atomic_write(path: Path, data: bytes) -> None:
 
 
 def _terminate_process_tree(process: subprocess.Popen) -> None:
-    """Stop owned command descendants, including Windows venv launchers."""
+    """Reap owned command descendants, including Windows venv launchers."""
+    if reap_owned_job(process) is True:return
     if os.name == "nt":
         try:
             subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
@@ -94,8 +96,7 @@ def _terminate_process_tree(process: subprocess.Popen) -> None:
             pass
 
 
-class ToolValidationError(ValueError):
-    pass
+from .kernel.schema import ToolValidationError, validate_schema
 
 
 class PermissionPolicy:
@@ -148,6 +149,14 @@ class PermissionPolicy:
             and fingerprint == self.fingerprint(call.tool_id, call.arguments)
             and time.monotonic() <= expires_at
         )
+
+    def check(self, call: ToolCall) -> bool:
+        """Preview a scoped grant; execution still consumes it atomically."""
+        with self._lock:
+            entry = self._tokens.get(call.permission_token)
+            return bool(entry and entry[0] == call.tool_id
+                and entry[1] == self.fingerprint(call.tool_id, call.arguments)
+                and time.monotonic() <= entry[2])
 
 
 class ActionHistory:
@@ -454,50 +463,7 @@ class ToolRegistry:
         self._validate_schema(call.arguments, definition.input_schema)
         return definition
 
-    @staticmethod
-    def _validate_schema(value: Any, schema: dict[str, Any], path: str = "arguments") -> None:
-        expected = schema.get("type")
-        types = {
-            "object": dict,
-            "array": list,
-            "string": str,
-            "number": (int, float),
-            "integer": int,
-            "boolean": bool,
-        }
-        type_matches = expected not in types or isinstance(value, types[expected])
-        if expected in {"integer", "number"} and isinstance(value, bool):
-            type_matches = False
-        if not type_matches:
-            raise ToolValidationError(f"{path} must be {expected}.")
-        if expected == "number" and not math.isfinite(float(value)):
-            raise ToolValidationError(f"{path} must be finite.")
-        if expected == "object":
-            required = schema.get("required", ())
-            for key in required:
-                if key not in value:
-                    raise ToolValidationError(f"{path}.{key} is required.")
-            properties = schema.get("properties", {})
-            for key, child in value.items():
-                if key in properties:
-                    ToolRegistry._validate_schema(child, properties[key], f"{path}.{key}")
-                elif schema.get("additionalProperties") is False:
-                    raise ToolValidationError(f"{path}.{key} is not supported.")
-        elif expected == "array":
-            if len(value) > int(schema.get("maxItems", 100_000)):
-                raise ToolValidationError(f"{path} has too many items.")
-            child = schema.get("items")
-            if child:
-                for index, item in enumerate(value):
-                    ToolRegistry._validate_schema(item, child, f"{path}[{index}]")
-        elif expected == "string":
-            if len(value) > int(schema.get("maxLength", 1_000_000)):
-                raise ToolValidationError(f"{path} is too long.")
-            if pattern := schema.get("pattern"):
-                if not re.fullmatch(pattern, value):
-                    raise ToolValidationError(f"{path} has an invalid format.")
-        if "enum" in schema and value not in schema["enum"]:
-            raise ToolValidationError(f"{path} must be one of {schema['enum']}.")
+    _validate_schema = staticmethod(validate_schema)
 
 
 class AgentToolExecutor:
@@ -513,8 +479,22 @@ class AgentToolExecutor:
         self.history = history
         self.permissions = permissions
         self.logger = logger
+        self.kernel = None
 
     def execute(self, call: ToolCall) -> ToolResult:
+        if self.kernel is not None and self.kernel.registry.lookup(call.tool_id) is not None:
+            from .kernel.adapters import tool_result_from_kernel
+            context = self.kernel.context.capture(project_id=str(call.arguments.get("root", call.arguments.get("cwd", ""))),
+                approval_token=call.permission_token, metadata={"tool_inputs": call.arguments})
+            task_fields = {"task_id": call.call_id} if call.call_id else {}
+            result = self.kernel.dispatch(call.tool_id, dict(call.arguments), context, **task_fields)
+            value = tool_result_from_kernel(result, call)
+            if result.legacy_result is None:
+                self._record(call, value, self.registry.definition(call.tool_id))
+            return value
+        return self._execute_legacy(call)
+
+    def _execute_legacy(self, call: ToolCall, *, execution_context=None, record: bool = True) -> ToolResult:
         started = time.perf_counter()
         try:
             definition = self.registry.validate(call)
@@ -525,7 +505,8 @@ class AgentToolExecutor:
                 (time.perf_counter() - started) * 1000,
                 errors=[str(exc)],
             )
-            self._record(call, result, None)
+            if record:
+                self._record(call, result, None)
             return result
         permission_status = PermissionStatus.NOT_REQUIRED
         if definition.risk != RiskLevel.READ_ONLY or definition.permissions:
@@ -539,7 +520,8 @@ class AgentToolExecutor:
                     ],
                     permission_status=PermissionStatus.REQUIRED,
                 )
-                self._record(call, result, definition)
+                if record:
+                    self._record(call, result, definition)
                 return result
             permission_status = PermissionStatus.GRANTED
         handler = self.registry.handler(call.tool_id)
@@ -550,13 +532,17 @@ class AgentToolExecutor:
                 (time.perf_counter() - started) * 1000,
                 errors=["Tool handler is unavailable."],
             )
-            self._record(call, result, definition)
+            if record:
+                self._record(call, result, definition)
             return result
         try:
             handler_arguments = dict(call.arguments)
             handler_arguments["_call_id"] = call.call_id or uuid.uuid4().hex
+            if execution_context is not None:
+                handler_arguments["_cancellation_token"] = execution_context.cancellation_token
+                handler_arguments["_deadline"] = execution_context.deadline
             if (
-                definition.risk != RiskLevel.READ_ONLY
+                execution_context is not None or definition.risk != RiskLevel.READ_ONLY
                 and not definition.cancellation_supported
             ):
                 # A timed-out write must never continue mutating files after MORICE
@@ -619,7 +605,8 @@ class AgentToolExecutor:
                 retryable=definition.idempotent,
                 permission_status=permission_status,
             )
-        self._record(call, result, definition)
+        if record:
+            self._record(call, result, definition)
         return result
 
     def _record(
@@ -719,9 +706,11 @@ class BuiltinTools:
         self._register()
 
     def cancel(self, call_id: str) -> bool:
+        if self.executor.kernel is not None and self.executor.kernel.cancel(call_id):
+            return True
         with self._process_lock:
             process = self._active_processes.get(call_id)
-        if process is None or process.poll() is not None:
+        if process is None or not owned_process_running(process):
             return False
         try:
             _terminate_process_tree(process)
@@ -1298,7 +1287,7 @@ class BuiltinTools:
             raise ToolValidationError("Command cannot be empty.")
         timeout = max(1.0, min(600.0, float(arguments.get("timeout", 300))))
         call_id = str(arguments.get("_call_id", ""))
-        process = subprocess.Popen(
+        process = spawn_owned_process(
             command,
             cwd=cwd,
             stdout=subprocess.PIPE,
@@ -1312,10 +1301,24 @@ class BuiltinTools:
         with self._process_lock:
             self._active_processes[call_id] = process
         timed_out = False
+        cancelled = False
+        token = arguments.get("_cancellation_token")
+        deadline = min(time.monotonic() + timeout, arguments.get("_deadline") or float("inf"))
         try:
-            stdout, stderr = process.communicate(timeout=timeout)
+            while True:
+                if token is not None and token.cancelled:
+                    cancelled = True
+                    raise subprocess.TimeoutExpired(command, timeout)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, timeout)
+                try:
+                    stdout, stderr = process.communicate(timeout=min(0.05, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
         except subprocess.TimeoutExpired:
-            timed_out = True
+            timed_out = not cancelled
             _terminate_process_tree(process)
             try:
                 stdout, stderr = process.communicate(timeout=5)
@@ -1323,27 +1326,33 @@ class BuiltinTools:
                 process.kill()
                 stdout, stderr = process.communicate(timeout=5)
         finally:
+            # A successful parent may have spawned a child that outlives it.
+            # Windows ownership remains until the complete Job is empty.
+            reap_owned_job(process)
             with self._process_lock:
                 self._active_processes.pop(call_id, None)
         return_code = process.returncode if process.returncode is not None else -1
         errors = []
-        if timed_out:
+        if cancelled:
+            errors.append("Command cancelled.")
+        elif timed_out:
             errors.append(f"Command timed out after {timeout:g} seconds.")
         elif return_code != 0:
             errors.append(f"Command exited with {return_code}.")
         return ToolResult(
             "terminal.run",
-            return_code == 0 and not timed_out,
+            return_code == 0 and not timed_out and not cancelled,
             (time.perf_counter() - started) * 1000,
             output={
                 "stdout": stdout,
                 "stderr": stderr,
                 "exitCode": return_code,
                 "timedOut": timed_out,
+                "cancelled": cancelled,
             },
             logs=[stdout, stderr],
             errors=errors,
-            verified=return_code == 0 and not timed_out,
+            verified=return_code == 0 and not timed_out and not cancelled,
         )
 
     @staticmethod

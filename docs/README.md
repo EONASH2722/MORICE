@@ -1,6 +1,8 @@
 # MORICE Documentation
 
-This documentation describes the current source and the `0.8.0` Windows application. The research core and desktop-companion additions are source previews; older release downloads may not contain them. Validation scope and remaining work are listed in each guide.
+This documentation describes the current `0.9.0` source candidate. Published Windows/Android `0.8.0` binaries are older builds with the previous interface. Current source adds the renovated workspace, verified runtime extensions, Research, Mesh, Media and Spatial with the concrete provider/hardware constraints in each phase guide.
+
+The [Renovation architecture](renovation-architecture.md), [Renovation acceptance report](renovation-report.md) and [135-topic release audit](release-audit-report.md) identify current implementation, exact validation and remaining gates.
 
 ## Start Here
 

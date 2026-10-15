@@ -6,6 +6,10 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
+from functools import wraps
+import inspect
+import uuid
 
 from .core import SYSTEM_PROMPT, current_datetime_summary, emotional_checkin_response, short_form_hints
 from .local_llama import chat as local_chat
@@ -42,7 +46,82 @@ def _report_telemetry(callback, event: str, **payload) -> None:
         pass
 
 
+@contextmanager
+def _local_model_claim(path, *, execution_scope=True):
+    from .runtime_services import peek_runtime_services
+    runtime = peek_runtime_services()
+    if not path or runtime is None:
+        yield
+        return
+    resources = runtime.kernel.resources
+    if resources.current_holds("LOCAL_MODEL"):
+        yield  # The shared kernel already admitted this agent/model call.
+        return
+    if runtime.kernel._closed:
+        raise RuntimeError("Local model runtime is shutting down.")
+    entry = runtime.kernel.registry.lookup("agent.reason")
+    claims = entry.descriptor.supported_resources
+    owner = "local-chat-" + uuid.uuid4().hex
+    if not resources.acquire(owner, claims):
+        raise RuntimeError("Local model resources are busy; retry after active work finishes.")
+    try:
+        if execution_scope:
+            with resources.execution_scope(owner):
+                yield
+        else:
+            # A suspended generator must not leave a caller-thread ContextVar
+            # set: a second independent stream could otherwise borrow its lease.
+            yield
+    finally:
+        resources.release(owner)
+
+
+def _shared_model_resources(function):
+    signature = inspect.signature(function)
+    def selected(args, kwargs):
+        bound = signature.bind_partial(*args, **kwargs).arguments
+        if function.__name__ in {"prewarm_local_model", "prime_local_chat_prefix"}:
+            return bound.get("gguf_path", "")
+        model = bound.get("model") or DEFAULT_MODEL
+        return _resolve_gguf_path(bound.get("gguf_path") or "", model, bool(bound.get("model")))
+    if function.__name__ == "stream_chat":
+        @wraps(function)
+        def streaming(*args, **kwargs):
+            with _local_model_claim(selected(args, kwargs), execution_scope=False):
+                yield from function(*args, **kwargs)
+        return streaming
+    @wraps(function)
+    def complete(*args, **kwargs):
+        with _local_model_claim(selected(args, kwargs)):
+            return function(*args, **kwargs)
+    return complete
+
+
 def reset_model_runtime() -> None:
+    from .runtime_services import peek_runtime_services
+    runtime = peek_runtime_services()
+    if runtime is not None and any(c.resource == "LOCAL_MODEL" for claims in runtime.kernel.resources.snapshot().values() for c in claims):
+        raise RuntimeError("An active local model lease must finish before unloading.")
+    _unload_owned_models()
+
+
+def unload_idle_model_for_media(resources, owner) -> None:
+    """Unload idle owned weights while the existing Kernel fences new models.
+
+    This is not a permission bypass: the caller already holds actual exclusive
+    GPU/LOCAL_MODEL claims and no active model call can hold a concurrent lease.
+    The media adapter must measure VRAM again before loading its own model.
+    """
+    leases = resources.snapshot()
+    owned = leases.get(owner, ())
+    if (not resources.current_holds("LOCAL_MODEL") or not resources.current_holds("GPU")
+            or any(not any(c.resource == key and c.node_id == "local" and c.exclusive for c in owned) for key in ("GPU", "LOCAL_MODEL"))
+            or any(c.resource == "LOCAL_MODEL" and c.node_id == "local" for key, claims in leases.items() if key != owner for c in claims)):
+        raise RuntimeError("Idle model unload requires exclusive shared media admission.")
+    _unload_owned_models()
+
+
+def _unload_owned_models() -> None:
     global _OLLAMA_PROCESS
     try:
         from .llama_server import stop_server
@@ -66,6 +145,7 @@ def reset_model_runtime() -> None:
         pass
 
 
+@_shared_model_resources
 def prewarm_local_model(gguf_path: str) -> str:
     """Load a selected GGUF into the local server without generating text."""
 
@@ -85,6 +165,7 @@ def prewarm_local_model(gguf_path: str) -> str:
     )
 
 
+@_shared_model_resources
 def prime_local_chat_prefix(
     gguf_path: str,
     *,
@@ -742,6 +823,7 @@ def _conversation_messages(
     return _fit_messages_to_context(messages)
 
 
+@_shared_model_resources
 def stream_chat(
     history,
     user_message,
@@ -912,6 +994,7 @@ def stream_chat(
         )
 
 
+@_shared_model_resources
 def chat(
     history,
     user_message,

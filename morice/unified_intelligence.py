@@ -23,6 +23,7 @@ class RiskClass(str, Enum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
+    CRITICAL = "critical"
 
 
 class AccessMode(str, Enum):
@@ -198,7 +199,7 @@ class PermissionController:
                 required=tuple(required),
                 reason="Permission is required: " + ", ".join(required),
             )
-        needs_exact = clean_risk == RiskClass.HIGH or (
+        needs_exact = clean_risk in {RiskClass.HIGH, RiskClass.CRITICAL} or (
             clean_risk == RiskClass.MEDIUM and not tuple(permissions)
         )
         if needs_exact and not self._consume_one_use(

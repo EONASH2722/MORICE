@@ -17,6 +17,7 @@ IGNORED_DIRECTORIES = {
     ".idea",
     ".mypy_cache",
     ".morice",
+    ".morice-build",
     ".pytest_cache",
     ".ruff_cache",
     ".state",

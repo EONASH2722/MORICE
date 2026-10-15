@@ -6,6 +6,11 @@ def releaseKeystore = System.getenv('MORICE_ANDROID_KEYSTORE')
 def releaseAlias = System.getenv('MORICE_ANDROID_KEY_ALIAS')
 def releaseStorePassword = System.getenv('MORICE_ANDROID_STORE_PASSWORD')
 def releaseKeyPassword = System.getenv('MORICE_ANDROID_KEY_PASSWORD')
+def desktopVersionFile = new File(rootProject.projectDir.parentFile, 'morice/version.py')
+def desktopVersionMatch = desktopVersionFile.text =~ /VERSION\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"/
+if (!desktopVersionMatch.find()) { throw new GradleException('Cannot read authoritative MORICE version') }
+def desktopVersion = desktopVersionMatch.group(1)
+def desktopVersionParts = desktopVersion.tokenize('.').collect { it.toInteger() }
 
 android {
     namespace 'ai.morice.companion'
@@ -15,8 +20,8 @@ android {
         applicationId 'ai.morice.companion'
         minSdk 28
         targetSdk 36
-        versionCode 800
-        versionName '0.8.0-android'
+        versionCode desktopVersionParts[0] * 10000 + desktopVersionParts[1] * 100 + desktopVersionParts[2]
+        versionName desktopVersion + '-android'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 

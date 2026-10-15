@@ -52,5 +52,7 @@ voice_models/
 *.whl
 *.tar.gz
 *.egg-info/
+.playwright-cli/
+output/playwright/
 MORICE_ENGINE.txt
 MORICE_MEMORY.txt

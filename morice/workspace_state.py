@@ -96,6 +96,8 @@ class WorkspaceState:
     fullscreen: bool = False
     splitter_sizes: list[int] = field(default_factory=list)
     workspace_preset: str = "balanced"
+    presentation_route: str = "home"
+    presentation_navigation_expanded: bool = False
     history: list[dict[str, str]] = field(default_factory=list)
     user_messages: list[str] = field(default_factory=list)
     recent_files: list[str] = field(default_factory=list)
@@ -176,6 +178,9 @@ class WorkspaceState:
             "research",
         }:
             workspace_preset = "balanced"
+        presentation_route = data.get("presentation_route", "home")
+        if not isinstance(presentation_route, str) or len(presentation_route) > 32 or not presentation_route.isalpha():
+            presentation_route = "home"
         activity = [
             entry
             for entry in (ActivityEntry.from_value(value) for value in data.get("activity", []))
@@ -193,6 +198,8 @@ class WorkspaceState:
             fullscreen=bool(data.get("fullscreen", False)),
             splitter_sizes=clean_splitter_sizes,
             workspace_preset=workspace_preset,
+            presentation_route=presentation_route.lower(),
+            presentation_navigation_expanded=data.get("presentation_navigation_expanded") is True,
             history=_clean_messages(data.get("history")),
             user_messages=_clean_string_list(
                 data.get("user_messages"), MAX_HISTORY_ITEMS, item_limit=120_000

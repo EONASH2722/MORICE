@@ -4,6 +4,7 @@ from __future__ import annotations
 import ast
 import math
 import operator
+import threading
 from importlib.metadata import version
 
 from .ingestion import checkpoint
@@ -14,8 +15,13 @@ class ScientificTools:
 
     def __init__(self):
         self._units = None
+        self._lock = threading.RLock()
 
     def calculate(self, expression, inputs, output_unit="", cancel=None):
+        with self._lock:
+            return self._calculate(expression, inputs, output_unit, cancel)
+
+    def _calculate(self, expression, inputs, output_unit="", cancel=None):
         checkpoint(cancel)
         if not isinstance(expression, str) or len(expression) > 1000 or len(inputs) > 64:
             raise ValueError("Calculation exceeds expression/input limits.")
@@ -27,6 +33,8 @@ class ScientificTools:
         for name, item in inputs.items():
             if not name.isidentifier() or not isinstance(item, dict):
                 raise ValueError("Each input must have an identifier, numeric value and unit.")
+            if type(item.get("value")) not in (int, float) or len(str(item.get("unit", ""))) > 96:
+                raise ValueError("Inputs need a numeric value and a bounded unit label.")
             value = float(item["value"])
             if not math.isfinite(value) or abs(value) > 1e100:
                 raise ValueError("Inputs must be finite and bounded.")

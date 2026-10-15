@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import base64
 import importlib.metadata
+import importlib.util
 import json
 import os
 import platform
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping
 
 from . import __version__
+from .redaction import redact_data, redact_text
 from .agent_orchestrator import AgentOrchestrator
 from .platform_services import PlatformServices
 from .plugin_manager import PluginManager
@@ -163,7 +165,12 @@ class StructuredLogManager:
         if not self.path.is_file():
             return
         try:
-            lines = self.path.read_text(encoding="utf-8", errors="replace").splitlines()
+            with self.path.open("rb") as stream:
+                size = self.path.stat().st_size
+                stream.seek(max(0, size - self.max_file_bytes))
+                if size > self.max_file_bytes:
+                    stream.readline()
+                lines = stream.read(self.max_file_bytes).decode("utf-8", errors="replace").splitlines()
         except OSError:
             return
         for line in lines[-MAX_LOG_RECORDS:]:
@@ -176,11 +183,11 @@ class StructuredLogManager:
                         timestamp=str(value.get("timestamp", "")),
                         level=str(value.get("level", "INFO")),
                         category=str(value.get("category", "application")),
-                        message=str(value.get("message", "")),
+                        message=redact_text(str(value.get("message", "")))[:8192],
                         logger=str(value.get("logger", "morice")),
                         thread=str(value.get("thread", "")),
                         metadata=(
-                            value.get("metadata")
+                            redact_data(value.get("metadata"), max_string=8192, max_items=256)
                             if isinstance(value.get("metadata"), dict)
                             else {}
                         ),
@@ -214,18 +221,19 @@ class StructuredLogManager:
         if normalized_level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             normalized_level = "INFO"
         clean_metadata: dict[str, Any] = {}
-        for key, value in (metadata or {}).items():
+        for key, value in list((metadata or {}).items())[:256]:
             try:
-                json.dumps(value)
+                json.dumps(value, allow_nan=False)
                 clean_metadata[str(key)] = value
             except (TypeError, ValueError):
-                clean_metadata[str(key)] = repr(value)
+                clean_metadata[str(key)] = repr(value)[:8192]
+        clean_metadata = redact_data(clean_metadata, max_string=8192, max_items=256)
         record = StructuredLogRecord(
             timestamp=_utc_now(),
             level=normalized_level,
-            category=str(category or "application")[:80],
-            message=str(message or "")[:100_000],
-            logger=str(logger or "morice")[:120],
+            category=redact_text(str(category or "application"))[:80],
+            message=redact_text(str(message or "")[:100_000])[:8192],
+            logger=redact_text(str(logger or "morice"))[:120],
             thread=threading.current_thread().name[:120],
             metadata=clean_metadata,
         )
@@ -312,10 +320,12 @@ def _process_memory_mb() -> float:
 
         counters = ProcessMemoryCounters()
         counters.cb = ctypes.sizeof(counters)
-        process = ctypes.windll.kernel32.GetCurrentProcess()
-        if ctypes.windll.psapi.GetProcessMemoryInfo(
-            process, ctypes.byref(counters), counters.cb
-        ):
+        # Explicit pointer types preserve the 64-bit pseudo-handle (-1).
+        # ctypes' default c_int conversion otherwise makes this return zero.
+        get_info = ctypes.WinDLL("psapi", use_last_error=True).GetProcessMemoryInfo
+        get_info.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_ulong]
+        get_info.restype = ctypes.c_int
+        if get_info(ctypes.c_void_p(-1), ctypes.byref(counters), counters.cb):
             return counters.working_set_size / (1024 * 1024)
         return 0.0
     try:
@@ -634,7 +644,7 @@ class HealthReport:
     def status(self) -> str:
         if any(check.status == "failed" and check.critical for check in self.checks):
             return "failed"
-        if any(check.status in {"failed", "degraded"} for check in self.checks):
+        if any(check.status in {"failed", "degraded", "unavailable"} for check in self.checks):
             return "degraded"
         return "healthy"
 
@@ -674,22 +684,23 @@ class StartupHealthChecker:
 
     def _dependency_check(self, distribution: str, module_name: str) -> HealthCheck:
         try:
-            module = __import__(module_name)
+            if importlib.util.find_spec(module_name) is None:
+                raise ImportError("Module is not installed.")
             try:
                 version = importlib.metadata.version(distribution)
             except importlib.metadata.PackageNotFoundError:
-                version = str(getattr(module, "__version__", "") or "bundled")
+                version = "bundled"
             return HealthCheck(
                 f"Dependency: {distribution}",
                 "healthy",
-                version,
+                f"{version}; installed, initialized on demand",
                 category="dependency",
             )
         except ImportError as exc:
             return HealthCheck(
                 f"Dependency: {distribution}",
-                "failed",
-                str(exc),
+                "failed" if distribution in {"PySide6", "numpy"} else "unavailable",
+                "Dependency is unavailable; associated feature cannot initialize.",
                 critical=distribution in {"PySide6", "numpy"},
                 category="dependency",
             )
@@ -729,10 +740,11 @@ class StartupHealthChecker:
                 )
             )
 
+        assets = Path(__file__).resolve().parent / "assets" if getattr(sys, "frozen", False) else self.project_root / "morice" / "assets"
         for asset in (
-            self.project_root / "morice" / "assets" / "morice_logo.ico",
-            self.project_root / "morice" / "assets" / "morice-logo-rgb.png",
-            self.project_root / "morice" / "assets" / "web" / "katex.min.js",
+            assets / "morice_logo.ico",
+            assets / "morice-logo-rgb.png",
+            assets / "web" / "katex.min.js",
         ):
             checks.append(
                 HealthCheck(
@@ -952,10 +964,10 @@ class CrashRecoveryManager:
             "timestamp": _utc_now(),
             "thread": thread_name or threading.current_thread().name,
             "exceptionType": getattr(exc_type, "__name__", str(exc_type)),
-            "message": str(exc_value),
-            "stackTrace": "".join(
+            "message": redact_text(str(exc_value))[:8192],
+            "stackTrace": redact_text("".join(
                 traceback.format_exception(exc_type, exc_value, exc_traceback)
-            )[-300_000:],
+            )[-300_000:]),
         }
         with self._lock:
             try:
@@ -1053,22 +1065,61 @@ class RuntimeSnapshot:
 
 
 class _SystemBrowserController:
-    """Small verified bridge to the user's registered Windows browser."""
+    """System launch attempt, or actual state from the attached Qt browser."""
 
     def __init__(self) -> None:
         self._current_url = ""
         self._lock = threading.RLock()
+        self.bridge = None
+        self._window_bridges = []
+
+    def attach_window_bridge(self, owner, bridge):
+        import weakref
+        with self._lock:
+            self._window_bridges = [(window, value) for window, value in self._window_bridges
+                                    if window() is not None and window() is not owner and value() is not None]
+            self._window_bridges.append((weakref.ref(owner), weakref.ref(bridge)))
+            self.bridge = bridge
+
+    def activate_window_bridge(self, owner):
+        with self._lock:
+            for window, value in self._window_bridges:
+                if window() is owner and not getattr(owner, '_is_closing', False) and value() is not None:
+                    self.bridge = value(); return
+
+    def detach_window_bridge(self, owner):
+        from shiboken6 import isValid
+        with self._lock:
+            removed = [value() for window, value in self._window_bridges if window() is owner]
+            live = []
+            for window, value in self._window_bridges:
+                remaining, bridge = window(), value()
+                if remaining is not None and remaining is not owner and bridge is not None and isValid(remaining) and isValid(bridge) and not getattr(remaining, '_is_closing', False):
+                    live.append((window, value))
+            self._window_bridges = live
+            if self.bridge in removed:
+                self.bridge = live[-1][1]() if live else None
 
     @property
     def current_url(self) -> str:
         with self._lock:
-            return self._current_url
+            return ""  # A requested URL is never an observation.
 
     def open(self, url: str) -> None:
         if not webbrowser.open(str(url), new=2, autoraise=True):
             raise RuntimeError("Windows did not accept the browser request.")
-        with self._lock:
-            self._current_url = str(url)
+    def perform(self, verb, target, arguments, context):
+        if self.bridge is not None:
+            return self.bridge.perform(verb, target, arguments, context)
+        if verb in {"open", "navigate"}:
+            self.open(target)
+            return {"attempted": True, "provider": "system_browser"}
+        raise RuntimeError("This browser operation requires the embedded browser bridge.")
+
+    def observe(self, desired, context):
+        if self.bridge is not None:
+            return self.bridge.observe(desired, context)
+        return {"available": False, "loaded": False, "url": ""}
 
 
 class RuntimeServices:
@@ -1115,6 +1166,7 @@ class RuntimeServices:
             application_root=core_root,
             logger=self.logs.log,
         )
+        self.project_root = core_root
         identity_pem = self.platform_services.vault.get("morice.node.identity", "")
         try:
             self.node_identity = NodeIdentity.from_pem(identity_pem) if identity_pem else NodeIdentity()
@@ -1297,6 +1349,30 @@ class RuntimeServices:
         )
         self.unified_capabilities = CapabilityRegistry()
         self.unified_memory = WorkingMemory()
+        from .kernel import CapabilityKernel, ContextResolver, PermissionManager, ResourceDescriptor, TaskScheduler, TelemetryCollector
+        from .kernel.adapters import register_echo, register_native_adapters, register_pc_adapters, register_tool_adapters
+        self.kernel = CapabilityKernel(
+            permissions=PermissionManager(self.unified_permissions),
+            context=ContextResolver(self.unified_memory),
+            telemetry=TelemetryCollector(self.profiler, self.logs.log),
+        )
+        self.kernel.resources.register(ResourceDescriptor("DISK"))
+        self.kernel.resources.register(ResourceDescriptor("BROWSER_SESSION"))
+        self.kernel.scheduler = TaskScheduler(self.kernel, self.workers)
+        register_echo(self.kernel)
+        register_tool_adapters(self.kernel, self.agent.tools)
+        register_pc_adapters(self.kernel, self.pc_control)
+        register_native_adapters(self.kernel, self.desktop)
+        from .action_runtime import ActionJournal, VerifiedActionRuntime
+        from .action_runtime.adapters import install_action_adapters
+        self.actions = VerifiedActionRuntime(self.kernel, ActionJournal(base / "agent" / "history" / "action-attempts.json"))
+        install_action_adapters(self.actions, self.desktop, self.pc_browser, self.pc_control, self.agent.tools)
+        from .agent_runtime import AgentCoordinator
+        self.agents = AgentCoordinator(self.kernel, model_router=self.agent.model_router)
+        self.agent.parallel_runtime = self.agents
+        self.autonomous_builder.connect(self.kernel, self.agents, self.actions, self.agent.tools, self.pc_browser)
+        from .action_runtime.vision import register_screen_vision
+        self.screen_vision = register_screen_vision(self.kernel, self.desktop, self.live_vision)
         self.goals = GoalExecutionOrchestrator(
             self.unified_capabilities,
             memory=self.unified_memory,
@@ -1318,7 +1394,89 @@ class RuntimeServices:
         self._live_camera_diagnostics: dict[str, Any] = {}
         self._started = False
         self._shutdown = False
+        self._device_mesh = None  # Identity/networking stay lazy until explicitly enabled.
+        self._research_runtime = None
+        self._ambient_service = None
+        self._media_lab = None
+        self._spatial_service = None
+        from .media_lab.capabilities import register_media_capabilities
+        register_media_capabilities(self.kernel, lambda: self._media_lab or self.media)
+        from .spatial.service import register_spatial_capabilities
+        register_spatial_capabilities(self.kernel, lambda: self._spatial_service or self.spatial)
         self._lock = threading.RLock()
+
+    @property
+    def device_mesh(self):
+        with self._lock:
+            if self._shutdown:
+                raise RuntimeError("Runtime is shut down.")
+            if self._device_mesh is None:
+                from .device_mesh import DeviceMesh
+                self._device_mesh = DeviceMesh(self.kernel, self.directory / "mesh", actions=self.actions,
+                    agents=self.agents, identity=self.node_identity, name=self.node_descriptor.device_name,
+                    host="0.0.0.0", exposed=("python.calculate",))
+                from .science_engine import _evaluate_scalar
+                self._device_mesh.node._observers["python.calculate"] = lambda args, ctx: {"value": _evaluate_scalar(args["expression"], float(args.get("x", 0)))}
+            return self._device_mesh
+
+    @property
+    def ambient(self):
+        with self._lock:
+            if self._shutdown:
+                raise RuntimeError("Runtime is shut down.")
+            if self._ambient_service is None:
+                from .ambient import AmbientService
+                from .connectors import ConnectorRegistry
+                from .security import SecurityService
+                service = AmbientService(self.kernel,self.agents,self.desktop.automations,self.desktop.notifications,
+                    self.platform_services.orchestrator.knowledge.path)
+                service.connectors = ConnectorRegistry(self.kernel,service.store,ambient=service)
+                from .connectors import GitHubProvider
+                for cid,config in (service.store.cursor("connector.catalog") or {}).items():
+                    if config.get("provider") == "github":
+                        provider = GitHubProvider(cid,self.platform_services.vault,repository=config["repository"],client_id=config.get("client_id",""))
+                        service.connectors.register(provider)
+                        service.connectors.restore(cid)
+                        poll = service.store.cursor("ambient.poll."+cid) or {}
+                        if poll.get("enabled") and provider.state.value == "CONNECTED":
+                            service.configure_poll(cid,interval_seconds=poll["interval"],user_confirmed=True)
+                service.security = SecurityService(self.kernel,self.actions,service,self.platform_services.vault,
+                    self.directory / "security",mesh=lambda:self.device_mesh)
+                self._ambient_service = service
+            return self._ambient_service
+
+    @property
+    def media(self):
+        with self._lock:
+            if self._shutdown:
+                raise RuntimeError("Runtime is shut down.")
+            if self._media_lab is None:
+                from .media_lab.runtime import MediaLab
+                from .config import local_data_dir
+                self._media_lab = MediaLab(self.kernel, self.agents, local_data_dir(), register=False)
+            return self._media_lab
+
+    @property
+    def research(self):
+        with self._lock:
+            if self._shutdown:
+                raise RuntimeError("Runtime is shut down.")
+            if self._research_runtime is None:
+                from .research.runtime import ResearchRuntime
+                database = self.platform_services.orchestrator.knowledge.path
+                self._research_runtime = ResearchRuntime(database, self.directory / "research", kernel=self.kernel,
+                    agents=self.agents, actions=self.actions, builder=lambda: self.autonomous_builder.project_runtime)
+            return self._research_runtime
+
+    @property
+    def spatial(self):
+        with self._lock:
+            if self._shutdown:
+                raise RuntimeError('Runtime is shut down.')
+            if self._spatial_service is None:
+                from .spatial.service import SpatialService
+                self._spatial_service = SpatialService(self.kernel, register=False)
+            return self._spatial_service
 
     def _log_node_error(self, error: Exception, address: Any) -> None:
         self.logs.log(
@@ -1376,6 +1534,15 @@ class RuntimeServices:
         timeout: float = 30.0,
     ) -> dict[str, Any]:
         """Invoke an explicitly granted structured capability on a paired node."""
+
+        if self._device_mesh is not None and self._device_mesh.enabled:
+            mesh = self._device_mesh
+            node_id = mesh.registry.resolve(device or "default phone", capability)
+            result = mesh.dispatch(capability, dict(arguments or {}), node_id)
+            return {"verified": result.success and result.verification is not None and result.verification.status.value == "verified",
+                    "capability": capability, "result": result.output,
+                    "taskId": result.task_id, "deviceId": node_id,
+                    "error": "; ".join(e.message for e in result.errors), "execution": result.to_dict()}
 
         trusted = self.resolve_node(device)
         clean_capability = str(capability or "").strip()
@@ -1639,7 +1806,7 @@ class RuntimeServices:
                 self.desktop.applications.refresh_discovery,
             )
             if normalize_boolean_setting(
-                os.getenv("MORICE_NODE_NETWORK", "true"), default=True
+                os.getenv("MORICE_NODE_NETWORK", "false"), default=False
             ):
                 try:
                     self.node_server.start()
@@ -1652,6 +1819,8 @@ class RuntimeServices:
                         category="nodes",
                     )
             self._started = True
+            if normalize_boolean_setting(load_settings().get("device_mesh_enabled", "false"), default=False):
+                self.device_mesh.enable()
             self._shutdown = False
             return self.recovery_info
 
@@ -1672,6 +1841,8 @@ class RuntimeServices:
                 tools=tools,
                 gpu=gpu,
             )
+            from .runtime_health import subsystem_checks
+            report = replace(report, checks=report.checks + subsystem_checks(self, HealthCheck))
         self.health_report = report
         self.logs.log(
             "INFO" if report.status == "healthy" else "WARNING",
@@ -1769,6 +1940,13 @@ class RuntimeServices:
                 "version": APP_VERSION,
                 "pid": os.getpid(),
                 "started": self._started,
+                "kernel": {
+                    "registeredCount": len(self.kernel.registry.search()),
+                    "recentTasks": list(self.kernel.history()[-20:]),
+                },
+                "agentWorkflows": self.agents.status(),
+                "projectBuilds": self.autonomous_builder.snapshot(),
+                "actionAttempts": list(self.actions.journal.attempts()[-20:]),
             },
             platform={
                 "system": platform.system(),
@@ -1835,7 +2013,8 @@ class RuntimeServices:
                     "port": self.node_server.bound_port,
                     "pairing": self.node_server.pairing_status(),
                 },
-                "trustedNodes": [item.to_dict() for item in self.trusted_nodes.list()],
+                "trustedNodes": [{"descriptor": item.descriptor.to_dict(), "revoked": item.revoked, "pairedAt": item.paired_at} for item in self.trusted_nodes.list()],
+                "mesh": self._device_mesh.snapshot() if self._device_mesh else {"enabled": False, "nodes": []},
             },
             connectivity={
                 "host": {
@@ -1866,8 +2045,20 @@ class RuntimeServices:
         with self._lock:
             if self._shutdown:
                 return
-            failures: list[str] = []
-            shutdown_steps = (
+            # Close admission before callbacks, without holding the runtime lock
+            # while workers finish or try to report their final state.
+            self._shutdown = True
+            self._started = False
+        failures: list[str] = []
+        shutdown_steps = (
+                ("media", lambda: self._media_lab.close() if self._media_lab else None),
+                ("ambient", lambda: self._ambient_service.close() if self._ambient_service else None),
+                ("research", lambda: self._research_runtime.close() if self._research_runtime else None),
+                ("device mesh", lambda: self._device_mesh.close() if self._device_mesh else None),
+                ("project builder", self.autonomous_builder.shutdown),
+                ("parallel agents", self.agents.shutdown),
+                ("capability kernel", self.kernel.shutdown),
+                ("local models", lambda: __import__("morice.llm_client", fromlist=["reset_model_runtime"]).reset_model_runtime()),
                 ("node discovery", self.node_discovery.stop),
                 ("node server", self.node_server.stop),
                 ("voice", self.voice.shutdown),
@@ -1880,42 +2071,39 @@ class RuntimeServices:
                 ("workers", self.workers.shutdown),
                 ("exception hooks", self.recovery.uninstall_exception_hooks),
             )
-            for name, callback in shutdown_steps:
-                try:
-                    callback()
-                except Exception as exc:  # noqa: BLE001
-                    failures.append(f"{name}: {exc}")
-                    self.logs.log(
-                        "ERROR",
-                        f"Runtime shutdown step failed: {name}: {exc}",
-                        category="shutdown",
-                    )
-            if clean and not failures:
-                try:
-                    self.recovery.mark_clean()
-                except OSError as exc:
-                    failures.append(f"recovery: {exc}")
-                    self.logs.log(
-                        "ERROR",
-                        f"Could not mark the runtime session clean: {exc}",
-                        category="shutdown",
-                    )
-            self._shutdown = True
-            self._started = False
-            self.logs.log(
-                "INFO" if not failures else "ERROR",
-                (
-                    "MORICE runtime services stopped."
-                    if not failures
-                    else "MORICE runtime services stopped with cleanup errors."
-                ),
-                category="shutdown",
-                metadata={"clean": clean and not failures, "failures": failures},
-            )
+        for name, callback in shutdown_steps:
+            try:
+                callback()
+            except Exception as exc:  # noqa: BLE001
+                failures.append(f"{name}: {type(exc).__name__}")
+                self.logs.log("ERROR", f"Runtime shutdown step failed: {name}: {type(exc).__name__}", category="shutdown")
+        leases_remaining = len(self.kernel.resources.snapshot())
+        pending_workers = self.workers.pending_count
+        if isinstance(pending_workers, int) and pending_workers:
+            failures.append("Background work remains after the bounded shutdown window.")
+        if leases_remaining:
+            failures.append("Physical resource leases remain; interrupted work needs recovery review.")
+        if clean and not failures:
+            try:
+                self.recovery.mark_clean()
+            except OSError as exc:
+                failures.append(f"recovery: {type(exc).__name__}")
+        self.shutdown_report = {"clean": bool(clean and not failures), "failures": failures,
+            "leases_remaining": leases_remaining,
+            "pending_workers": pending_workers if isinstance(pending_workers, int) else None}
+        self.logs.log("INFO" if not failures else "ERROR",
+            "MORICE runtime services stopped." if not failures else "MORICE runtime services stopped with cleanup errors.",
+            category="shutdown", metadata=self.shutdown_report)
 
 
 _RUNTIME_SERVICES: RuntimeServices | None = None
 _RUNTIME_LOCK = threading.Lock()
+
+
+def peek_runtime_services() -> RuntimeServices | None:
+    """Optional telemetry must not construct another runtime or open a profile."""
+    with _RUNTIME_LOCK:
+        return _RUNTIME_SERVICES
 
 
 def get_runtime_services() -> RuntimeServices:

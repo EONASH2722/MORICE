@@ -398,6 +398,8 @@ class PermissionBroker:
         self,
         action: ControlAction,
         confirmation_token: str = "",
+        *,
+        consume_confirmation: bool = True,
     ) -> AuthorizationDecision:
         with self._lock:
             modes = {
@@ -408,7 +410,7 @@ class PermissionBroker:
                 category for category, mode in modes.items() if mode == PolicyMode.DENY
             )
             if denied:
-                if confirmation_token:
+                if confirmation_token and consume_confirmation:
                     self._confirmations.pop(confirmation_token, None)
                 return AuthorizationDecision(
                     False,
@@ -437,7 +439,14 @@ class PermissionBroker:
                     asking,
                     True,
                 )
-            if not self._consume_confirmation(confirmation_token, action):
+            if consume_confirmation:
+                confirmed = self._consume_confirmation(confirmation_token, action)
+            else:
+                now = self._monotonic()
+                self._prune(now)
+                record = self._confirmations.get(confirmation_token)
+                confirmed = bool(record and record.expires_at >= now and record.fingerprint == self._fingerprint(action))
+            if not confirmed:
                 return AuthorizationDecision(
                     False,
                     "The confirmation was invalid, expired, already used, or for a different action.",
@@ -522,7 +531,7 @@ def _window_value(window: Any) -> dict[str, Any]:
 
 class DesktopApplicationAdapter:
     adapter_id = "desktop.application"
-    _VERBS = {"open", "focus", "minimize", "close", "close_others"}
+    _VERBS = {"open", "focus", "minimize", "maximize", "restore", "close", "close_others"}
 
     def __init__(self, layer: Any):
         self.layer = layer
@@ -539,6 +548,37 @@ class DesktopApplicationAdapter:
             else applications_available and windows_available
         )
         return available, "" if available else "Desktop application services are unavailable."
+
+    def execute_attempt(self, action, context, execution_context=None):
+        from .action_runtime.desktop import matching_windows, window_values
+        target = action.target or context.last_application
+        if action.verb == "close_others":
+            from .action_runtime.desktop import other_windows
+            windows = other_windows(window_values(self.layer.windows), action.arguments.get("except", target or "MORICE"))
+            for window in windows:
+                execution_context.cancellation_token.raise_if_cancelled()
+                grant = self.layer.windows.request(window["handle"], "close")
+                self.layer.windows.control(window["handle"], "close", _grant_token(grant))
+            return _result(action, True, False, "Close requests sent; observing exact window handles.",
+                output={"closedHandles": [w["handle"] for w in windows]}, adapter_id=self.adapter_id)
+        windows = matching_windows(window_values(self.layer.windows), target, action.arguments)
+        if len(windows) > 1:
+            return _result(action, False, False, "Window target is ambiguous; select a handle or process.",
+                output={"waiting_for_user": True}, adapter_id=self.adapter_id)
+        if action.verb == "open" and not windows:
+            grant = self.layer.applications.request_launch(target)
+            candidate = self.layer.applications.launch(target, _grant_token(grant))
+            launch = getattr(self.layer.applications, "last_launch", {})
+            return _result(action, True, False, "Application launch requested; observing readiness.",
+                output={"application": _json_safe(candidate), "applicationPid": launch.get("pid") if launch.get("target") == _field(candidate, "target", "") else None}, adapter_id=self.adapter_id)
+        if not windows:
+            return _result(action, False, False, "No process-associated window matched the target.", adapter_id=self.adapter_id)
+        handle = int(windows[0]["handle"])
+        verb = "restore" if action.verb == "open" else action.verb
+        grant = self.layer.windows.request(handle, verb)
+        self.layer.windows.control(handle, verb, _grant_token(grant))
+        return _result(action, True, False, "Window request sent; observing the requested state.",
+            output={"handle": handle}, adapter_id=self.adapter_id)
 
     def execute(self, action: ControlAction, context: DesktopContext) -> ControlResult:
         target = action.target or context.last_application or context.active_application
@@ -1230,7 +1270,7 @@ class DesktopFileAdapter:
 
 class BrowserAdapter:
     adapter_id = "browser.native"
-    _VERBS = {"search", "open", "back", "reload"}
+    _VERBS = {"search", "open", "navigate", "back", "forward", "reload", "find", "click", "type", "submit", "download", "upload", "extract", "tab_open", "tab_switch", "tab_close"}
     _SITE_DOMAINS = {
         "reddit": "reddit.com",
         "github": "github.com",
@@ -1251,6 +1291,17 @@ class BrowserAdapter:
 
     def supports(self, action: ControlAction) -> bool:
         return action.domain == "browser" and action.verb in self._VERBS
+
+    def execute_attempt(self, action, context, execution_context=None):
+        if action.verb == "search":
+            return self.execute(action, context)
+        perform = getattr(self.browser, "perform", None)
+        if callable(perform):
+            target = self._validated_url(action.target) if action.verb in {"open", "navigate", "download", "tab_open"} else action.target
+            detail = perform(action.verb, target, dict(action.arguments), execution_context)
+            return _result(action, True, False, "Browser request sent; observing page state.",
+                output=dict(detail or {}), adapter_id=self.adapter_id)
+        return self.execute(action, context)
 
     def availability(self, action: ControlAction | None = None) -> tuple[bool, str]:
         if action is not None and action.verb == "search":
@@ -1392,7 +1443,7 @@ class BrowserAdapter:
         if not re.match(r"^[a-z][a-z0-9+.-]*://", clean, flags=re.IGNORECASE):
             clean = f"https://{clean}"
         parsed = urlparse(clean)
-        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("Only valid HTTP or HTTPS URLs can be opened.")
         return clean
 
@@ -1645,6 +1696,43 @@ class ControlProviderRegistry:
         action: ControlAction,
         *,
         confirmation_token: str = "",
+        cancellation_token=None,
+    ) -> ControlResult:
+        kernel = getattr(self, "kernel", None)
+        if kernel is not None and kernel.registry.lookup(action.tool_id) is not None:
+            from .kernel.contracts import VerificationStatus
+            context = kernel.context.capture(desktop=self.context, approval_token=confirmation_token,
+                metadata={"control_action": action}, cancellation_token=cancellation_token)
+            if action.tool_id == "browser.search" and kernel.registry.lookup(action.tool_id).descriptor.provider != "pc-control":
+                # Phase 2's shared web capability takes query, not PC target/args.
+                authorization = self.permission_broker.authorize(action, confirmation_token)
+                if not authorization.allowed:
+                    return ControlResult(action.action_id, action.tool_id, False, False, authorization.reason,
+                        errors=(authorization.reason,), confirmation_required=authorization.confirmation_required)
+                site = BrowserAdapter._site_domain(str(action.arguments.get("site", "")))
+                query = f"site:{site} {action.target}" if site else action.target
+                outcome = kernel.dispatch(action.tool_id, {"query": query}, context, task_id=action.action_id)
+                output = outcome.output if isinstance(outcome.output, dict) else {}
+                snippets = "\n\n".join(str(v) for v in output.get("evidence", []))
+                value = ControlResult(action.action_id, action.tool_id, outcome.success, False,
+                    "Search snippets returned; source pages require verification." if outcome.success else "Web search did not return evidence.",
+                    output={"query": query, "results": BrowserAdapter._normalize_results(snippets)},
+                    errors=tuple(e.message for e in outcome.errors), timings_ms=outcome.metrics)
+                self.context.record(action, value)
+                return value
+            outcome = kernel.dispatch(action.tool_id, {"target": action.target, "arguments": dict(action.arguments)},
+                context, task_id=action.action_id)
+            value = outcome.legacy_result
+            if isinstance(value, ControlResult):
+                return replace(value, success=outcome.success, verified=bool(outcome.success and outcome.verification
+                    and outcome.verification.status == VerificationStatus.VERIFIED),
+                    errors=tuple(dict.fromkeys((*value.errors, *(e.message for e in outcome.errors)))))
+            message = "; ".join(e.message for e in outcome.errors) or "PC action did not complete."
+            return ControlResult(action.action_id, action.tool_id, False, False, message, errors=(message,))
+        return self._execute_legacy(action, confirmation_token=confirmation_token)
+
+    def _execute_legacy(
+        self, action: ControlAction, *, confirmation_token: str = "", execution_context=None, record: bool = True,
     ) -> ControlResult:
         started = self._perf_counter()
         auth_started = self._perf_counter()
@@ -1669,7 +1757,8 @@ class ControlProviderRegistry:
                     "total": total_ms,
                 },
             )
-            self.context.record(action, result)
+            if record:
+                self.context.record(action, result)
             return result
 
         selection_started = self._perf_counter()
@@ -1714,12 +1803,14 @@ class ControlProviderRegistry:
                     "total": total_ms,
                 },
             )
-            self.context.record(action, result)
+            if record:
+                self.context.record(action, result)
             return result
 
         execution_started = self._perf_counter()
         try:
-            result = selected.execute(action, self.context)
+            attempt = getattr(selected, "execute_attempt", None)
+            result = attempt(action, self.context, execution_context) if execution_context is not None and callable(attempt) else selected.execute(action, self.context)
             if not isinstance(result, ControlResult):
                 raise TypeError("Control adapter returned an invalid result type.")
             if result.action_id != action.action_id or result.tool_id != action.tool_id:
@@ -1731,6 +1822,7 @@ class ControlProviderRegistry:
                 False,
                 f"{action.tool_id} failed: {exc}",
                 errors=(f"{type(exc).__name__}: {exc}",),
+                output={"waiting_for_user": type(exc).__name__ == "UserInterventionRequired"},
                 adapter_id=selected.adapter_id,
             )
         execution_ms = (self._perf_counter() - execution_started) * 1_000
@@ -1747,7 +1839,8 @@ class ControlProviderRegistry:
                 "total": total_ms,
             },
         )
-        self.context.record(action, result)
+        if record:
+            self.context.record(action, result)
         return result
 
 

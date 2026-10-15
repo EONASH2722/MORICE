@@ -1,7 +1,9 @@
-# Scientific research core — source preview
+# Scientific research core — original foundation guide
 
-This is a tested foundation for the original Universal Scientific Research Core
-brief, **not completion of that entire specification**. Older public `0.8.0`
+Phase 6 now extends this foundation through the shared Phase 1–5 systems. See
+[Research Lab](research-lab.md), [its completion report](research-lab-report.md)
+and [the final audit](research-lab-audit.md) for current capabilities and limits.
+The narrower workflow described below remains compatible. Older public `0.8.0`
 downloads do not necessarily contain this preview. Install current source with
 `python -m pip install -e ".[research]"`; release builders use `.[dev,research]`.
 

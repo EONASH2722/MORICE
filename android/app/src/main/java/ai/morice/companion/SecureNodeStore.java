@@ -114,8 +114,7 @@ final class SecureNodeStore {
                 Build.MANUFACTURER + " " + Build.MODEL,
                 "android",
                 Arrays.asList(
-                        "device.status", "camera.capture", "vision.stream", "microphone.input",
-                        "notifications.read", "media.control", "application.open", "file.receive"
+                        "device.status", "media.control", "application.open"
                 ),
                 "0.8.0-android"
         );

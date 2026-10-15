@@ -65,6 +65,29 @@ class AutonomousBuilder:
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._foundation = None
+        self._project_runtime = None
+
+    def connect(self, kernel, agents, actions, tools, browser=None):
+        """Attach the validated foundation; environment/provider setup stays lazy."""
+        self._foundation = (kernel, agents, actions, tools, browser)
+
+    @property
+    def project_runtime(self):
+        with self._lock:
+            if self._project_runtime is None:
+                if self._foundation is None:
+                    raise RuntimeError("Project Builder 2.0 requires the shared Phase 1–3 runtime.")
+                from .project_build.runtime import ProjectBuildRuntime
+                self._project_runtime = ProjectBuildRuntime(self.directory / "v2", *self._foundation)
+            return self._project_runtime
+
+    def snapshot(self):
+        return self._project_runtime.snapshot() if self._project_runtime else {"initialized": False, "active": [], "sessions": []}
+
+    def shutdown(self):
+        if self._project_runtime:
+            self._project_runtime.shutdown()
 
     def plan(self, root: str, goal: str) -> BuildSession:
         project = Path(root).expanduser().resolve()

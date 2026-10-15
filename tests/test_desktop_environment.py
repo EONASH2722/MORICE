@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from morice.desktop_environment import (
@@ -71,11 +73,19 @@ class PermissionAndControlTests(unittest.TestCase):
             with self.assertRaises(PermissionError):
                 applications.launch(str(executable), "")
             grant = applications.request_launch(str(executable))
-            with mock.patch("morice.desktop_environment.subprocess.Popen") as popen:
+            original_popen=subprocess.Popen
+            popen=mock.Mock()
+            process_fixture=SimpleNamespace(**vars(subprocess))
+            process_fixture.Popen=popen
+            # Rebinding this module's dependency cannot intercept a concurrent
+            # hardware check using the shared standard-library subprocess.
+            with mock.patch("morice.desktop_environment.subprocess",process_fixture):
                 candidate = applications.launch(str(executable), grant.token)
+                self.assertIs(subprocess.Popen,original_popen)
 
             self.assertEqual(candidate.target, str(executable.resolve()))
-            popen.assert_called_once()
+            popen.assert_called_once_with([str(executable.resolve())],close_fds=True,
+                creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
             self.assertEqual(applications.recent[0], str(executable.resolve()))
 
     def test_application_restart_uses_one_exact_approval_for_both_steps(self):
@@ -88,12 +98,10 @@ class PermissionAndControlTests(unittest.TestCase):
                 str(executable), image_name="demo.exe"
             )
             completed = mock.Mock(returncode=0, stdout="closed", stderr="")
-            with mock.patch(
-                "morice.desktop_environment.subprocess.run",
-                return_value=completed,
-            ) as run, mock.patch(
-                "morice.desktop_environment.subprocess.Popen"
-            ) as popen:
+            run=mock.Mock(return_value=completed);popen=mock.Mock()
+            process_fixture=SimpleNamespace(**vars(subprocess))
+            process_fixture.run=run;process_fixture.Popen=popen
+            with mock.patch("morice.desktop_environment.subprocess",process_fixture):
                 applications.restart(
                     str(executable),
                     grant.token,

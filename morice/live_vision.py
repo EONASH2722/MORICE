@@ -13,6 +13,8 @@ import urllib.error
 import urllib.request
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
+from functools import wraps
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -61,6 +63,44 @@ VISION_RESPONSE_SCHEMA: dict[str, Any] = {
     "required": ["summary", "extracted_text", "confidence", "uncertainty", "regions"],
     "additionalProperties": False,
 }
+
+
+@contextmanager
+def _shared_vision_gpu_claim(provider):
+    """GPU vision cannot start outside the same model/media admission fence."""
+    from .runtime_services import peek_runtime_services
+    runtime=peek_runtime_services()
+    if runtime is None or not provider.gpu_layers:
+        yield
+        return
+    resources=runtime.kernel.resources
+    if resources.current_holds("GPU") and resources.current_holds("LOCAL_MODEL"):
+        yield
+        return
+    from .kernel import ResourceClaim
+    owner="local-vision-"+uuid.uuid4().hex
+    claims=(ResourceClaim("LOCAL_MODEL",exclusive=True),)
+    if not resources.current_holds("GPU"):
+        claims+=(ResourceClaim("GPU",exclusive=True),)
+    if not resources.acquire(owner,claims):
+        raise RuntimeError("Vision GPU resources are busy with local reasoning/media; retry after active work finishes.")
+    try:
+        from .media_lab.hardware import probe_hardware
+        snapshot=probe_hardware(local_data_dir())
+        owned_ready=provider._process is not None and provider._process.poll() is None
+        weight_mb=sum(p.stat().st_size for p in (provider.model_path,provider.mmproj_path) if p is not None and p.is_file())/2**20
+        required=512 if owned_ready else weight_mb+1024
+        if not snapshot.total_vram_mb or required+768>snapshot.free_vram_mb:
+            raise RuntimeError("Insufficient measured VRAM for visual inference; no allocation attempted.")
+        with resources.execution_scope(owner):yield
+    finally:resources.release(owner)
+
+
+def _shared_vision_gpu(function):
+    @wraps(function)
+    def guarded(self,*args,**kwargs):
+        with _shared_vision_gpu_claim(self):return function(self,*args,**kwargs)
+    return guarded
 
 
 class VisionState(str, Enum):
@@ -590,6 +630,7 @@ class LlamaCppVisionProvider:
             self.gpu_layers,
         )
 
+    @_shared_vision_gpu
     def prewarm(self) -> VisionProviderStatus:
         status = self.status()
         if not status.available or status.ready:
@@ -597,6 +638,7 @@ class LlamaCppVisionProvider:
         self._ensure_server()
         return self.status()
 
+    @_shared_vision_gpu
     def analyze(
         self,
         frame: VisionFrame,

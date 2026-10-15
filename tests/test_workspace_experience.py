@@ -11,6 +11,7 @@ os.environ.setdefault("MORICE_REDUCE_MOTION", "1")
 os.environ.setdefault("MORICE_START_AWAKE", "1")
 
 from PySide6.QtGui import QImage
+from PySide6.QtCore import QCoreApplication, QEvent
 from PySide6.QtWidgets import QApplication
 from PySide6.QtWidgets import QMessageBox
 from PySide6.QtTest import QTest
@@ -140,6 +141,8 @@ class WorkspaceUiTests(unittest.TestCase):
 
     def tearDown(self):
         self.window.close()
+        self.window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
 
     def test_current_history_reopen_does_not_end_session(self):
@@ -269,7 +272,8 @@ class WorkspaceUiTests(unittest.TestCase):
             },
         )
 
-        def immediate(_name, function):
+        def immediate(_name, function, *, runtime_services=None):
+            self.assertIs(runtime_services, self.window.runtime)
             function()
             return None
 

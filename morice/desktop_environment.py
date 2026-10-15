@@ -289,6 +289,8 @@ class ApplicationManager:
         self.state_path = directory / "applications.json"
         self._lock = threading.RLock()
         self._closed = False
+        self._discovery_stop = threading.Event()
+        self.last_launch = {}
         self.default_music_provider = (
             _clean_text(default_music_provider, 120) or "Amazon Music"
         )
@@ -368,8 +370,7 @@ class ApplicationManager:
         if clean:
             self.default_music_provider = clean
 
-    @staticmethod
-    def _start_apps() -> list[ApplicationCandidate]:
+    def _start_apps(self) -> list[ApplicationCandidate]:
         if os.name != "nt":
             return []
         command = (
@@ -377,7 +378,7 @@ class ApplicationManager:
             "ConvertTo-Json -Compress"
         )
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 [
                     "powershell.exe",
                     "-NoLogo",
@@ -386,14 +387,27 @@ class ApplicationManager:
                     "-Command",
                     command,
                 ],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 errors="replace",
-                timeout=12,
-                check=False,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-            value = json.loads(completed.stdout or "[]")
+            try:
+                deadline = time.monotonic() + 12
+                while not self._discovery_stop.is_set() and time.monotonic() < deadline:
+                    try:
+                        stdout, _stderr = process.communicate(timeout=.1)
+                        break
+                    except subprocess.TimeoutExpired:
+                        continue
+                else:
+                    return []
+                value = json.loads(stdout or "[]")
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate(timeout=2)
         except (OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError):
             return []
         rows = value if isinstance(value, list) else [value]
@@ -519,17 +533,20 @@ class ApplicationManager:
                 continue
             try:
                 for path in root.rglob("*.lnk"):
+                    if self._discovery_stop.is_set():return ()
                     add(ApplicationCandidate(path.stem, str(path), "start-menu"))
             except OSError:
                 continue
-        for source in (
-            self._start_apps(),
-            self._registry_app_paths(),
-            self._path_applications(),
-            self._common_location_applications(),
+        for discover in (
+            self._start_apps,
+            self._registry_app_paths,
+            self._path_applications,
+            self._common_location_applications,
         ):
-            for candidate in source:
+            if self._discovery_stop.is_set():return ()
+            for candidate in discover():
                 add(candidate)
+        if self._discovery_stop.is_set():return ()
         for process in self.list_processes():
             image = Path(process.image_name)
             add(ApplicationCandidate(image.stem, process.image_name, "running"))
@@ -568,6 +585,7 @@ class ApplicationManager:
     def shutdown(self) -> None:
         with self._lock:
             self._closed = True
+            self._discovery_stop.set()
 
     @staticmethod
     def _normalized_name(value: str) -> str:
@@ -732,6 +750,7 @@ class ApplicationManager:
             permission_token, "application.launch", payload
         ):
             raise PermissionError("Launching this application requires exact approval.")
+        self.last_launch = {}
         if candidate.source in {"start-app", "known-app-id"}:
             if os.name != "nt":
                 raise RuntimeError("Windows Store applications require Windows.")
@@ -745,11 +764,12 @@ class ApplicationManager:
                 raise RuntimeError("Windows shortcuts are supported on Windows only.")
             os.startfile(candidate.target)
         else:
-            subprocess.Popen(
+            process = subprocess.Popen(
                 [candidate.target],
                 close_fds=True,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
+            self.last_launch = {"target": candidate.target, "pid": process.pid}
         self._record_recent(candidate.target)
         return candidate
 
@@ -926,6 +946,14 @@ class WindowManager:
         self.permissions = permissions
 
     @staticmethod
+    def active_window() -> int | None:
+        if os.name != "nt":
+            return None
+        native = ctypes.windll.user32.GetForegroundWindow
+        native.restype = ctypes.c_void_p
+        return native()
+
+    @staticmethod
     def list_windows() -> list[WindowInfo]:
         if os.name != "nt":
             return []
@@ -934,6 +962,8 @@ class WindowManager:
         enum_proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
 
         def callback(hwnd, _lparam):
+            handle = int(hwnd)
+            hwnd = ctypes.c_void_p(handle)
             if not user32.IsWindowVisible(hwnd):
                 return True
             length = user32.GetWindowTextLengthW(hwnd)
@@ -950,7 +980,7 @@ class WindowManager:
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
             windows.append(
                 WindowInfo(
-                    int(hwnd),
+                    handle,
                     title,
                     int(pid.value),
                     (rect.left, rect.top, rect.right, rect.bottom),
@@ -1938,6 +1968,14 @@ class NotificationManager:
             if changed:
                 self._save()
             return changed
+
+    def publish_once(self,key,title,message,**options):
+        """Persistent receipt prevents a local event replay duplicating a notice."""
+        with self._lock:
+            existing=next((n for n in self._items if n.metadata.get("event_receipt")==key),None)
+            if existing:return existing
+            metadata={**options.pop("metadata",{}),"event_receipt":key}
+            return self.publish(title,message,metadata=metadata,**options)
 
     def history(
         self, *, include_dismissed: bool = True, limit: int = 200
@@ -3005,6 +3043,16 @@ class AutomationEngine:
         if not clean:
             raise ValueError("Action id cannot be empty.")
         self._actions[clean] = callback
+
+    def attach_ambient(self, service) -> None:
+        """Extend existing automation with kernel-backed persistent event watches."""
+        self.ambient = service
+
+    def create_watch(self, request: str, **context):
+        service = getattr(self, "ambient", None)
+        if service is None:
+            raise RuntimeError("Enable the Ambient panel to configure event watches.")
+        return service.create(service.from_request(request, **context))
 
     def create(
         self,

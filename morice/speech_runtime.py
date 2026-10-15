@@ -334,6 +334,11 @@ class SpeechToTextRuntime:
                 message=self._message,
             )
 
+    def audio_level(self) -> float:
+        """Latest actual microphone/PCM RMS for presentation, without device probing."""
+        with self._lock:
+            return self._input_level_percent if self._state == SpeechInputState.LISTENING else 0.0
+
     @staticmethod
     def _pcm_level(pcm: bytes) -> float:
         if not pcm:

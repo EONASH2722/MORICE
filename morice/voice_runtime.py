@@ -693,6 +693,7 @@ class VoiceRuntime:
         self._fallback_provider = fallback_provider
         self._safe_logger = safe_logger
         self._clock = clock
+        self._output_level_percent = 0.0
         self._queue: queue.Queue[_SpeechRequest | object] = queue.Queue(
             maxsize=max(1, int(queue_size))
         )
@@ -1248,6 +1249,9 @@ class VoiceRuntime:
                         ),
                     )
                 sink.write(bytes(audio))
+                from .speech_runtime import SpeechToTextRuntime
+                with self._lock:
+                    self._output_level_percent = SpeechToTextRuntime._pcm_level(bytes(audio))
                 audio_bytes += len(audio)
                 audio_chunks += 1
                 with self._lock:
@@ -1379,6 +1383,7 @@ class VoiceRuntime:
                 str(event),
                 {
                     "atMonotonic": float(at_monotonic),
+                    "requestId": request.handle.request_id,
                     **metadata,
                 },
             )
@@ -1527,9 +1532,17 @@ class VoiceRuntime:
 
     @staticmethod
     def _default_provider(config: TTSConfig) -> TTSProvider:
+        if config.provider == 'local':
+            from .local_speech_provider import WindowsSpeechProvider
+            return WindowsSpeechProvider()
         if config.provider != "elevenlabs":
             raise ImportError("No local speech provider is configured.")
         return ElevenLabsProvider(config.api_key)
+
+    def audio_level(self) -> float:
+        """Cheap latest actual PCM level; no device enumeration or audio retention."""
+        with self._lock:
+            return self._output_level_percent if self._state == VoiceState.PLAYING else 0.0
 
     @staticmethod
     def _initial_state(config: TTSConfig) -> VoiceState:

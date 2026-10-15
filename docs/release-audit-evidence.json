@@ -1,0 +1,201 @@
+{
+  "status": "SOFTWARE_CANDIDATE_AND_LOCAL_DIST_VERIFIED_WITH_DOCUMENTED_LIMITS",
+  "date": "2026-10-15",
+  "version": "0.9.0",
+  "source_sha256": "64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9",
+  "test_source_sha256": "c5fe881acea78d8218569edca17c7da144e673a2ee33a46633eab9bc870ac091",
+  "regression": {
+    "tests": 1077,
+    "subtests": 62,
+    "seconds": 430.6
+  },
+  "wheel": {
+    "bytes": 12959111,
+    "sha256": "fbbeba4c50a61746ecd0b3a82ef3804d47e084bc33d6d40ac1e267dbfdde0c59",
+    "source_equal_modules": 217
+  },
+  "frozen": {
+    "files": 3311,
+    "bytes": 950001622,
+    "exe_sha256": "203b0cf8f7d04c40c1cbaa8956d1eb7461337729f333da4e4e09342245c8c8a4",
+    "source_equal_modules": 215,
+    "omitted_cli_modules": [
+      "morice.__main__",
+      "morice.cli"
+    ]
+  },
+  "native": {
+    "packaged_ticks": 97,
+    "installed_canonical_ticks": 100,
+    "installed_root_ticks": 100,
+    "critical_failures": 0,
+    "composer_inside_screen": true,
+    "actual_phase_advanced": true,
+    "clean_shutdown": true,
+    "themes": 12,
+    "routes": 17,
+    "authored_icons": 62
+  },
+  "clean_dependency_environment": {
+    "wheel_bound_by_hash": true,
+    "installed_files_equal_wheel": 295,
+    "scope": "Previously created isolated venv with no system-site-packages; current wheel is reinstalled into that dependency environment and byte-checked before launch."
+  },
+  "website": {
+    "local_production_qa": "LOCAL_PRODUCTION_SITE_QA_PASSED",
+    "themes": 4,
+    "viewports": [
+      [
+        1440,
+        1000
+      ],
+      [
+        390,
+        844
+      ]
+    ],
+    "console_errors": 0,
+    "console_warnings": 0,
+    "live_deployment": "Separate final publication verification; not inferred from local QA."
+  },
+  "preserved_baseline": {
+    "path": "build/phase11-baseline/repository.json",
+    "sha256": "19153a338d6d8bf9344ec8967972525a70f0bde37648e86aabf9c9a6aeabd1d8"
+  },
+  "privacy": {
+    "scan_scope_files_before_final_report": 657,
+    "findings": 0,
+    "screenshots": "Owned profiles; current-manifest.json; visually reviewed.",
+    "final_publishable_scan_files": 659
+  },
+  "storage_cleanup": {
+    "receipt": "build/phase11-storage-cleanup-receipt.json",
+    "measured_free_bytes_gained": 12250533888,
+    "scope": "Superseded generated packages/compiler work and re-downloadable pip cache; protected installed/baseline hashes unchanged; models, user data and backups preserved."
+  },
+  "current_cross_phase_workflow": {
+    "sweep_runs": 10000,
+    "seconds": 66.3963289000094,
+    "rows_shown": 500,
+    "model_calls": 0,
+    "actual_builder_verified": true,
+    "owned_ui_timer": {
+      "samples": 2491,
+      "median_ms": 21.710400003939867,
+      "p95_ms": 142.23060000222176,
+      "worst_ms": 687.6785999920685,
+      "scope": "Owned Qt 20 ms responsiveness timer, including fixture DB sampling and PNG grabs. This is not compositor frame latency."
+    },
+    "tls_transfer_bytes": 1048832,
+    "actual_phase9_image_decoded": true,
+    "clean_shutdown": true,
+    "scope": "Current source, controlled owned native Research/Builder/TLS Mesh/Media decode/Activity/Spatial; no fresh heavy inference or physical-device claim."
+  },
+  "motion_measurement_scope": "The referenced cached-vector battery measurement predates the final icon/process/SQL corrections; the contour/Core renderer is unchanged. Paint callbacks and CPU are not compositor pacing.",
+  "remaining_constraints": [
+    "Battery POWER_SAVING selected effective LOW; roughly sixteen paint callbacks per second observed, not a 60fps/compositor guarantee.",
+    "Retained hidden compatibility construction and synchronous theme/window work add startup and event-delivery cost.",
+    "Physical audio/devices/monitor changes, per-app graphics attribution, general desktop semantic reliability and optional external providers remain unvalidated.",
+    "Fresh heavy-model image/video checks remain subject to the accepted available-RAM constraint and unchanged resource guards.",
+    "SQLite 3.50.4 predates the upstream WAL-reset fix. Research does not enable WAL. Existing AmbientStore serializes one connection; independent concurrent processes against the same Ambient WAL database are not certified.",
+    "Windows managed roots are assigned before resume; abrupt application termination between suspended creation and Job assignment remains a narrow unvalidated interval. Assignment or initial-thread ambiguity fails closed."
+  ],
+  "publication_scope": {
+    "source_commit_push": true,
+    "existing_pages_site": true,
+    "release_tag_or_binary_upload": false
+  },
+  "receipts": [
+    {
+      "path": "build/phase11-audit-clean-fixtures-20261015-Regression.json",
+      "sha256": "c6057b0c03b4535a7504bfec0dc3d4941ddb23af6a36735134c520a46f053599"
+    },
+    {
+      "path": "build/phase11-audit-clean-fixtures-20261015-Regression.log",
+      "sha256": "99e942e1dec0d5315e15b4acd5ed6489dab51712ceb2a5e0af55c81c688e07af"
+    },
+    {
+      "path": "build/phase11-job-final-frozen-parity.json",
+      "sha256": "1ec7a3e2e7af37878b71cea517adbccf0ce138ccfa1b0aab50fe348f2e50468d"
+    },
+    {
+      "path": "build/phase11-job-final-frozen-startup.json",
+      "sha256": "b70205ce037591ad0fa3aa50b99b023cc5a061dde93885483bdfea859fd05d27"
+    },
+    {
+      "path": "build/phase11-job-final-wheel-parity.json",
+      "sha256": "b84d5f05c4cca9a05906466eebddaa4b536a751faedcc72850d8561302d2c4e3"
+    },
+    {
+      "path": "build/phase11-job-final-clean-wheel-startup.json",
+      "sha256": "75d050cb64d1cdf8f2eb731856fe75abe5f7352af94cdf2eeeee9c8ab666861c"
+    },
+    {
+      "path": "build/phase11-final-installed-canonical-startup.json",
+      "sha256": "757b0725bebb7255ddd44f0483cb575b6b6e15c888c68827093a8acce7efa984"
+    },
+    {
+      "path": "build/phase11-final-installed-root-startup.json",
+      "sha256": "6d78e0c8844b8fb003112b8e08673450417a3f4f55d2c74a73f3226080c52634"
+    },
+    {
+      "path": "build/theme-composer-native/evidence.json",
+      "sha256": "04eee029d6f1114111203020ef60e08ef07bf3de251c5efdbc2b8f241ac08ad4"
+    },
+    {
+      "path": "build/phase11-job-final-captures/evidence.json",
+      "sha256": "8f1005c97fcf956cae178f8e97fec35b2ac3017ce0852316c01b6d009bed637c"
+    },
+    {
+      "path": "build/phase11-native-continuity-proof.log",
+      "sha256": "7892a3357e462a1d3b31699098cf66086e9b815f6ab0160bb45a147a9e75fca3"
+    },
+    {
+      "path": "build/phase11-cached-vector-cinematic/evidence.json",
+      "sha256": "e108dfa766d42beef86df0a6dc21cd6e0876f8627b6f9a350db496b40c29676c"
+    },
+    {
+      "path": "build/phase11-production-site-qa.json",
+      "sha256": "795ce34425e6c8cfd45d5356059d58ec08a7e881a4302fa3546eb0ed157feaed"
+    },
+    {
+      "path": "build/phase11-final-owned-process-inventory.json",
+      "sha256": "d2d1a6b7c613817d199f077c403540d038828165f516e145330d8fa489d1ea2a"
+    },
+    {
+      "path": "build/phase11-final-master-source-receipt.json",
+      "sha256": "bd400193ae715800a2510381790858ca0b713a4e77d77496a9eb4cbe37222867"
+    },
+    {
+      "path": "build/phase10-master-workspace/22beef6c2a/evidence.json",
+      "sha256": "03f8d6fbef92cf5a801119dceabc1947d0595420be18426303e2d5b41d480799"
+    },
+    {
+      "path": "build/phase11-windows-job-real-family-final-tests.log",
+      "sha256": "9efc485909160916619e16c1deb5570d16d13e263d4d89dfee0f04e853ca88c9"
+    },
+    {
+      "path": "build/phase11-job-final-process-browser-focus.log",
+      "sha256": "9514c2907b82e00cedda5d045bb10518dd3c8256db2aa008e9d74e366b4b9542"
+    },
+    {
+      "path": "build/phase11-bounded-results-native-icons-tests.log",
+      "sha256": "6f16dde0c7fb75aa6777e51ce285a7743776aac228883f8f706dc601961c2aad"
+    },
+    {
+      "path": "build/phase11-bounded-results-native-master.log",
+      "sha256": "727519e0183864d36e4b3ccc350cca0f40a67dffb635ab5aef3c5ccf9a6bc417"
+    },
+    {
+      "path": "build/phase11-storage-cleanup-receipt.json",
+      "sha256": "2035057b85b9980c91a3bc0869a63e48cf39004b598624489a5a467618661ecb"
+    }
+  ],
+  "staged_source_review": {
+    "status": "REVIEWED_WITH_SOURCE_PRESERVATION_EXCEPTIONS",
+    "staged_paths": 364,
+    "application_and_test_bytes_unchanged": true,
+    "private_or_model_artifacts_staged": false,
+    "whitespace_scope": "Trailing line whitespace and space-before-tab checks pass across owned files. Preserve upstream GeoNames README attribution bytes and four harmless extra final blank lines; no validated application bytes changed for formatting."
+  }
+}

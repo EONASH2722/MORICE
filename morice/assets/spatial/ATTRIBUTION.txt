@@ -1,0 +1,2 @@
+City names/coordinates: GeoNames, https://www.geonames.org/, Creative Commons Attribution 4.0, https://creativecommons.org/licenses/by/4.0/. Full cities15000 extract; city coverage is intentionally bounded to that published dataset. Data accuracy/completeness is not guaranteed.
+Earth land geometry: Natural Earth 1:110m land v5.1.2, public domain, https://www.naturalearthdata.com/about/terms-of-use/. Made with Natural Earth.

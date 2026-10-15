@@ -26,6 +26,9 @@ public final class PairDeviceActivity extends Activity {
     private EditText portInput;
     private TextView status;
     private Button pairButton;
+    private EditText codeInput;
+    private EditText fingerprintInput;
+    private org.json.JSONObject meshPending;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -38,12 +41,14 @@ public final class PairDeviceActivity extends Activity {
 
         TextView title = text("Pair a MORICE Desktop", 24, Color.WHITE);
         TextView detail = text(
-                "On the desktop, open Panel → Pair a device. Enter its LAN address here, then compare the six-digit code on both devices.",
+                "On the desktop, open Devices → Pair this node. Copy its pair port, six-digit code and full certificate fingerprint. Both devices must confirm. Android 10 or newer is required for TLS 1.3.",
                 15, Color.rgb(156, 176, 194)
         );
         hostInput = input("Desktop IP address", InputType.TYPE_CLASS_PHONE);
         portInput = input("Port", InputType.TYPE_CLASS_NUMBER);
         portInput.setText(String.valueOf(MoriceProtocol.DEFAULT_PORT));
+        codeInput = input("Six-digit pairing code", InputType.TYPE_CLASS_NUMBER);
+        fingerprintInput = input("Full certificate fingerprint", InputType.TYPE_CLASS_TEXT);
         pairButton = new Button(this);
         pairButton.setText("Connect securely");
         pairButton.setOnClickListener(view -> beginPairing());
@@ -53,12 +58,15 @@ public final class PairDeviceActivity extends Activity {
         root.addView(detail, params(-1, -2, 0, 0, 0, 18));
         root.addView(hostInput, params(-1, -2, 0, 0, 0, 10));
         root.addView(portInput, params(-1, -2, 0, 0, 0, 14));
+        root.addView(codeInput, params(-1, -2, 0, 0, 0, 10));
+        root.addView(fingerprintInput, params(-1, -2, 0, 0, 0, 10));
         root.addView(pairButton, params(-1, -2, 0, 0, 0, 16));
         root.addView(status, params(-1, -2, 0, 0, 0, 0));
         setContentView(root);
     }
 
     private void beginPairing() {
+        if (Build.VERSION.SDK_INT < 29) { status.setText("Device Mesh requires Android 10+ TLS 1.3. No insecure fallback is enabled."); return; }
         String host = hostInput.getText().toString().trim();
         int port;
         try {
@@ -74,12 +82,19 @@ public final class PairDeviceActivity extends Activity {
         pairButton.setEnabled(false);
         status.setText("Creating an authenticated pairing challenge…");
         final int selectedPort = port;
+        final String selectedCode = codeInput.getText().toString().trim();
+        final String selectedPin = fingerprintInput.getText().toString().trim().toLowerCase(java.util.Locale.ROOT);
         executor.execute(() -> {
             try {
                 SecureNodeStore store = new SecureNodeStore(this);
-                NodeClient client = new NodeClient(store);
-                NodeClient.PairingSession session = client.beginPairing(host, selectedPort);
-                runOnUiThread(() -> showCode(client, session));
+                MeshClient client = new MeshClient(store);
+                if (meshPending == null) {
+                    meshPending = client.begin(host, selectedPort, selectedCode, selectedPin);
+                    runOnUiThread(() -> { pairButton.setEnabled(true); pairButton.setText("Allow status, Inbox files, volume and web links"); status.setText("Confirm this phone on the desktop, then approve these device permissions here. Camera, microphone, clipboard, location and shell remain unavailable."); });
+                } else {
+                    client.finish(meshPending); meshPending = null;
+                    runOnUiThread(() -> { pairButton.setEnabled(true); pairButton.setText("Pair another device"); status.setText("Paired with mutual TLS. Capture and shell are disabled. This visible service receives permitted commands."); startForegroundService(new Intent(this, NodeConnectionService.class)); setResult(RESULT_OK); });
+                }
             } catch (Exception error) {
                 runOnUiThread(() -> {
                     pairButton.setEnabled(true);

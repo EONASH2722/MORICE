@@ -1,5 +1,10 @@
 # Research Core audit — 2026-10-01
 
+Historical foundation audit. Phase 6's current implementation and execution
+checks are recorded in [research-lab-audit.md](research-lab-audit.md) and
+[research-lab-report.md](research-lab-report.md). The classifications below
+describe the earlier source preview, not the current Phase 6 result.
+
 Initial classification: **C — PARTIALLY IMPLEMENTED**. Existing scientific
 visualization and general agents are useful foundations, not proof of an
 integrated research workflow. This is a source/execution audit, not a claim

@@ -21,7 +21,24 @@ MAX_TEXT = 200000
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 
 
+from ..kernel import CancellationToken
+
+
+class EventToken(CancellationToken):
+    """Compatibility link to the chat worker's existing cancellation event."""
+    def __init__(self, event):
+        super().__init__()
+        self.external_event = event
+
+    @property
+    def cancelled(self):
+        return super().cancelled or self.external_event.is_set()
+
+
 def checkpoint(cancel=None):
+    if cancel is not None and hasattr(cancel, "raise_if_cancelled"):
+        cancel.raise_if_cancelled()
+        return
     if cancel is not None and cancel.is_set():
         raise InterruptedError("Research cancelled; completed records are retained.")
 
@@ -135,7 +152,7 @@ class ResearchIngestion:
         digest = hashlib.sha256(raw).hexdigest()
         ext = source.suffix.lower()
         result = {"name": source.name, "sha256": digest, "bytes": len(raw),
-                  "format": ext, "trust": "untrusted_source_data", "warnings": [], "metadata": {}}
+                  "format": ext, "original_path": str(source), "trust": "untrusted_source_data", "warnings": [], "metadata": {}}
         # Parse the exact bytes later stored under their digest, not a second
         # read of a file which may have changed during an experiment.
         if ext in {".csv", ".tsv"}:
@@ -178,6 +195,9 @@ class ResearchIngestion:
                                   "author": str(getattr(metadata, "author", "") or ""),
                                   "page_count": len(reader.pages)}
             result["sections"] = document_sections(result["text"])
+            result["metadata"]["creation_date"] = str(getattr(metadata,"creation_date","") or "")
+            result["metadata"]["doi_candidates"] = list(dict.fromkeys(re.findall(r"10\.\d{4,9}/[^\s<>]+",result["text"])))[:50]
+            result["figure_context"] = [{"page":p["page"],"caption_candidate":line[:500]} for p in pages for line in p["text"].splitlines() if re.match(r"\s*(?:Figure|Fig\.)\s*\d+",line,re.I)][:100]
             result["warnings"].append("Text extraction only: figures, equations and table layout require verification; scanned pages need OCR.")
         elif ext == ".docx":
             _validate_zip(raw)
@@ -192,6 +212,15 @@ class ResearchIngestion:
                     raise ValueError("Image exceeds 40 megapixels.")
                 image.verify()
                 result["metadata"] = {"width": image.width, "height": image.height, "mode": image.mode}
+            with Image.open(io.BytesIO(raw)) as image:
+                from PIL import ImageStat
+                image.thumbnail((512,512))
+                gray=image.convert("L")
+                stats=ImageStat.Stat(gray)
+                result["pixel_analysis"]={"sample_dimensions":list(gray.size),"grayscale_mean":stats.mean[0],
+                                          "grayscale_std":stats.stddev[0],"histogram":gray.histogram(),
+                                          "method":"Pillow grayscale statistics on a bounded 512-pixel thumbnail",
+                                          "limitations":"Intensity distribution only; no object identification, diagnostic conclusion or physical scale inferred."}
             result["warnings"].append("Image integrity checked; no scientific visual conclusion without a configured vision provider.")
         elif ext in {".json", ".ipynb"}:
             parsed = json.loads(raw.decode("utf-8-sig"))
@@ -201,9 +230,19 @@ class ResearchIngestion:
             root = _safe_xml(raw)
             result["text"] = " ".join(root.itertext())[:MAX_TEXT]
             result["metadata"]["root"] = root.tag
-        elif ext in {".txt", ".md", ".log", ".py", ".r", ".js", ".ts", ".c", ".cpp", ".yaml", ".yml"}:
+        elif ext in {".txt", ".md", ".log", ".py", ".r", ".js", ".ts", ".c", ".cpp", ".yaml", ".yml", ".fasta", ".fa"}:
             result["text"] = raw.decode("utf-8-sig")[:MAX_TEXT]
             result["sections"] = document_sections(result["text"])
+            if ext in {".fasta",".fa"}:
+                sequences=[]
+                for line in result["text"].splitlines():
+                    if line.startswith(">"):
+                        sequences.append({"identifier":line[1:][:200],"length":0,"gc":0})
+                    elif line.strip():
+                        if not sequences or not re.fullmatch(r"[ACGTNacgtn]+",line.strip()): raise ValueError("Only bounded nucleotide FASTA records are supported.")
+                        sequence=line.strip().upper(); sequences[-1]["length"]+=len(sequence); sequences[-1]["gc"]+=sequence.count("G")+sequence.count("C")
+                result["metadata"]["sequences"]=sequences[:1000]
+                result["warnings"].append("Nucleotide counts only; no sequence generation, alignment, pathogenicity or wet-lab workflow. Extracted text may be truncated.")
         else:
             raise ValueError(f"No verified research parser for {ext or 'this file type'}. The file was not analyzed.")
         checkpoint(cancel)

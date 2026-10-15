@@ -1,0 +1,1471 @@
+{
+  "scope": "Prepublication source change inventory against the immutable main baseline. Preexisting phase work and intentional screenshot deletions are preserved. Ignored models, dist/build artifacts, raw logs and private profiles are excluded. Commit identity and remote checks are recorded separately after publication.",
+  "baseline_commit": "47c09ebde9841160a43bfbb41d0a6f6b92f96427",
+  "counts": {
+    "modified": 66,
+    "added": 291,
+    "deleted": 8
+  },
+  "files": [
+    {
+      "status": " M",
+      "path": ".github/workflows/ci.yml"
+    },
+    {
+      "status": " M",
+      "path": ".github/workflows/release-validation.yml"
+    },
+    {
+      "status": " M",
+      "path": ".gitignore"
+    },
+    {
+      "status": " M",
+      "path": "CHANGELOG.md"
+    },
+    {
+      "status": " M",
+      "path": "MORICE.spec"
+    },
+    {
+      "status": " M",
+      "path": "README.md"
+    },
+    {
+      "status": " M",
+      "path": "android/app/build.gradle"
+    },
+    {
+      "status": "??",
+      "path": "android/app/src/androidTest/java/ai/morice/companion/MeshInstrumentedTest.java"
+    },
+    {
+      "status": " M",
+      "path": "android/app/src/main/AndroidManifest.xml"
+    },
+    {
+      "status": " M",
+      "path": "android/app/src/main/java/ai/morice/companion/MainActivity.java"
+    },
+    {
+      "status": "??",
+      "path": "android/app/src/main/java/ai/morice/companion/MeshClient.java"
+    },
+    {
+      "status": "??",
+      "path": "android/app/src/main/java/ai/morice/companion/MeshIdentity.java"
+    },
+    {
+      "status": "??",
+      "path": "android/app/src/main/java/ai/morice/companion/MeshJson.java"
+    },
+    {
+      "status": "??",
+      "path": "android/app/src/main/java/ai/morice/companion/MeshNode.java"
+    },
+    {
+      "status": " M",
+      "path": "android/app/src/main/java/ai/morice/companion/NodeConnectionService.java"
+    },
+    {
+      "status": " M",
+      "path": "android/app/src/main/java/ai/morice/companion/PairDeviceActivity.java"
+    },
+    {
+      "status": " M",
+      "path": "android/app/src/main/java/ai/morice/companion/SecureNodeStore.java"
+    },
+    {
+      "status": " M",
+      "path": "docs/README.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/ambient-connectors-security-audit.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/ambient-connectors-security-report.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/ambient-connectors-security.md"
+    },
+    {
+      "status": " M",
+      "path": "docs/architecture.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/capability-kernel-audit.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/capability-kernel-report.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/capability-kernel.md"
+    },
+    {
+      "status": " M",
+      "path": "docs/desktop-pets.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/device-mesh-audit.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/device-mesh-report.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/device-mesh.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/full-stack-hardening-audit.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/full-stack-hardening-report.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/full-stack-hardening.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/generative-media-lab-audit.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/generative-media-lab-report.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/generative-media-lab.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/parallel-agent-runtime-audit.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/parallel-agent-runtime-report.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/parallel-agent-runtime.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/project-builder-2-audit.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/project-builder-2-report.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/project-builder-2.md"
+    },
+    {
+      "status": " M",
+      "path": "docs/project-mode.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/release-audit-evidence.json"
+    },
+    {
+      "status": "??",
+      "path": "docs/release-audit-files.json"
+    },
+    {
+      "status": "??",
+      "path": "docs/release-audit-issues.json"
+    },
+    {
+      "status": "??",
+      "path": "docs/release-audit-progress.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/release-audit-report.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/release-notes-0.9.0.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/renovation-architecture.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/renovation-parity-matrix.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/renovation-progress.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/renovation-report.md"
+    },
+    {
+      "status": " M",
+      "path": "docs/research-core-audit.md"
+    },
+    {
+      "status": " M",
+      "path": "docs/research-core.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/research-lab-audit.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/research-lab-report.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/research-lab.md"
+    },
+    {
+      "status": " M",
+      "path": "docs/screenshots/README.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/current-manifest.json"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/morice-activity.png"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/morice-devices.png"
+    },
+    {
+      "status": " M",
+      "path": "docs/screenshots/morice-home.png"
+    },
+    {
+      "status": " D",
+      "path": "docs/screenshots/morice-live-graph.png"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/morice-media.png"
+    },
+    {
+      "status": " D",
+      "path": "docs/screenshots/morice-model-browser.png"
+    },
+    {
+      "status": " D",
+      "path": "docs/screenshots/morice-model-manager.png"
+    },
+    {
+      "status": " D",
+      "path": "docs/screenshots/morice-particle-simulation.png"
+    },
+    {
+      "status": " D",
+      "path": "docs/screenshots/morice-project-setup.png"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/morice-projects.png"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/morice-research.png"
+    },
+    {
+      "status": " M",
+      "path": "docs/screenshots/morice-settings.png"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/morice-spatial.png"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/morice-theme-amethyst.png"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/morice-theme-arctic.png"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/morice-theme-glass.png"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/morice-voice.png"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/website-hero-current.png"
+    },
+    {
+      "status": " D",
+      "path": "docs/screenshots/website-hero.png"
+    },
+    {
+      "status": "??",
+      "path": "docs/screenshots/website-mobile-current.png"
+    },
+    {
+      "status": " D",
+      "path": "docs/screenshots/website-mobile.png"
+    },
+    {
+      "status": " D",
+      "path": "docs/screenshots/website-visualizations.png"
+    },
+    {
+      "status": " M",
+      "path": "docs/troubleshooting.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/verified-action-runtime-audit.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/verified-action-runtime-report.md"
+    },
+    {
+      "status": "??",
+      "path": "docs/verified-action-runtime.md"
+    },
+    {
+      "status": " M",
+      "path": "installer/MORICE.iss"
+    },
+    {
+      "status": " M",
+      "path": "installer/version_info.txt"
+    },
+    {
+      "status": "??",
+      "path": "morice/action_runtime/__init__.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/action_runtime/adapters.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/action_runtime/contracts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/action_runtime/desktop.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/action_runtime/inspection.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/action_runtime/journal.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/action_runtime/processes.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/action_runtime/qt_browser.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/action_runtime/runtime.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/action_runtime/verification.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/action_runtime/vision.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/agent_orchestrator.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/agent_runtime/__init__.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/agent_runtime/capabilities.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/agent_runtime/contracts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/agent_runtime/coordinator.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/agent_runtime/models.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/agent_runtime/planner.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/agent_runtime/roles.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/agent_runtime/state.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/agent_runtime/workers.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/agent_tools.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ambient/__init__.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ambient/contracts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ambient/service.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ambient/store.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ambient/ui.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/assets/spatial/ATTRIBUTION.txt"
+    },
+    {
+      "status": "??",
+      "path": "morice/assets/spatial/GEONAMES-README.txt"
+    },
+    {
+      "status": "??",
+      "path": "morice/assets/spatial/cities.sqlite3"
+    },
+    {
+      "status": "??",
+      "path": "morice/assets/spatial/earth-land.json"
+    },
+    {
+      "status": " M",
+      "path": "morice/autonomous_builder.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/connectors/__init__.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/connectors/contracts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/connectors/github.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/connectors/http.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/connectors/registry.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/connectors/webhooks.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/desktop_environment.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/__init__.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/identity.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/node.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/node_runtime.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/projects.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/protocol.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/registry.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/routing.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/runtime.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/streams.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/transfers.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/transport.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/device_mesh/ui.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/__init__.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/adapters.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/cancellation.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/context.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/contracts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/events.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/execution.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/permissions.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/registry.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/resources.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/scheduler.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/schema.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/tasks.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/kernel/telemetry.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/live_vision.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/llama_server.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/llm_client.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/local_llama.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/local_speech_provider.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/__init__.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/artifacts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/benchmark.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/capabilities.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/cli.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/contracts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/hardware.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/intents.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/planner.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/preview.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/process.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/providers.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/registry.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/runtime.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/storage.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/media_lab/worker.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/node_protocol.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/package_smoke.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/pc_control.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/premium_experience.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/process_ownership.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/project_build/__init__.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/project_build/contracts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/project_build/discovery.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/project_build/localtools.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/project_build/planning.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/project_build/proposals.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/project_build/runtime.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/project_build/workspace.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/project_index.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/pyside_app.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/redaction.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/research/artifacts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/research/contracts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/research/engineering.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/research/experiments.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/research/ingestion.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/research/laboratory.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/research/literature.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/research/runtime.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/research/safety.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/research/service.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/research/simulations.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/research/statistics.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/research/store.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/research/tools.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/research/ui.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/research/validation.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/runtime_health.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/runtime_services.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/security/__init__.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/security/collectors.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/security/contracts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/security/service.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/settings.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/spatial/__init__.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/spatial/calculations.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/spatial/contracts.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/spatial/locations.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/spatial/service.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/speech_runtime.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/__init__.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/action_deck.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/activity_view.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/appearance_profile.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/appearance_view.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/bridge.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/core_state.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/core_view.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/effects.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/energy_field.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/file_access.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/icons.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/materials.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/media_view.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/motion.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/navigation.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/profiles_view.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/renderer_clock.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/research_graph.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/responsive.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/settings_view.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/shell.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/spatial_view.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/surfaces.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/theme_scenes.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/themes.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/wake.py"
+    },
+    {
+      "status": "??",
+      "path": "morice/ui_next/workspace_adapters.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/unified_intelligence.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/version.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/visualization.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/voice_runtime.py"
+    },
+    {
+      "status": " M",
+      "path": "morice/workspace_state.py"
+    },
+    {
+      "status": " M",
+      "path": "morice_app_launcher.py"
+    },
+    {
+      "status": " M",
+      "path": "pyproject.toml"
+    },
+    {
+      "status": "??",
+      "path": "scripts/audit_full_stack.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/audit_phase10_controls.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/audit_phase10_prerequisites.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/audit_phase9_media.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/audit_release_cleanliness.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_ambient.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_capability_kernel.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_device_mesh.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_device_mesh_limits.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_full_stack.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_parallel_agents.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_phase10_shell.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_phase8_model.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_phase8_voice.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_project_builder.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_research_lab.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_research_limits.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/benchmark_verified_actions.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/contact_sheet_phase10.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/demo_full_stack.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/demo_phase10_wake_spatial.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/demo_phase10_workspaces.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/demo_project_builder.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/demo_research_browser.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/demo_verified_actions.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/download_phase9_model.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/prepare_phase10_geodata.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/preview_phase10_interactions.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/preview_phase10_logo.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/preview_phase10_orbits.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/preview_phase10_shell.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/promote_phase10_dist.ps1"
+    },
+    {
+      "status": "??",
+      "path": "scripts/run_isolated_tests.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/run_phase10_validation.ps1"
+    },
+    {
+      "status": "??",
+      "path": "scripts/smoke_phase10_frozen.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/snapshot_release_baseline.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/summarize_full_stack_benchmarks.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_clean_wheel.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_first_run.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_icon_gc_stress.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_phase10_cinematic.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_phase10_geometry.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_phase10_rich_theme.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_phase10_security_load.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_phase10_soak.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_phase10_voice.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_phase9_contention.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_phase9_media.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_phase9_safety_soak.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/validate_theme_composer.py"
+    },
+    {
+      "status": " M",
+      "path": "scripts/validate_version.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_action_startup.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_ambient_package.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_ambient_startup.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_builder_startup.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_full_stack_package.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_full_stack_startup.ps1"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_media_package.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_media_startup.ps1"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_mesh_package.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_mesh_startup.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_phase8_completion.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_phase9_completion.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_renovation_frozen.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_renovation_package.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_research_package.py"
+    },
+    {
+      "status": "??",
+      "path": "scripts/verify_research_startup.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/fixtures/cuda_oom_worker.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/fixtures/media_worker.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_ambient_connectors_security.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_ambient_cross_phase.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_ambient_failure_audit.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_ambient_fast_path.py"
+    },
+    {
+      "status": " M",
+      "path": "tests/test_autonomous_platform.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_capability_kernel.py"
+    },
+    {
+      "status": " M",
+      "path": "tests/test_desktop_environment.py"
+    },
+    {
+      "status": " M",
+      "path": "tests/test_desktop_pet.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_device_mesh.py"
+    },
+    {
+      "status": " M",
+      "path": "tests/test_llama_server.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_media_comfy_api.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_media_gpu_guard.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_media_integrations.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_media_lab.py"
+    },
+    {
+      "status": " M",
+      "path": "tests/test_node_protocol.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_parallel_agents.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_phase8_connector_chaos.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_phase8_hardening.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_phase8_model_resources.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_phase8_system.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_process_ownership.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_project_build_browser.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_project_build_runtime.py"
+    },
+    {
+      "status": " M",
+      "path": "tests/test_release_packaging.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_renovation_core_field.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_renovation_custom_interactions.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_renovation_spatial.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_renovation_themes_motion.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_renovation_workspaces_wake.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_research_lab.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_verified_actions.py"
+    },
+    {
+      "status": "??",
+      "path": "tests/test_verified_browser.py"
+    },
+    {
+      "status": " M",
+      "path": "tests/test_visualization.py"
+    },
+    {
+      "status": " M",
+      "path": "tests/test_workspace_experience.py"
+    },
+    {
+      "status": " M",
+      "path": "website/README.md"
+    },
+    {
+      "status": " M",
+      "path": "website/index.html"
+    },
+    {
+      "status": " M",
+      "path": "website/public/morice-home.png"
+    },
+    {
+      "status": "??",
+      "path": "website/public/morice-media.png"
+    },
+    {
+      "status": "??",
+      "path": "website/public/morice-research.png"
+    },
+    {
+      "status": "??",
+      "path": "website/public/morice-spatial.png"
+    },
+    {
+      "status": " M",
+      "path": "website/src/App.tsx"
+    },
+    {
+      "status": " M",
+      "path": "website/src/styles.css"
+    }
+  ]
+}

@@ -6,6 +6,61 @@
 
 <h1 align="center">MORICE</h1>
 
+## Current source: 0.9.0
+
+The renovated desktop uses a luminous Core, a visible message composer, authored vector icons and twelve distinct visual themes. Shapes turn, breathe, float and unfurl in continuous loops; particles follow closed paths without jumping between screen edges. LOW quality keeps inexpensive ambient motion, while Reduced Motion and hidden/minimized windows pause decoration. The original logo is unchanged and the Core contains no eyes or face.
+
+Current source extends the existing Capability Kernel, parallel agents, verified actions, Builder, Research, Device Mesh, Ambient/Security and Media systems. It adds offline geographic search and deterministic WGS84 Spatial tools while keeping shared permission, verification and resource-lease ownership.
+
+![Renovated MORICE Core](docs/screenshots/morice-home.png)
+
+Choose **Theme** in the top bar to preview a theme or toggle **Animate the workspace**. **Glass** adds translucent application panels, soft procedural refraction and reflective edges. Fine contours use native antialiased vectors over cached diffuse light; the field never captures desktop pixels. Core shows a bottom launcher, and workspaces show a left sidebar, so navigation appears once.
+
+| Theme | Shape and motion |
+| --- | --- |
+| MORICE | Flowing plasma ribbons and precessing orbits. |
+| Glass | Floating crystal facets and refracted light. |
+| Obsidian | Turning basalt polygon rings. |
+| Ice | Six-fold frost crystals that bloom and turn. |
+| Amethyst | Breathing layered petal rosettes. |
+| Midnight | Drifting constellations and an orbital star atlas. |
+| Neon | Angular circuits with travelling lights. |
+| Monochrome | A swaying diamond lattice. |
+| Custom | A harmonic braid in your chosen palette. |
+| Arctic | Dancing aurora curtains. |
+| Solar | Rotating corona filaments. |
+| Crimson | Soft returning resonance ripples. |
+
+![Prismatic Glass theme with a visible composer](docs/screenshots/morice-theme-glass.png)
+
+| Workspace | Purpose |
+| --- | --- |
+| Projects | Plan, build, test and review with existing Builder authority. |
+| Research | Inspect provenance, controlled computations and resumable experiments. |
+| Spatial | Resolve real cities offline; compare geodesic/chord distances, bearings and paths. |
+| Media | Inspect installed models, actual queue stages and verified outputs. |
+| Activity | Inspect real public task/events and cancel owned work. |
+| Settings | Search preferences, preview themes/profiles and configure explicit voice/wake access. |
+
+![Deterministic Spatial workspace](docs/screenshots/morice-spatial.png)
+
+**Validation scope:** 1,077 tests and 62 subtests pass in 430.60 seconds. Current-source wheel/frozen integrity, all seventeen native routes, message sending, screen-bound maximize/restore, all twelve theme animations, isolated dependency startup and both installed launch paths pass. See [the full release audit](docs/release-audit-report.md) and [checksums/evidence](docs/release-audit-evidence.json). Battery mode measured roughly sixteen paint callbacks per second; compositor frame pacing is unmeasured. Physical audio/devices/monitor changes and fresh heavy inference remain scoped. Compatible providers and sufficient RAM/VRAM are still required; unavailable features stay labelled.
+
+**Download distinction:** the [published Windows 0.8.0 portable](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) are earlier builds. The current UI is available from source and the local validated distribution; a new public binary release has not been uploaded. [Latest published release](https://github.com/EONASH2722/MORICE/releases/latest).
+
+### Installation
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,research]"
+.\.venv\Scripts\python.exe morice_app_launcher.py
+```
+
+Use Python 3.12+ for the desktop. Local media model dependencies may require a separate compatible runtime; the main app remains usable when those providers are unavailable. See [troubleshooting](docs/troubleshooting.md), [architecture](docs/architecture.md) and [the renovation report](docs/renovation-report.md).
+
+For a locally built wheel, install `morice_ai-0.9.0-py3-none-any.whl`; this filename describes the current package, not a currently published download.
+
+
 <p align="center">
   <strong>A local-first Windows AI workspace for conversation, Live Action, real visualizations, project building, and desktop assistance.</strong>
 </p>
@@ -27,7 +82,7 @@
 
 MORICE combines local model inference with a desktop workspace that can answer questions, build projects, operate permission-aware tools, and mount validated interactive artifacts directly in chat. Language models provide reasoning and structured proposals; MORICE validates and executes the result through its own renderers, project engine, and desktop services.
 
-![MORICE normal chat with neutral personalization](docs/reviewer-images/morice-home.png)
+![Current Research workspace](docs/screenshots/morice-research.png)
 
 **Current-source previews:** the scientific research core, named chat history,
 and desktop companions described below are not guaranteed to be present in older
@@ -69,7 +124,7 @@ support physical units and bounded parameter sweeps. Export actual JSON records,
 CSV statistics, sampled SVG plots, Markdown summaries, and original evidence with
 checksums. Selected local-model interpretations are labeled **unverified inference**.
 
-The **↶ Chat history** button supports named, searchable, compressed conversations,
+The **Chat history** action supports named, searchable, compressed conversations,
 reopening their research projects, archive, protection, and per-chat retention.
 The default is **Never delete**.
 
@@ -140,7 +195,7 @@ Project Mode is a development workspace for generating and editing real files.
 7. Apply, reject, continue, or undo the validated change set.
 
 The process panel preserves an expandable observed-action trace after completion. It shows selected
-routes, detected tools, files written, commands executed, and verification results—not private
+routes, detected tools, files written, commands executed, and verification results, excluding private
 model chain-of-thought. MORICE reports file, build, test, editor, and playtest status separately.
 
 ## Live Action
@@ -149,7 +204,7 @@ Choose **Mode > Live Action**, or use the speaker button beside the composer, to
 
 Choose **Normal Chat** or **Project**, press the active speaker button again, or use **Exit Live Action** to exit. MORICE immediately stops the camera, cancels microphone capture, reply playback, and vision inference, clears temporary frames/visual memory, and ignores late callbacks. Background wake is now opt-in: explicitly set `MORICE_ENABLE_ALWAYS_ON_WAKE=1` before running the listener. It never activates the camera and yields the microphone to Live Action. The installer no longer enables it by default.
 
-![MORICE Project Mode setup](docs/reviewer-images/morice-project.png)
+![Current Projects workspace](docs/screenshots/morice-projects.png)
 
 MORICE can work with text-based languages supported by the selected model and installed toolchain. See the [Project Mode guide](docs/project-mode.md) for access boundaries and workflow details.
 
@@ -224,7 +279,7 @@ Download the signed APK from the [MORICE Android Release](https://github.com/EON
 Advanced users can install the model-free wheel included with the release:
 
 ```powershell
-python -m pip install .\morice_ai-0.8.0-py3-none-any.whl
+python -m pip install .\morice_ai-0.9.0-py3-none-any.whl
 morice
 ```
 

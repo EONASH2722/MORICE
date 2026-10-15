@@ -11,6 +11,7 @@ os.environ.setdefault("MORICE_REDUCE_MOTION", "1")
 os.environ["MORICE_DISABLE_SESSION"] = "1"
 
 from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication, QEvent
 
 from morice.pyside_app import (
     InlineBiologyWorkspace,
@@ -289,6 +290,16 @@ class VisualizationManagerTests(unittest.TestCase):
         self.assertEqual(result.artifact.document.path, path)
         self.assertGreater(result.artifact.document.size_bytes, 0)
 
+    def test_document_paths_with_biology_keywords_keep_document_intent(self):
+        for name in ("dna", "rna", "protein"):
+            with tempfile.TemporaryDirectory(prefix=name+"-research-") as folder:
+                path=Path(folder,"notes.txt")
+                path.write_text("Controlled file preview evidence",encoding="utf-8")
+                result=self._render(f'Show this file: "{path}"')
+                self.assertTrue(result.ok)
+                self.assertEqual(result.renderer_id,"viewer.document")
+                self.assertEqual(result.artifact.document.path,str(path))
+
     def test_invalid_expression_never_claims_success(self):
         result = self._render("Plot y = os.system(x)")
 
@@ -345,6 +356,8 @@ class InlineVisualizationTests(unittest.TestCase):
 
     def tearDown(self):
         self.window.close()
+        self.window.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
 
     def _wait_for_jobs(self, timeout=5.0):
@@ -354,6 +367,25 @@ class InlineVisualizationTests(unittest.TestCase):
             time.sleep(0.01)
         self.app.processEvents()
         self.assertFalse(self.window.visualization_futures)
+
+    def _wait_for_project_build(self, timeout=65.0):
+        # Adoption already permits up to 60 seconds in ProjectBuildRuntime.
+        # Waiting only twelve seconds raced legitimate bounded verification,
+        # then deleted its temporary working directory while it was in use.
+        deadline = time.monotonic() + timeout
+        while (self.window.is_busy or self.window._project_build_id) and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.app.processEvents()
+        pending=self.window._project_build_id
+        if pending:
+            self.window._project_build_token.cancel('Owned test deadline')
+            self.window.runtime.autonomous_builder.project_runtime.cancel(pending)
+            cleanup=time.monotonic()+6
+            while self.window._project_build_id and time.monotonic()<cleanup:
+                self.app.processEvents();time.sleep(.01)
+        self.assertFalse(self.window.is_busy, 'Owned model fixture did not finish within the project verification allowance.')
+        self.assertFalse(pending,'Project verification did not settle within its existing sixty-second runtime budget plus delivery allowance.')
 
     def test_desktop_identity_is_morice_with_a_real_icon(self):
         self.assertEqual(self.window.windowTitle(), "MORICE")
@@ -695,6 +727,7 @@ class InlineVisualizationTests(unittest.TestCase):
             self.assertFalse(
                 any(name.startswith(".morice-write-") for name in os.listdir(folder))
             )
+            self._wait_for_project_build()
 
     def test_project_patch_review_apply_and_undo_flow_is_real(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -733,6 +766,7 @@ class InlineVisualizationTests(unittest.TestCase):
             with open(target, encoding="utf-8") as source:
                 self.assertEqual(source.read(), "print('after')\n")
             self.assertTrue(self.window.changes_undo_btn.isEnabled())
+            self._wait_for_project_build()
 
             self.window._undo_last_project_patch()
             deadline = time.monotonic() + 5
@@ -766,6 +800,8 @@ class InlineVisualizationTests(unittest.TestCase):
             self.assertIsNone(self.window.pending_project_patch)
             self.assertTrue(os.path.isfile(os.path.join(folder, "index.html")))
             self.assertNotIn("Patch ready for review", result["message"])
+            self.assertFalse(result["project_verified"])
+            self._wait_for_project_build()
 
     def test_folder_access_still_requires_review_before_writing(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -818,13 +854,12 @@ class InlineVisualizationTests(unittest.TestCase):
                 ),
             ):
                 self.window.on_send()
-                deadline = time.monotonic() + 8
-                while self.window.is_busy and time.monotonic() < deadline:
-                    self.app.processEvents()
-                    time.sleep(0.01)
-                self.app.processEvents()
+                # Reuse the runtime's existing bounded adoption allowance.
+                # A shorter independent wait could remove a live workspace.
+                self._wait_for_project_build()
 
             self.assertFalse(self.window.is_busy)
+            self.assertFalse(self.window._project_build_id)
             self.assertIsNone(self.window.pending_project_patch)
             for name in ("index.html", "styles.css", "game.js", "README.md"):
                 self.assertTrue(os.path.isfile(os.path.join(folder, name)), name)
@@ -883,6 +918,7 @@ class InlineVisualizationTests(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(folder, "index.html")))
             self.assertTrue(os.path.isfile(os.path.join(folder, "game.js")))
             self.assertIn("game.js", result["changed"])
+            self._wait_for_project_build()
 
     def test_vnext_visualization_is_normal_chat_only(self):
         self.window._set_chat_mode("project")

@@ -11,12 +11,12 @@ from pathlib import Path
 
 PROVENANCE = frozenset({
     "CITED", "USER_DATA", "CALCULATED", "SIMULATED", "MEASURED", "INFERRED",
-    "ESTIMATED", "HYPOTHESIS", "UNKNOWN",
+    "ESTIMATED", "HYPOTHESIS", "UNKNOWN", "GENERATED_VISUAL",
 })
 KINDS = frozenset({
     "constraint", "hypothesis", "assumption", "source", "dataset", "calculation",
     "experiment", "simulation", "observation", "result", "design", "artifact",
-    "failure", "open_question", "validation", "parameter",
+    "failure", "open_question", "validation", "parameter", "question", "measurement", "component", "bom",
 })
 HYPOTHESIS_STATES = frozenset({
     "PROPOSED", "TESTING", "SUPPORTED", "WEAKLY_SUPPORTED", "INCONCLUSIVE",
@@ -24,7 +24,7 @@ HYPOTHESIS_STATES = frozenset({
 })
 RELATIONS = frozenset({
     "supported_by", "contradicted_by", "derived_from", "tested_by", "produced",
-    "depends_on", "replaced_by", "uses_parameter", "generated_artifact",
+    "depends_on", "replaced_by", "uses_parameter", "generated_artifact", "invalidated_by",
 })
 
 
@@ -114,6 +114,10 @@ class ResearchStore:
             provenance: str = "UNKNOWN", dependencies=()) -> str:
         if kind not in KINDS or provenance not in PROVENANCE:
             raise ValueError("Invalid research kind or provenance.")
+        if payload.get("generation_id") and provenance != "GENERATED_VISUAL":
+            raise ValueError("Generated media cannot be recorded as scientific evidence.")
+        if provenance == "GENERATED_VISUAL" and (kind != "artifact" or not payload.get("generation_id") or not payload.get("sha256")):
+            raise ValueError("Generated visuals require artifact provenance and a verified generation/hash.")
         if provenance == "CITED" and not dependencies:
             raise ValueError("Cited claims require a stored source dependency.")
         if provenance in {"CALCULATED", "SIMULATED"} and not all(k in payload for k in ("inputs", "method", "result")):
@@ -122,6 +126,10 @@ class ResearchStore:
             raise ValueError("Invalid hypothesis status.")
         identifier = uuid.uuid4().hex
         with self.connect() as db:
+            if kind == "source" and payload.get("sha256"):
+                for existing in db.execute("SELECT id,payload FROM research_records WHERE project_id=? AND kind='source'", (project_id,)):
+                    if json.loads(existing["payload"]).get("sha256") == payload["sha256"]:
+                        return existing["id"]
             has_source = False
             for dependency in dependencies:
                 row = db.execute("SELECT project_id,kind,stale FROM research_records WHERE id=?", (dependency,)).fetchone()
@@ -157,17 +165,28 @@ class ResearchStore:
                              (record_id, project_id)).fetchone()
             if row is None:
                 raise KeyError(record_id)
-            if row["kind"] not in {"parameter", "assumption", "hypothesis", "constraint"}:
+            if row["kind"] not in {"parameter", "assumption", "hypothesis", "constraint", "question", "open_question"}:
                 raise ValueError("Immutable evidence/results must be replaced by a new record.")
             if row["kind"] == "hypothesis" and payload.get("status") not in HYPOTHESIS_STATES:
                 raise ValueError("Invalid hypothesis status.")
             self._log(db, project_id, "record_revised", {"id": record_id, "previous": json.loads(row["payload"]), "next": payload})
             db.execute("UPDATE research_records SET payload=?,revision=revision+1 WHERE id=?", (encode(payload), record_id))
             db.execute("""WITH RECURSIVE affected(id) AS (
-                SELECT source FROM research_edges WHERE target=? AND relation IN ('depends_on','derived_from','uses_parameter','supported_by')
+                SELECT source FROM research_edges WHERE target=? AND relation IN ('depends_on','derived_from','uses_parameter','supported_by','tested_by','generated_artifact')
                 UNION SELECT e.source FROM research_edges e JOIN affected a ON e.target=a.id
-                  WHERE e.relation IN ('depends_on','derived_from','uses_parameter','supported_by')
+                  WHERE e.relation IN ('depends_on','derived_from','uses_parameter','supported_by','tested_by','generated_artifact')
             ) UPDATE research_records SET stale=1 WHERE id IN (SELECT id FROM affected)""", (record_id,))
+
+    def invalidate(self, project_id, record_id, reason):
+        """Preserve immutable evidence while marking its current dependency closure stale."""
+        with self.connect() as db:
+            if not db.execute("SELECT 1 FROM research_records WHERE id=? AND project_id=?", (record_id,project_id)).fetchone():
+                raise KeyError(record_id)
+            db.execute("""WITH RECURSIVE affected(id) AS (
+                SELECT ? UNION SELECT e.source FROM research_edges e JOIN affected a ON e.target=a.id
+                WHERE e.relation IN ('depends_on','derived_from','uses_parameter','supported_by','tested_by','generated_artifact')
+            ) UPDATE research_records SET stale=1 WHERE id IN (SELECT id FROM affected)""", (record_id,))
+            self._log(db, project_id, "dependency_invalidated", {"id":record_id,"reason":str(reason)[:2000]})
 
     def snapshot(self, project_id):
         with self.connect() as db:

@@ -16,7 +16,11 @@ Use the current packaged `MORICE.exe`, not an older `dist` folder or pinned shor
 
 ### Maximized content is cut off
 
-Reset interface scale and workspace layout in Settings. Verify Windows display scaling, then reopen MORICE. Use the standard title-bar maximize button rather than forcing fullscreen through another utility.
+Use the updated 0.9.0 candidate. It repairs the hidden-route height constraint that could grow a maximized window below the monitor, and explicitly shows the message editor after reparenting. Restore and maximize again after updating. The input and Send button should remain inside the usable screen area; a missing composer is a defect, not a required layout reset.
+
+### Where is Glass, and why is the background still?
+
+Open **Theme** in the top bar and choose **Glass · Prismatic glass**. Each theme has its own geometry and loop: crystals, aurora, constellations, circuits, filaments, facets or plasma. Check **Animate the workspace** in the same menu. Reduced Motion intentionally stops decoration; inactive, hidden and minimized windows also pause. LOW quality uses a small four-layer raster at four updates per second. Glass samples only the application's procedural field; it never reads desktop pixels.
 
 ## Models And Replies
 

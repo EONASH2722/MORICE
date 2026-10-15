@@ -1,0 +1,860 @@
+{
+  "schema": 1,
+  "status": "SOFTWARE_CANDIDATE_VERIFIED_WITH_DOCUMENTED_LIMITS",
+  "baseline": "build/phase11-baseline/repository.json",
+  "publication_authorized": true,
+  "issues": [
+    {
+      "issue_id": "R11-001",
+      "phase_origin": 10,
+      "subsystem": "UI entry points",
+      "category": "acceptance_gap",
+      "severity": "BLOCKER",
+      "reproducibility": "SOURCE_CONFIRMED",
+      "summary": "Production run_app still creates the legacy window; renovated UI is staged.",
+      "steps_to_reproduce": "Inspect run_app/new-window/pet activation and launch using the configured production entry point.",
+      "expected": "Final production launches the accepted renovated shell.",
+      "actual": "run_app and package_smoke use the same create_application_window factory for RenovatedWindow over the existing RuntimeServices.",
+      "evidence": [
+        "morice/pyside_app.py",
+        "docs/renovation-progress.md",
+        "build/phase10-final-20261014-disposal-Regression.log",
+        "build/phase10-installed-canonical-startup.json",
+        "build/phase10-installed-root-startup.json",
+        "docs/release-audit-evidence.json"
+      ],
+      "affected_files": [
+        "morice/pyside_app.py",
+        "morice/ui_next/shell.py"
+      ],
+      "risk": "Switching before parity may hide established actions.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "regression_test": null,
+      "resolution": "Current matching full regression, package/native/installed checks and classified parity evidence pass; individual provider/hardware limits remain stated.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-002",
+      "phase_origin": 10,
+      "subsystem": "Feature parity",
+      "category": "acceptance_gap",
+      "severity": "HIGH",
+      "reproducibility": "SOURCE_CONFIRMED",
+      "summary": "Grouped critical parity entries have not received complete subordinate action acceptance.",
+      "steps_to_reproduce": "Review the retained widget/action inventory and each matrix row against actual renovated access.",
+      "expected": "Every critical feature has concrete new UI reachability and behavior evidence.",
+      "actual": "17 routes open; many subordinate paths and migration contracts remain pending.",
+      "evidence": [
+        "docs/renovation-parity-matrix.md",
+        "build/phase10-prerequisites.json",
+        "build/phase10-final-20261014-disposal-Regression.log",
+        "build/phase10-installed-canonical-startup.json",
+        "build/phase10-installed-root-startup.json",
+        "docs/release-audit-evidence.json"
+      ],
+      "affected_files": [
+        "morice/ui_next/"
+      ],
+      "risk": "Opening a route is insufficient feature parity proof.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 0,
+      "regression_test": "tests/test_renovation_workspaces_wake.py",
+      "resolution": "Current matching full regression, package/native/installed checks and classified parity evidence pass; individual provider/hardware limits remain stated.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-003",
+      "phase_origin": 10,
+      "subsystem": "Packaging",
+      "category": "acceptance_gap",
+      "severity": "BLOCKER",
+      "reproducibility": "SOURCE_CONFIRMED",
+      "summary": "No final wheel/frozen candidate matches the latest renovated source and assets.",
+      "steps_to_reproduce": "Compare existing Phase 9 package receipts with current source fingerprint.",
+      "expected": "Exact final-source artifacts pass clean profile/outside-cwd startup and integrity.",
+      "actual": "Existing packages are historical.",
+      "evidence": [
+        "build/phase9-completion.json",
+        "build/phase11-baseline/repository.json",
+        "build/phase10-final-20261014-disposal-Regression.log",
+        "build/phase10-installed-canonical-startup.json",
+        "build/phase10-installed-root-startup.json",
+        "docs/release-audit-evidence.json"
+      ],
+      "affected_files": [
+        "MORICE.spec",
+        "pyproject.toml"
+      ],
+      "risk": "A green historical package cannot certify modified source.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 0,
+      "regression_test": null,
+      "resolution": "Current matching full regression, package/native/installed checks and classified parity evidence pass; individual provider/hardware limits remain stated.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-004",
+      "phase_origin": 10,
+      "subsystem": "Performance",
+      "category": "acceptance_gap",
+      "severity": "HIGH",
+      "reproducibility": "EVIDENCE_CONFIRMED",
+      "summary": "Complete paint/frame/load/soak and matched legacy/new comparison remain unaccepted.",
+      "steps_to_reproduce": "Review master timer outliers and distinction between callback CPU time, event delivery and compositor presentation.",
+      "expected": "Measured responsive UI under controlled load, bounded idle and stable ownership over repeated use.",
+      "actual": "Matched native startup/idle, owned soak, native Core/field paint CPU and cached vector comparison are recorded. Battery policy constrains all selections to LOW. Compositor presentation and per-app GPU attribution are unmeasured.",
+      "evidence": [
+        "docs/renovation-progress.md",
+        "build/phase10-new-ui-baseline.json",
+        "build/phase10-soak-current/evidence.json (188 cycles; clean shutdown; scheduling p95 88.74 ms, worst 3515.49 ms before hidden-icon/style guards)",
+        "build/phase11-native-constructor-benchmark.json",
+        "build/phase11-cached-vector-cinematic/evidence.json"
+      ],
+      "affected_files": [
+        "morice/ui_next/",
+        "scripts/benchmark_full_stack.py"
+      ],
+      "risk": "Timer medians hide meaningful outliers and do not prove frame pacing.",
+      "status": "DOCUMENTED_PREVIEW_PERFORMANCE_LIMITATION",
+      "repair_attempts": 0,
+      "regression_test": null,
+      "resolution": "Measured startup/idle/soak/paint costs are published without a performance speedup or compositor claim. Adaptive battery cadence is retained. The candidate is explicitly a desktop preview; these limits remain open for performance work and do not suppress failed software checks.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-005",
+      "phase_origin": 9,
+      "subsystem": "Media diagnostics",
+      "category": "responsiveness",
+      "severity": "MEDIUM",
+      "reproducibility": "REPRODUCED",
+      "summary": "Repeated encoder PATH discovery occupies an interactive worker during status polling.",
+      "steps_to_reproduce": "Open Media with a slow/inaccessible PATH entry; observe unfinished media-read-state requests.",
+      "expected": "Regular status reads are local snapshots; explicit discovery is separately requested.",
+      "actual": "Thread trace shows shutil.which/_access_check inside MediaLab.status.",
+      "evidence": [
+        "build/phase10-media-refresh-thread-trace.log",
+        "build/phase10-custom-ui-media-poll-fixed.log (159 passed)"
+      ],
+      "affected_files": [
+        "morice/media_lab/runtime.py",
+        "morice/ui_next/media_view.py",
+        "morice/ui_next/bridge.py"
+      ],
+      "risk": "Poll catch-up can keep a worker continuously occupied.",
+      "status": "RESOLVED",
+      "repair_attempts": 1,
+      "regression_test": "tests/test_media_lab.py::test_status_poll_never_scans_slow_path_and_explicit_probe_is_cached",
+      "resolution": "Non-probing status cache; explicit encoder diagnostics run using existing background workers.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-006",
+      "phase_origin": 10,
+      "subsystem": "Media export UI",
+      "category": "contract_mismatch",
+      "severity": "MEDIUM",
+      "reproducibility": "SOURCE_AND_BEHAVIOR_CONFIRMED",
+      "summary": "Export callback used a nonexistent result message and incorrect verification string casing.",
+      "steps_to_reproduce": "Export a verified stored image using a granted owned controller, then deny another export.",
+      "expected": "Status reflects the actual verified export or permission failure.",
+      "actual": "Previous callback could raise or mislabel success.",
+      "evidence": [
+        "build/phase10-custom-ui-export-tests.log",
+        "build/phase10-custom-ui-export-authority-tests.log",
+        "build/phase10-custom-ui-media-poll-fixed.log (159 passed)"
+      ],
+      "affected_files": [
+        "morice/ui_next/media_view.py"
+      ],
+      "risk": "Incorrect user-facing completion status.",
+      "status": "RESOLVED",
+      "repair_attempts": 1,
+      "regression_test": "tests/test_renovation_workspaces_wake.py::test_existing_media_export_reports_actual_verified_contract",
+      "resolution": "Compare actual VerificationStatus enum and display execution error messages; preserve current permission authority.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-007",
+      "phase_origin": 10,
+      "subsystem": "Custom controls",
+      "category": "visual",
+      "severity": "LOW",
+      "reproducibility": "VISUALLY_REPRODUCED",
+      "summary": "QSS suppressed combo arrows, obscuring the selection affordance.",
+      "steps_to_reproduce": "Inspect Appearance theme/density selectors in the native preview.",
+      "expected": "Visible authored chevron with stable hit area.",
+      "actual": "Earlier styled combo had no visible arrow.",
+      "evidence": [
+        "build/phase10-interaction-preview/appearance-simple.png",
+        "build/phase10-geometry/case-12/settings.png (visible authored chevrons, reviewed)"
+      ],
+      "affected_files": [
+        "morice/ui_next/icons.py",
+        "morice/ui_next/themes.py"
+      ],
+      "risk": "Unclear interaction; extra child indicators must track resize/theme safely.",
+      "status": "RESOLVED",
+      "repair_attempts": 1,
+      "regression_test": "tests/test_renovation_custom_interactions.py",
+      "resolution": "Explicit transparent authored ComboChevron over the original combo hit area.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-008",
+      "phase_origin": 10,
+      "subsystem": "Wake/Voice handoff",
+      "category": "race",
+      "severity": "MEDIUM",
+      "reproducibility": "REPRODUCED_REAL_CONTROLLED_PCM",
+      "summary": "Wake rearmed before a queued TTS reply became active, aborting actual reply audio.",
+      "steps_to_reproduce": "Run exact-six-reply controlled SAPI/Vosk demo against the early direct-reply hook.",
+      "expected": "Pending and active TTS finish before follow-up listening resumes.",
+      "actual": "Initial run did not meet six complete non-aborted reply sinks.",
+      "evidence": [
+        "build/phase10-custom-ui-wake-spatial.log",
+        "build/phase10-custom-ui-wake-queued-reply-fixed.log",
+        "build/phase10-custom-ui-silent-wake-fixed.log"
+      ],
+      "affected_files": [
+        "morice/ui_next/wake.py",
+        "morice/ui_next/shell.py"
+      ],
+      "risk": "Premature microphone/TTS ownership handoff.",
+      "status": "RESOLVED",
+      "repair_attempts": 1,
+      "regression_test": "tests/test_renovation_workspaces_wake.py::test_wake_does_not_rearm_while_reply_is_queued_before_playback",
+      "resolution": "Retain Working for queued/active/pending TTS; clear stale reply ID on new wake; disabled speech stays silent. Exactly six actual PCM replies verified. The new presentation hook introduced this regression during the current work; the initial repository baseline predates it.",
+      "introduced_by_phase11": true,
+      "release_blocking": false,
+      "introduced_after_initial_release_baseline": true
+    },
+    {
+      "issue_id": "R11-009",
+      "phase_origin": 10,
+      "subsystem": "Collapsed navigation",
+      "category": "visual",
+      "severity": "COSMETIC",
+      "reproducibility": "VISUALLY_REPRODUCED",
+      "summary": "Large-text narrow rail clips the right edge of selected route outlines when a scrollbar appears.",
+      "steps_to_reproduce": "Native 1366x768 logical case with font scale 1.8; inspect selected Home/Media in collapsed navigation.",
+      "expected": "Complete selection outline and authored icon within viewport.",
+      "actual": "Right edge is cut by the viewport; icons and route access remain present.",
+      "evidence": [
+        "build/phase10-geometry/case-12/home.png",
+        "build/phase10-geometry/case-12/media.png",
+        "build/phase10-large-text-rail-fixed-tests.log (50 passed)",
+        "build/phase10-large-text-rail-native.log (no geometry issues; native capture reviewed)"
+      ],
+      "affected_files": [
+        "morice/ui_next/navigation.py",
+        "morice/ui_next/themes.py"
+      ],
+      "risk": "A stylesheet padding/geometry repair must preserve icon hit area and focus.",
+      "status": "RESOLVED",
+      "repair_attempts": 1,
+      "regression_test": "tests/test_renovation_custom_interactions.py::test_collapsed_large_text_routes_fit_inside_scroll_viewport",
+      "resolution": "Use an explicit compact property and polish the affected buttons; tight authored icon padding fits the scroll viewport.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R10-TEST-001",
+      "phase_origin": 10,
+      "subsystem": "Validation isolation",
+      "category": "reproduced_bug",
+      "severity": "MEDIUM",
+      "reproducibility": "REPRODUCED",
+      "summary": "Older Premium UI test wrote the default startup profile and launched a test-owned pet helper.",
+      "steps_to_reproduce": "Run tests/test_premium_experience.py without an isolated APPDATA/profile.",
+      "expected": "Development validation uses owned temporary profile/data paths.",
+      "actual": "Default settings were rewritten at 09:17; current startup settings are Project/Project. Previous values were not captured.",
+      "evidence": [
+        "build/phase10-cinematic-profiles-tests.log",
+        "build/phase10-cinematic-isolated-profile-tests.log",
+        "scripts/run_isolated_tests.py"
+      ],
+      "affected_files": [
+        "scripts/run_isolated_tests.py"
+      ],
+      "risk": "Prior startup preference cannot safely be guessed.",
+      "status": "FIXED",
+      "repair_attempts": 1,
+      "regression_test": "Isolated wrapper run: 102 pass; subsequent 108/221-pass selections did not rewrite default profile timestamp.",
+      "resolution": "Subsequent runs isolate APPDATA/LOCALAPPDATA/local data and disable the pet. Test-owned helper was stopped after ownership verification. Startup preference question remains pending; no guessed rollback.",
+      "introduced_by_phase11": false,
+      "introduced_during_revised_phase10": true,
+      "release_blocking": false,
+      "remaining_action": "Optional startup preference response remains pending. Retain current saved Project/Project defaults without a guessed rollback; record prior values were not captured."
+    },
+    {
+      "issue_id": "R10-UI-002",
+      "phase_origin": 10,
+      "subsystem": "Settings categories",
+      "category": "accessibility",
+      "severity": "MEDIUM",
+      "summary": "Fixed-width category column clipped long labels at large font scale.",
+      "reproducibility": "NATIVE_VISUAL_AND_TEST_CONFIRMED",
+      "status": "RESOLVED",
+      "resolution": "Font-aware bounded category width; compact layouts elide with complete tooltips and no misleading horizontal scrollbar.",
+      "evidence": [
+        "build/phase10-geometry/case-12/settings.png (before repair)",
+        "build/phase10-category-layout-tests.log (49 passed)",
+        "build/phase10-closed-clock-focused.log (104 passed)",
+        "build/phase10-final-category-native/evidence.json (zero issues; visually reviewed)"
+      ],
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R10-CLOCK-001",
+      "phase_origin": 10,
+      "subsystem": "Effects lifetime",
+      "category": "cleanup",
+      "severity": "MEDIUM",
+      "summary": "Late policy/style updates could rearm an empty effect clock after window close.",
+      "reproducibility": "NATIVE_SOAK_CONFIRMED",
+      "status": "RESOLVED",
+      "resolution": "Permanent closed guard in request/configure/tick; empty clock does not start. Follow-up soak now asserts closed and inactive.",
+      "evidence": [
+        "build/phase10-production-soak/evidence.json (timer_active true after close)",
+        "build/phase10-closed-clock-focused.log (104 passed)",
+        "build/phase10-closed-clock-soak/evidence.json (closed/inactive)",
+        "build/phase10-final-control-timers-corrected.json (all UI timers inactive)"
+      ],
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R10-RICH-001",
+      "phase_origin": 10,
+      "subsystem": "Rich chat appearance",
+      "category": "visual_and_javascript",
+      "severity": "MEDIUM",
+      "summary": "Rich content could retain stale theme colors; repeated top-level const declarations blocked updates.",
+      "reproducibility": "NATIVE_HTML_CONFIRMED",
+      "status": "RESOLVED",
+      "resolution": "Shared design tokens, IIFE-scoped JavaScript, reapply after load and native lifetime-checked callbacks.",
+      "evidence": [
+        "build/phase10-rich-theme-light-dark-final.log (six cases)",
+        "build/phase10-crypto-coherence-final-regression.log (1054 passed)"
+      ],
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R10-TEST-002",
+      "phase_origin": 10,
+      "subsystem": "Secure channel test",
+      "category": "fixture_defect",
+      "severity": "LOW",
+      "summary": "Changing trailing base64 characters did not always alter decoded authenticated ciphertext.",
+      "reproducibility": "REGRESSION_REPRODUCED",
+      "status": "RESOLVED",
+      "resolution": "Test decodes ciphertext, flips one authenticated byte and re-encodes canonically; expects InvalidTag. Production protocol/cryptography unchanged.",
+      "evidence": [
+        "build/phase10-ui-coherence-full-regression.log (initial failure)",
+        "build/phase10-crypto-coherence-final-regression.log (1054 passed)"
+      ],
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R10-WAKE-TIMER-001",
+      "phase_origin": 10,
+      "subsystem": "Window wake ownership",
+      "category": "cleanup",
+      "severity": "MEDIUM",
+      "summary": "Window-owned legacy wake polling timer stayed active after its window closed.",
+      "reproducibility": "OWNED_TIMER_AUDIT_CONFIRMED",
+      "status": "RESOLVED",
+      "resolution": "Stop the existing window timer in the main-window close handler. A temporary patch landed in the first-run close handler; that placement was reverted before packaging and the main/child handler corrected. Parent wake polling remains active.",
+      "evidence": [
+        "build/phase10-final-control-timers.log (initial orphan)",
+        "build/phase10-final-wake-poller-focused.log (initial child assertion failure)",
+        "build/phase10-final-wake-poller-corrected-tests.log (140 passed)",
+        "build/phase10-final-control-timers-corrected.json (zero active timers)"
+      ],
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R10-TEST-RAM-001",
+      "phase_origin": 9,
+      "subsystem": "Controlled Media fixtures",
+      "category": "fixture_environment_mismatch",
+      "severity": "MEDIUM",
+      "summary": "Fixture admission reported 12 GB RAM while its tiny worker monitor sampled live host RAM below the existing 2 GB margin.",
+      "reproducibility": "FULL_REGRESSION_CONFIRMED",
+      "status": "RESOLVED_WITHIN_PHASE10_SCOPE",
+      "resolution": "Only the labelled tiny FixtureProvider uses the same controlled RAM snapshot for monitoring as admission. Owned process-tree RSS and default host margin checks remain exercised; added low-memory failure/reap/no-output test. Production source and resource guards unchanged.",
+      "evidence": [
+        "build/phase10-final-20261014-Regression.log (20 failed, 1037 passed, 62 subtests)",
+        "build/phase10-controlled-media-ram-final.log (47 passed)",
+        "build/phase10-media-gpu-wait-detail.log (same worker wait case passed alone)",
+        "build/phase10-final-20261014-disposal-Regression.log",
+        "build/phase10-installed-canonical-startup.json",
+        "build/phase10-installed-root-startup.json"
+      ],
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R10-TEST-EXE-001",
+      "phase_origin": 1,
+      "subsystem": "Updater fixture",
+      "category": "fixture_launch",
+      "severity": "MEDIUM",
+      "summary": "Portable update test tried to execute a three-byte placeholder executable; Windows CreateProcess blocked in the hidden validation job.",
+      "reproducibility": "FAULTHANDLER_CONFIRMED",
+      "status": "RESOLVED_WITHIN_PHASE10_SCOPE",
+      "resolution": "Keep real hash/extraction/update assertions and mock only relaunch, asserting the exact executable/cwd. Real compiled executable launch is separately verified. Initial missing mock qualifier was corrected; no production updater changes.",
+      "evidence": [
+        "build/phase10-final-20261014-ram-Regression.log (stack at updater.py:220)",
+        "build/phase10-platform-media-fixtures-final.log (66 passed plus temporary NameError)",
+        "build/phase10-updater-relaunch-fixture-final.log (passed)",
+        "build/phase10-final-frozen-bound-startup.json",
+        "build/phase10-final-20261014-disposal-Regression.log",
+        "build/phase10-installed-canonical-startup.json",
+        "build/phase10-installed-root-startup.json"
+      ],
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R10-TEST-QT-001",
+      "phase_origin": 10,
+      "subsystem": "Combined Qt test lifecycle",
+      "category": "native_lifetime",
+      "severity": "HIGH",
+      "summary": "Combined suite exited with Windows access violation near final legacy Qt tests; native application probes/owned workflows remain passing.",
+      "reproducibility": "COMBINED_RUN_CONFIRMED; FIXTURE_CORRECTION_PENDING_FULL_VALIDATION",
+      "status": "RESOLVED_WITHIN_PHASE10_SCOPE",
+      "resolution": "Legacy window fixtures now explicitly delete closed windows and drain DeferredDelete before advancing. Renovated module fixture also deletes its window before restoring scoped services. No application source change.",
+      "evidence": [
+        "build/phase10-final-20261014-fixtures-Regression.log (native access violation)",
+        "build/phase10-qt-explicit-disposal-tests.log (191 tests and 35 subtests pass)",
+        "build/phase10-final-20261014-disposal-Regression.log",
+        "build/phase10-installed-canonical-startup.json",
+        "build/phase10-installed-root-startup.json"
+      ],
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-010",
+      "phase_origin": 10,
+      "subsystem": "Message composer",
+      "category": "reproduced_bug",
+      "severity": "BLOCKER",
+      "reproducibility": "SOURCE_AND_CONTROLLED_NATIVE_CONFIRMED",
+      "summary": "The reparented message editor was hidden.",
+      "steps_to_reproduce": "Launch the earlier renovated Core from the user-reported build.",
+      "expected": "A visible, usable editor and Send button.",
+      "actual": "Reparenting hid the existing editor; the prior geometry validator skipped hidden controls.",
+      "resolution": "Explicitly show the existing editor and require visibility in geometry checks. Native QTest types and sends 2+3 and receives 5.",
+      "affected_files": [
+        "morice/ui_next/shell.py",
+        "scripts/validate_phase10_geometry.py",
+        "scripts/validate_theme_composer.py"
+      ],
+      "evidence": [
+        "build/theme-composer-native/evidence.json",
+        "build/phase11-cached-final-theme-composer.log",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "Native normal/maximize/restore typing and actual Send checks",
+      "risk": "Current-source package and installed-build gates remain separate from source proof.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-011",
+      "phase_origin": 10,
+      "subsystem": "Native maximize",
+      "category": "reproduced_bug",
+      "severity": "BLOCKER",
+      "reproducibility": "SOURCE_AND_CONTROLLED_NATIVE_CONFIRMED",
+      "summary": "Hidden routes imposed height-for-width requirements beyond the physical screen.",
+      "steps_to_reproduce": "Native-maximize the earlier stack after taller pages have been constructed.",
+      "expected": "Composer stays inside both window and usable monitor bounds.",
+      "actual": "A 1536x864 usable screen received a 1536x1376 window; editor was below the physical screen.",
+      "resolution": "RouteStack removes hidden-page height-for-width demands. Ordinary native maximize/restore is retained; all five measured modes contain input and Send.",
+      "affected_files": [
+        "morice/ui_next/shell.py",
+        "scripts/validate_theme_composer.py"
+      ],
+      "evidence": [
+        "build/theme-composer-native/evidence.json",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "Required widget visibility, window bounds and availableGeometry assertions",
+      "risk": "Current-source package and installed-build gates remain separate from source proof.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-012",
+      "phase_origin": 10,
+      "subsystem": "Themes and Glass",
+      "category": "reproduced_bug",
+      "severity": "MEDIUM",
+      "reproducibility": "SOURCE_AND_CONTROLLED_NATIVE_CONFIRMED",
+      "summary": "Themes shared shapes, Glass was difficult to discover, and LOW disabled ambient motion.",
+      "steps_to_reproduce": "Choose several old presets or run while power policy selects LOW.",
+      "expected": "Distinct authored scenes, direct Glass selection and bounded LOW motion.",
+      "actual": "The previous experience changed mainly colors and could remain static on battery.",
+      "resolution": "Twelve separate scene motifs and poses, Glass material panels, visible Theme menu and Animate switch. LOW retains a four-layer scene; explicit Reduced Motion still stops it.",
+      "affected_files": [
+        "morice/ui_next/theme_scenes.py",
+        "morice/ui_next/appearance_profile.py",
+        "morice/ui_next/surfaces.py",
+        "morice/ui_next/energy_field.py"
+      ],
+      "evidence": [
+        "build/theme-composer-native/evidence.json",
+        "docs/screenshots/current-manifest.json",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "tests/test_renovation_themes_motion.py and twelve native phase/pixel checks",
+      "risk": "Current-source package and installed-build gates remain separate from source proof.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-013",
+      "phase_origin": 10,
+      "subsystem": "Background continuity and rendering",
+      "category": "reproduced_bug",
+      "severity": "HIGH",
+      "reproducibility": "SOURCE_AND_CONTROLLED_NATIVE_CONFIRMED",
+      "summary": "Scaled raster contours looked soft and edge wrapping exposed repeating motion.",
+      "steps_to_reproduce": "Inspect enlarged contours and compare a full animation cycle boundary.",
+      "expected": "Crisp curves and continuous position and velocity at loop joins.",
+      "actual": "A low-resolution line raster amplified softness; initial uncached vector rendering was expensive.",
+      "resolution": "Native antialiased cached paths with closed per-theme transforms; particles follow closed orbits. Diffuse light alone remains a small cache. Cached battery probe improves roughly eight to sixteen paint callbacks per second; no 60fps or compositor claim.",
+      "affected_files": [
+        "morice/ui_next/energy_field.py",
+        "morice/ui_next/core_view.py",
+        "morice/ui_next/theme_scenes.py"
+      ],
+      "evidence": [
+        "build/phase11-native-continuity-proof.log",
+        "build/phase11-cached-vector-cinematic/evidence.json",
+        "build/theme-composer-native/evidence.json",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "Native 0/24-second rendered equality, unique theme poses, finite-difference velocity continuity and cache reuse assertions",
+      "risk": "Current-source package and installed-build gates remain separate from source proof.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-014",
+      "phase_origin": 10,
+      "subsystem": "Navigation",
+      "category": "reproduced_bug",
+      "severity": "MEDIUM",
+      "reproducibility": "SOURCE_AND_CONTROLLED_NATIVE_CONFIRMED",
+      "summary": "Bottom dock and left sidebar duplicated workspace destinations.",
+      "steps_to_reproduce": "Navigate from Core into Research in the earlier candidate.",
+      "expected": "Only one primary navigation surface is visible.",
+      "actual": "Both bars remained visible at once.",
+      "resolution": "Core uses the bottom launcher. Workspaces use the sidebar. Opening the sidebar on Core hides its launcher.",
+      "affected_files": [
+        "morice/ui_next/shell.py",
+        "scripts/verify_renovation_package.py"
+      ],
+      "evidence": [
+        "build/phase11-cached-final-captures/evidence.json",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "Route-by-route navigation XOR assertions in UI and extracted-wheel smoke",
+      "risk": "Current-source package and installed-build gates remain separate from source proof.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-015",
+      "phase_origin": 10,
+      "subsystem": "Browser window ownership",
+      "category": "reproduced_bug",
+      "severity": "HIGH",
+      "reproducibility": "SOURCE_AND_CONTROLLED_NATIVE_CONFIRMED",
+      "summary": "Closing a secondary window could detach the surviving browser bridge.",
+      "steps_to_reproduce": "Create two windows, close the later browser owner, and perform a verified action in the survivor.",
+      "expected": "The surviving window retains the existing verified browser authority.",
+      "actual": "A single assigned bridge could retain a closed window.",
+      "resolution": "Weak window/bridge ownership restores a surviving bridge on detach and activates the existing owner on focus. Permissions and verification are unchanged.",
+      "affected_files": [
+        "morice/runtime_services.py",
+        "morice/pyside_app.py",
+        "morice/ui_next/shell.py"
+      ],
+      "evidence": [
+        "build/phase11-browser-owner-fixed-tests.log",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "Controlled two-window ownership/close checks and existing browser/coordinator suites",
+      "risk": "Current-source package and installed-build gates remain separate from source proof.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-016",
+      "phase_origin": 10,
+      "subsystem": "Qt/browser test fixtures",
+      "category": "reproduced_bug",
+      "severity": "MEDIUM",
+      "reproducibility": "SOURCE_AND_CONTROLLED_NATIVE_CONFIRMED",
+      "summary": "Browser readiness and short independent fixture deadlines raced bounded real verification.",
+      "steps_to_reproduce": "Run the combined suite on the constrained host, especially after native probes or builds.",
+      "expected": "Owned fixtures use loaded pages and existing producer deadlines, clean up before workspace deletion, and keep failure assertions.",
+      "actual": "Full runs recorded five navigation-source failures and one later browser failure. One project fixture still had an independent thirty-second wait.",
+      "resolution": "Use an owned off-record profile, a loaded shown offscreen page, explicit headless software rendering and cancellation before leaving the event pump. Project fixtures reuse the existing sixty-second producer allowance plus delivery. Production deadlines and contracts remain unchanged.",
+      "affected_files": [
+        "scripts/demo_verified_actions.py",
+        "scripts/demo_research_browser.py",
+        "scripts/run_isolated_tests.py",
+        "tests/test_visualization.py",
+        "tests/test_verified_browser.py"
+      ],
+      "evidence": [
+        "build/phase11-single-nav-20261015-Regression.log",
+        "build/phase11-vector-final-20261015-Regression.log",
+        "build/phase11-project-browser-final-focus.log",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "Five focused real project/browser integrations pass in 136.72 seconds; matching full regression remains mandatory",
+      "risk": "Current-source package and installed-build gates remain separate from source proof.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-017",
+      "phase_origin": 10,
+      "subsystem": "Owned test launcher cleanup",
+      "category": "reproduced_bug",
+      "severity": "LOW",
+      "reproducibility": "SOURCE_AND_CONTROLLED_NATIVE_CONFIRMED",
+      "summary": "Seventeen old suspended test launchers remained after earlier failed runs.",
+      "steps_to_reproduce": "Inspect exact owned fixture/sleep commands from October 14, their creation identity, zero CPU, one suspended thread and absence of children.",
+      "expected": "Validation leaves no owned launchers after it finishes.",
+      "actual": "Seventeen old eight-kilobyte suspended launcher processes were observed; their cause was not attributed to an unverified application defect.",
+      "resolution": "Record identity and reap only these exact owned suspended processes. Final regression must be checked for newly residual owned processes; unrelated Python apps are untouched. A later green full suite reproduced a new low-RAM suspended child; R11-019 now tracks the actual process-ownership repair and supersedes treating this only as historical cleanup.",
+      "affected_files": [
+        "morice/media_lab/process.py"
+      ],
+      "evidence": [
+        "build/phase11-owned-suspended-launcher-cleanup.json",
+        "build/phase11-final-owned-process-inventory.json"
+      ],
+      "regression_test": "Post-regression process identity inventory",
+      "risk": "Current-source package and installed-build gates remain separate from source proof.",
+      "status": "OWNED_HISTORICAL_LAUNCHERS_REAPED_CURRENT_RUN_CLEAN",
+      "repair_attempts": 1,
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-018",
+      "phase_origin": 1,
+      "subsystem": "CI test isolation",
+      "category": "fixture_race",
+      "severity": "MEDIUM",
+      "reproducibility": "PUBLIC_CI_LOG_CONFIRMED",
+      "summary": "Application launch test could intercept the concurrent GPU detector through a shared stdlib Popen mock.",
+      "steps_to_reproduce": "Previous main CI 37135472914 / job 111239011054 records a second Popen call for Win32_VideoController inside the launch fixture.",
+      "expected": "The fixture mocks only its intended dependency and preserves background hardware checks.",
+      "actual": "The old test globally changed subprocess.Popen through an imported module alias.",
+      "risk": "Flaky unrelated process calls and false CI failure.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "resolution": "Rebind the desktop module dependency to a private copied namespace. Assert the shared stdlib Popen identity stays unchanged and retain exact approval/launch arguments. Production launch permissions are unchanged.",
+      "affected_files": [
+        "tests/test_desktop_environment.py"
+      ],
+      "evidence": [
+        "https://github.com/EONASH2722/MORICE/actions/runs/37135472914/job/111239011054",
+        "build/phase11-job-final-process-browser-focus.log",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "Existing exact-approval launch/restart tests; 156 focused process/browser/permission tests pass.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-019",
+      "phase_origin": 9,
+      "subsystem": "Managed Windows process families",
+      "category": "cleanup",
+      "severity": "HIGH",
+      "reproducibility": "ACTUAL_OS_PROCESS_FOUND_AFTER_GREEN_FULL_SUITE",
+      "summary": "Immediate low-RAM cancellation left a suspended venv child outside snapshot-based cleanup.",
+      "steps_to_reproduce": "The 1065-test/62-subtest run passed, then CIM showed PID 18812 from test_host_ram_margin_stops_fixture still suspended with zero CPU after its launcher had exited.",
+      "expected": "Actual process-family shutdown precedes successful cleanup and lease release.",
+      "actual": "A logical empty owner snapshot did not prove that a child created during launcher startup was gone.",
+      "risk": "Residual suspended workers after early cancellation; falsely complete cleanup. Native GUI Builder acceptance must also prove bounded launch latency.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "resolution": "Extend the existing owners with one low-level Windows Job utility. Create the root suspended, assign its private kill-on-close Job, then resume its single initial thread. The initial thread list comes from the existing psutil native per-process query; the prior per-thread Python Toolhelp walk caused multi-second launch delays while Qt painted. Preserve the exact process/thread identity and suspension checks. Reap and observe the complete Job, including children of an exited launcher. Existing Kernel, permissions, leases, pools and resource guards remain authoritative; non-Windows process groups stay in place.",
+      "affected_files": [
+        "morice/process_ownership.py",
+        "morice/media_lab/process.py",
+        "morice/agent_tools.py",
+        "morice/action_runtime/processes.py",
+        "tests/test_process_ownership.py",
+        "pyproject.toml"
+      ],
+      "evidence": [
+        "build/phase11-cached-final-20261015-Regression.log",
+        "build/phase11-caught-low-ram-orphan.json",
+        "build/phase11-job-final-process-browser-focus.log",
+        "build/phase11-windows-job-real-family-final-tests.log",
+        "build/phase11-bounded-native-process-research-icons-tests.log",
+        "build/phase11-final-bounded-native-master.log",
+        "build/phase11-final-master-source-receipt.json",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "Five real Windows tests: twelve immediate venv cancellations, surviving-child cleanup, unrelated-process preservation, failed assignment before command execution, and holder crash after assignment.",
+      "remaining_constraint": "Standard Popen cannot atomically supply the Windows job-list startup attribute. Abrupt termination in the tiny interval between suspended creation and Job assignment remains unvalidated. Unusual initial thread layouts or denied Job assignment fail closed. This is not a general crash-proof-process guarantee.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-020",
+      "phase_origin": 10,
+      "subsystem": "Native authored icon ownership",
+      "category": "native_crash",
+      "severity": "BLOCKER",
+      "reproducibility": "TWO_ACTUAL_10000_RUN_NATIVE_RESEARCH_ATTEMPTS_CRASHED",
+      "summary": "Worker cyclic garbage collection overlapped Python QIconEngine painting during long native Research runs.",
+      "steps_to_reproduce": "Run scripts/demo_phase10_workspaces.py --native under Python 3.14.2. Crashes observed with PySide6 6.11.2 and 6.12.0. The latter faulthandler trace records cyclic GC in an interactive worker and the GUI inside the custom icon paint callback.",
+      "expected": "Long-running real Research work remains stable while the GUI paints and workers allocate.",
+      "actual": "Windows access violation ended both processes before final evidence/cleanup. A bare-button 15-second stress fixture passed and does not reproduce or disprove the full-window failure.",
+      "risk": "Process crash and loss of unsaved UI state; existing experiment checkpoints remain resumable.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "resolution": "Candidate removes the Python QIconEngine virtual callback. Original authored vectors render into bounded, high-DPI native QIcon backing pixmaps; Qt paints buttons using native value objects. Retain the Python proxy style owner explicitly on QApplication. No global GC suppression or dependency upgrade. Cause attribution remains provisional until current-source full native Research acceptance passes.",
+      "affected_files": [
+        "morice/ui_next/icons.py",
+        "scripts/validate_icon_gc_stress.py"
+      ],
+      "evidence": [
+        "build/phase11-final-identity-native-master.log",
+        "build/phase11-native-master-windows-crash-events.json",
+        "build/phase11-clean-runtime-native-master-diagnostic.log",
+        "build/phase11-icon-gc-before.json",
+        "build/phase11-final-bounded-native-master.log",
+        "build/phase11-final-master-source-receipt.json",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "Focused DPI/mode/cache checks plus actual current-source native Research master workflow; full regression and matching package/install gates remain pending.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-021",
+      "phase_origin": 7,
+      "subsystem": "Shared research/knowledge SQLite concurrency",
+      "category": "concurrency",
+      "severity": "HIGH",
+      "reproducibility": "ACTUAL_NATIVE_MASTER_AND_COMPLETED_CHECKPOINT_REOPEN",
+      "summary": "Periodic result reads decoded all 10000 stored runs before trimming to 500, retaining SQLite readers during that work.",
+      "steps_to_reproduce": "Native 10000-run attempt e6946c4208 stored all 10000 results but timed out delivering the result view; reopening that completed checkpoint failed its verified recorded calculation with database is locked. The database was in DELETE journal mode.",
+      "expected": "UI result reads and independent verified writes proceed concurrently in the existing local shared database.",
+      "actual": "A result read took 29.59 seconds during active UI use; idle read of the identical 10000 stored rows took 0.098 seconds. The next recorded write failed after 23 seconds.",
+      "risk": "Delayed results, occupied interactive worker and failed recorded calculations.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "resolution": "Extend the existing VirtualLaboratory.get with optional SQL result limits and parameterized casefold search over displayed columns. Count all matches but decode at most 500 visible runs. Fetch raw rows and close read cursors before JSON decoding, releasing the shared database for established knowledge writers. Full exports keep their complete default. A WAL experiment did not resolve the stall and was removed: the bundled SQLite 3.50.4 precedes the upstream WAL-reset fix. No journal-mode migration or runtime upgrade ships.",
+      "affected_files": [
+        "morice/research/laboratory.py",
+        "morice/ui_next/workspace_adapters.py",
+        "tests/test_research_lab.py"
+      ],
+      "evidence": [
+        "build/phase11-native-icons-master.log",
+        "build/phase11-native-icons-resume-diagnostic.log",
+        "build/phase11-research-wal-focused-tests.log",
+        "build/phase11-native-icons-wal-master.log",
+        "build/phase11-bounded-results-native-icons-tests.log",
+        "build/phase11-final-bounded-native-master.log",
+        "build/phase11-final-master-source-receipt.json",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "Actual completed experiment tests verify page size, total counts, Unicode/literal SQL-safe filtering beyond the first page and complete exports. A paused JSON decoder requires an independent existing knowledge writer to commit, proving that read locks have been released. Fresh native master/full suite/package/install acceptance remains pending.",
+      "remaining_constraint": "Filtered counts still scan this bounded experiment table; physical network storage and arbitrary large custom result payloads remain unvalidated. SQLite keeps its prior journal mode; this change does not certify databases manually configured for vulnerable WAL runtimes.",
+      "source_reference": "https://sqlite.org/wal.html",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-022",
+      "phase_origin": 7,
+      "subsystem": "Exact-PID Security validation fixtures",
+      "category": "fixture_cleanup",
+      "severity": "MEDIUM",
+      "reproducibility": "ACTUAL_OS_RESIDUAL_LINKED_TO_FIXTURE_ACTION_JOURNAL",
+      "summary": "A raw Security fixture targeted a venv redirector; its suspended interpreter child survived the correctly scoped exact-PID termination.",
+      "steps_to_reproduce": "The first 1077-test/62-subtest final suite passed, but CIM found PID 17168, created at 09:05:19.464 UTC, one suspended thread and parent PID 7324. The Security fixture action journal proves that PID 7324 was the exact approved and verified termination target.",
+      "expected": "A single-PID containment fixture owns one actual process and leaves no unrelated redirector child.",
+      "actual": "The production containment contract correctly terminated only the approved PID. The test launched a venv redirector and did not own its suspended child for cleanup.",
+      "risk": "Test-process leakage and falsely clean test-environment claims. Expanding production termination to a family would exceed exact-PID authorization.",
+      "status": "VERIFIED_WITHIN_DOCUMENTED_SOFTWARE_SCOPE",
+      "repair_attempts": 1,
+      "resolution": "Launch the base Python interpreter directly in the two exact-PID Security fixtures and their benchmark. Preserve all denial, wrong-start-time, containment approval and verified termination assertions. Reap only the previously recorded suspended fixture after matching PID, creation time, command, parent and thread state. No application/permission implementation changes.",
+      "affected_files": [
+        "tests/test_ambient_connectors_security.py",
+        "tests/test_ambient_failure_audit.py",
+        "scripts/benchmark_ambient.py"
+      ],
+      "evidence": [
+        "build/phase11-audit-final-20261015-Regression.log",
+        "build/phase11-full-suite-before-fixture-cleanup-inventory.json",
+        "build/phase11-security-fixture-pid-authorization-proof.json",
+        "build/phase11-security-fixture-suspended-child-cleanup.json",
+        "build/phase11-direct-security-fixture-tests.log",
+        "docs/release-audit-evidence.json"
+      ],
+      "regression_test": "The two real OS Security tests pass with direct single-process targets. The complete suite must be rerun with a post-run actual OS process inventory.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    }
+  ],
+  "authorized_update_scope": {
+    "local_dist": true,
+    "repository_commit_push": true,
+    "linked_github_pages_site": true,
+    "readme_images_files": true,
+    "release_tag_or_binary_upload": false,
+    "prerequisite": "Final current-source software gates; original local models and user data preserved. Publication has not yet occurred."
+  },
+  "publication_authorization_scope": "Repository source commit/push and existing linked Pages site only, after final software gates. No release tag, binary upload or external messaging.",
+  "current_source_sha256": "64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9",
+  "final_signoff": "D. PARTIAL / EXPERIMENTAL",
+  "final_source_sha256": "64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9",
+  "final_evidence": "docs/release-audit-evidence.json"
+}

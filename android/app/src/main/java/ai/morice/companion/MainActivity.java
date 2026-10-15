@@ -131,7 +131,11 @@ public final class MainActivity extends Activity {
         tasks.execute(() -> {
             try {
                 SecureNodeStore.Peer peer = primaryPeer();
-                if (peer == null) throw new IllegalStateException("Pair a MORICE Desktop first.");
+                if (peer == null) {
+                    String answer = meshRequest(value);
+                    runOnUiThread(() -> { addMessage(false, answer); status.setText("Device Mesh • mutually authenticated TLS"); });
+                    return;
+                }
                 RoutedTask routed = route(value);
                 MoriceProtocol.Message response = client.task(peer, routed.capability, routed.arguments, routed.timeoutMs);
                 String answer = present(routed.capability, response.payload.optJSONObject("result"), response.payload);
@@ -237,6 +241,39 @@ public final class MainActivity extends Activity {
                 }).show();
     }
 
+    private String meshRequest(String text) throws Exception {
+        MeshClient mesh = new MeshClient(store);
+        org.json.JSONObject peers = mesh.identity.peers();
+        java.util.Iterator<String> keys = peers.keys();
+        if (!keys.hasNext()) throw new IllegalStateException("Pair a MORICE Desktop first.");
+        org.json.JSONObject peer = peers.getJSONObject(keys.next());
+        String normalized = text.toLowerCase(java.util.Locale.ROOT).trim();
+        String cap = normalized.contains("status") || normalized.contains("battery") ? "device.status" : "python.calculate";
+        if (!MeshNode.contains(peer.getJSONArray("grants"), cap)) throw new SecurityException("This capability was not granted by the desktop.");
+        org.json.JSONObject args = new org.json.JSONObject();
+        if (cap.equals("python.calculate")) {
+            String expression = normalized.replaceFirst("^(calculate|compute)\\s+", "");
+            if (!expression.matches("[0-9+*/(). -]{1,120}")) throw new IllegalArgumentException("This minimal mesh client currently supports status and explicit arithmetic. Desktop chat remains local.");
+            args.put("expression", expression);
+        }
+        String pin = MeshIdentity.pin(MeshIdentity.parse(peer.getString("certificate")));
+        String command = java.util.UUID.randomUUID().toString().replace("-", "");
+        org.json.JSONObject result = mesh.rpc(peer.getString("host"), peer.getInt("port"), pin, "submit",
+            new org.json.JSONObject().put("command_id", command).put("capability", cap).put("inputs", args).put("ttl", 10));
+        long until = android.os.SystemClock.elapsedRealtime() + 10000;
+        while (!result.has("result") && android.os.SystemClock.elapsedRealtime() < until) {
+            Thread.sleep(60);
+            result = mesh.rpc(peer.getString("host"), peer.getInt("port"), pin, "status", new org.json.JSONObject().put("command_id", command));
+            if ("unknown".equals(result.optString("state"))) throw new IllegalStateException("Action status unknown; no automatic replay.");
+        }
+        org.json.JSONObject execution = result.optJSONObject("result");
+        if (execution == null || !execution.optBoolean("success")) throw new IllegalStateException("Remote outcome was not verified.");
+        return execution.getJSONObject("output").toString();
+    }
+
+    @Override protected void onResume() { super.onResume(); MeshNode.foreground = true; }
+    @Override protected void onPause() { MeshNode.foreground = false; super.onPause(); }
+
     private SecureNodeStore.Peer primaryPeer() throws Exception {
         List<SecureNodeStore.Peer> peers = store.peers();
         return peers.isEmpty() ? null : peers.get(0);
@@ -246,7 +283,8 @@ public final class MainActivity extends Activity {
         tasks.execute(() -> {
             try {
                 SecureNodeStore.Peer peer = primaryPeer();
-                runOnUiThread(() -> status.setText(peer == null ? "Offline/local" : peer.descriptor.deviceName + " • paired"));
+                boolean meshPaired = new MeshIdentity(store).peers().length() > 0;
+                runOnUiThread(() -> status.setText(peer == null ? (meshPaired ? "Device Mesh • paired" : "Offline/local") : peer.descriptor.deviceName + " • paired"));
             } catch (Exception error) {
                 runOnUiThread(() -> status.setText("Secure store unavailable"));
             }

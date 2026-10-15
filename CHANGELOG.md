@@ -4,6 +4,47 @@ All notable changes to MORICE are documented here.
 
 ## [Unreleased]
 
+## [0.9.0] — release candidate
+
+### Added
+
+- Shared Capability Kernel and bounded parallel agent, verified-action, Builder, Research, Mesh, Ambient/Security and Media extensions from the preceding validated phases.
+- Renovated desktop Core, original procedural field, authored vector icons, compact composer, workspace navigation and searchable appearance/profile settings.
+- Offline GeoNames/Natural Earth Spatial workspace with WGS84 geodesic/chord calculations, context-aware local wake/Spatial commands and explicit provider limits.
+- Actual public Activity state, verified artifact inspection and resource-aware media UI.
+- Twelve distinct authored theme scenes, a discoverable Glass preset and a direct Theme/animation menu.
+
+### Changed
+
+- Normal app launch and package probes use the same renovated production window factory.
+- Existing runtime, permissions, verification, leases and deterministic direct paths remain authoritative.
+- Website now reflects the current source UI, offers theme/motion and workspace previews, and distinguishes older public binaries from current source.
+- Fine background contours use native antialiased vector paths and smooth cubic curves; only diffuse lighting uses a smaller cached texture. Cycle position and velocity match at restart.
+- Core uses the bottom launcher; workspaces use the left sidebar. Only one navigation surface is visible at a time.
+
+### Fixed
+
+- Repeated encoder PATH discovery during Media status polling; diagnostics now use an explicitly labelled cache.
+- Media export contract/casing errors, queued voice reply timing, rich-content theme updates and repeated JavaScript declaration scope.
+- Large-text category clipping, late effect-clock rearming, closed-window wake polling, and restoration of surviving verified browser bridges.
+- Controlled test RAM inconsistency, launching invalid placeholder EXE bytes, native Qt fixture disposal and exact-PID Security fixtures that previously targeted a venv redirector.
+- Hidden message editor and native maximize overflow caused by hidden-route height constraints.
+- Cold browser-fixture startup and research pause/resume admission races without extending production action deadlines.
+- Native icon ownership during worker garbage collection; original artwork now uses bounded native high-DPI icon backing and an explicit proxy-style lifetime.
+- Large Research result reads now apply a 500-row SQL page, release readers before JSON decoding and preserve full exports, counts and literal Unicode search.
+- Early Windows cancellation now owns the full process family in a private Job before resume; native initial-thread lookup avoids per-system-thread Python stalls while the GUI paints.
+
+### Security and resource ownership
+
+- Existing approval, action observation, cancellation, secret storage, device identity/replay and lease-retention contracts remain in place.
+- Model weights and private runtime data are excluded from the model-free distribution; preexisting local weights are retained during local updates.
+
+### Performance and limits
+
+- Measured native UI/idle/startup/paint/raster/soak evidence and exact constructor outliers are documented; no compositor or per-app GPU improvement is claimed.
+- Fresh heavy-model and physical hardware checks retain their stated technical constraints. No new public binary release/tag is implied by this candidate.
+
+
 ## [0.8.0-android / 0.8.0-portable] - 2026-08-29
 
 ### Added

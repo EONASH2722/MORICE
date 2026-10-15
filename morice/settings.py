@@ -3,6 +3,7 @@ import os
 
 
 DEFAULT_SETTINGS = {
+    "device_mesh_enabled": "false",
     "response_style": "",
     "wake_phrase": "wake up son",
     "user_title": "",

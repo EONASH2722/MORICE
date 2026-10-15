@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -79,6 +80,48 @@ def _is_server_ready(base_url: str) -> bool:
         return False
 
 
+def _server_model_paths(base_url: str) -> set[str]:
+    """Return model paths reported by a healthy llama.cpp server.
+
+    A MORICE window can close unexpectedly while its llama.cpp child remains
+    alive. The next MORICE process must be able to reuse that *same* model
+    instead of treating its own warm server as an arbitrary port conflict.
+    ``/props`` is the precise llama.cpp source; ``/v1/models`` keeps the
+    check compatible with older server builds.
+    """
+
+    paths: set[str] = set()
+    for endpoint in ("/props", "/v1/models"):
+        try:
+            with urllib.request.urlopen(f"{base_url}{endpoint}", timeout=1) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except Exception:
+            continue
+
+        candidates: list[object] = []
+        if isinstance(payload, dict):
+            candidates.append(payload.get("model_path"))
+            candidates.append(payload.get("model_alias"))
+            for item in payload.get("data", []) or []:
+                if isinstance(item, dict):
+                    candidates.extend((item.get("id"), item.get("model")))
+            for item in payload.get("models", []) or []:
+                if isinstance(item, dict):
+                    candidates.extend((item.get("name"), item.get("model")))
+
+        for candidate in candidates:
+            text = str(candidate or "").strip()
+            if not text:
+                continue
+            paths.add(os.path.normcase(os.path.abspath(text)))
+    return paths
+
+
+def _server_has_model(base_url: str, model_path: str) -> bool:
+    expected = os.path.normcase(os.path.abspath(model_path))
+    return expected in _server_model_paths(base_url)
+
+
 def stop_server() -> None:
     global _SERVER_PROCESS, _SERVER_CONFIG
     with _SERVER_LOCK:
@@ -154,17 +197,18 @@ def ensure_server(
         if _SERVER_PROCESS is not None and _SERVER_PROCESS.poll() is None:
             stop_server()
 
-        # A server managed by the user may already own the configured endpoint.
-        # Reuse it only when explicitly requested; otherwise fail transparently.
+        # An app restart can leave MORICE's warm llama.cpp process alive. Reuse
+        # it only when it positively reports the exact requested model. This
+        # avoids a second load, while a different process or model remains a
+        # transparent error instead of silently answering from the wrong model.
         if _is_server_ready(base_url):
-            if os.getenv("MORICE_REUSE_LLAMA_SERVER", "0") == "1":
+            if _server_has_model(base_url, model_path):
                 return base_url
             raise RuntimeError(
-                f"A different llama server is already listening at {base_url}"
+                f"A different llama server or model is already listening at {base_url}"
             )
 
-        args = [
-            server_exe,
+        args = [            server_exe,
             "--model",
             model_path,
             "--host",

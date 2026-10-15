@@ -81,6 +81,7 @@ class NodeDescriptor:
     app_version: str = ""
     connection_types: tuple[str, ...] = ("lan",)
     metadata: dict[str, Any] = field(default_factory=dict)
+    protocol_version: str = PROTOCOL_VERSION
 
     def __post_init__(self) -> None:
         if not self.device_id or not self.device_name or not self.platform:
@@ -95,6 +96,7 @@ class NodeDescriptor:
             "appVersion": self.app_version,
             "connectionTypes": list(self.connection_types),
             "metadata": dict(self.metadata),
+            "protocolVersion": self.protocol_version,
         }
 
     @classmethod
@@ -107,6 +109,7 @@ class NodeDescriptor:
             str(value.get("appVersion", ""))[:100],
             _clean_tuple(value.get("connectionTypes", ("lan",)), 20),
             dict(value.get("metadata", {})) if isinstance(value.get("metadata"), Mapping) else {},
+            str(value.get("protocolVersion", PROTOCOL_VERSION)),
         )
 
 

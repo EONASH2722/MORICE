@@ -81,6 +81,11 @@ configure_process_temp_dir()
 _configure_local_model_defaults()
 _fix_pyside_paths()
 
+if "--morice-smoke-test" in sys.argv:
+    from morice.package_smoke import run as run_package_smoke
+    index = sys.argv.index("--morice-smoke-test")
+    raise SystemExit(run_package_smoke(sys.argv[index + 1]))
+
 if "--morice-updater" in sys.argv:
     from morice.updater import main as run_updater
 
