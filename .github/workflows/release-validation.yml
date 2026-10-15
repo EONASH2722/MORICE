@@ -29,10 +29,9 @@ jobs:
       - name: Validate version metadata
         run: python scripts/validate_version.py --root .
 
-      - name: Run Python tests
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: python scripts/run_isolated_tests.py tests -q
+      # The main CI workflow owns the complete application regression suite.
+      # Release publication requires its success for the same commit alongside
+      # this package validation; do not repeat the long suite on a second VM.
 
       - name: Run VNext tests and typecheck
         working-directory: vnext

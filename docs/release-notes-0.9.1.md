@@ -10,6 +10,7 @@ This preview publishes the renovated desktop interface and the existing cross-ph
 - Long rich messages grow with their content, reflow to the actual available width and pass vertical wheel movement to the conversation. Only documents above 32,768 layout pixels retain a themed inner scroll area to bound the browser surface.
 - Live Action uses the current theme, responsive camera controls and the shared composer. Context actions wrap without clipping, and message reactions use original vector icons.
 - The existing kernel deadline fixture uses a controlled clock, avoiding a timing-dependent assertion on Python 3.12 Windows runners. The production deadline checks remain unchanged.
+- The media priority fixture waits for controlled admission of equal-age requests instead of assuming a fixed sleep queues both. Main CI owns full application regression; tag validation checks packages and metadata. Publication requires both checks for the same commit.
 
 The desktop includes twelve distinct animated themes, Glass, continuous procedural motion, authored icons, a visible composer, one workspace navigation surface and the original logo. Updated repository screenshots show the current interface, including graph, simulation, project and personalization views.
 

@@ -2,7 +2,7 @@
   "schema": "morice.followup-validation.v1",
   "version": "0.9.1",
   "source_sha256": "f7dedf318b775650354645984f6f77b22d606cc3f0bbdb6ad13158a28cd55575",
-  "test_source_sha256": "a8594662f6f60a2548b26e5d95c9edfd1d600706f0c687cdc095cedba4323055",
+  "test_source_sha256": "fae816fc8392f790b29502618c3130180b77e15e449052cbcb2d7979d659c9b3",
   "full_regression": {
     "passed": 1094,
     "subtests_passed": 62,
@@ -141,5 +141,16 @@
     "application_changed": false,
     "reason": "Python 3.12 Windows GetTickCount64 ticks can exceed the old seven-millisecond sleep; use a controlled execution-module clock and assert handler invocation.",
     "runtime_constraint": "Python 3.12 Windows sub-tick deadlines are limited by its monotonic clock; packaged Python 3.14 uses QueryPerformanceCounter. No real-time scheduling guarantee."
+  },
+  "media_admission_fixture_validation": {
+    "passed": 1,
+    "seconds": 2.45,
+    "application_changed": false,
+    "scope": "Real scheduler and controlled subprocess providers with gated equal-age queue admission; no fixed-sleep ordering assumption."
+  },
+  "workflow_responsibilities": {
+    "CI": "Full application regression and VNext checks",
+    "Release validation": "Version, Python package build/metadata and VNext checks",
+    "publication": "Requires both workflows to pass for the same final commit"
   }
 }

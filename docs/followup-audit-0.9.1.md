@@ -39,11 +39,15 @@ All five older README images were replaced in place. The [23-image manifest](scr
 
 The [machine-readable follow-up validation](followup-validation-0.9.1.json) records software/package evidence without private profile paths. Release archives have CRC checks, metadata checks and SHA-256 manifests. Use the tagged 0.9.1 preview assets; the older 0.8.0 stable and Android releases retain their original scope.
 
-## Independent CI clock finding
+## Independent CI timing findings
 
 The first main CI passed 1,094 tests, 62 subtests, all 14 VNext tests and type checking. The initial tag run reproduced a timing-dependent failure in the existing kernel deadline fixture: it assumed a real seven-millisecond sleep would advance the monotonic clock past a one-millisecond deadline. [CPython 3.12 on Windows uses GetTickCount64](https://raw.githubusercontent.com/python/cpython/3.12/Python/pytime.c), whose ticks can be longer than that interval. The production deadline check was already present; the fixture now advances only the execution module's clock and confirms that the handler actually ran. All 36 kernel tests pass with this correction. No application module or executable changed.
 
 This remains a concrete runtime constraint for Python 3.12 on Windows: sub-tick deadline precision is limited by that runtime's monotonic clock. The packaged Python 3.14 executable uses QueryPerformanceCounter, verified locally at 100-nanosecond reported resolution. This is clock resolution, not a promise of real-time scheduling. The full-regression snapshot above records the test fingerprint before the fixture correction; current tagged CI validates the corrected test set separately.
+
+A subsequent main CI passed the complete corrected suite. Its duplicate tag run exposed a second timing-dependent fixture: the media priority check slept for 100 ms and assumed both submissions belonged to the same admission pass. A slow submission can legitimately age background work ahead of a newer preview, or resource release can occur during an earlier pass. The fixture now queues equal-age requests behind an explicit admission gate, then exercises the actual scheduler and subprocess providers. The targeted case passes in 2.45 seconds. The production scheduler, priorities, aging and resource leases are unchanged.
+
+Full application regression belongs to main CI. Tag validation builds and checks Python packages, versions, VNext tests and types; it avoids repeating the long application suite on a second VM. Publication requires successful main CI and package validation for the same final commit. The release links both independent runs, and the historical failures remain visible in Actions.
 
 ## Retained controls
 

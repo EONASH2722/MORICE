@@ -4,6 +4,7 @@ from __future__ import annotations
 import json,struct,sys,time,threading
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -184,13 +185,24 @@ def test_queued_cancel_and_bounded_global_queue(media):
 def test_queue_priority_and_aging(media):
     assert media.kernel.resources.acquire('block',(ResourceClaim('GPU',exclusive=True),))
     events=[];subscription=media.kernel.events.subscribe(lambda e:events.append(e.task_id) if e.event_type==EventType.MEDIA_STARTED else None)
+    scheduler=media.kernel.scheduler
+    admit=threading.Event();drive=scheduler._drive_deferred
+    def after_both_are_queued():
+        if not admit.wait(30):raise AssertionError('Queue fixture was not released.')
+        drive()
     try:
-        background,fb=media.submit(request('background'),priority=Priority.BACKGROUND)
-        interactive,fi=media.submit(request('preview'),priority=Priority.INTERACTIVE)
-        time.sleep(.1);media.kernel.resources.release('block')
-        assert fi.result(timeout=10).success and fb.result(timeout=10).success
-        assert events[:2]==[interactive,background]
-    finally:media.kernel.resources.release('block');media.kernel.events.unsubscribe(subscription)
+        # Compare equal-age requests in one actual admission pass. A fixed
+        # sleep can release the GPU during a stale pass, and slow submission
+        # can legitimately age background work ahead of a newer preview.
+        queued_at=time.monotonic()
+        with patch.object(scheduler,'_drive_deferred',after_both_are_queued):
+            with patch('morice.kernel.scheduler.time',SimpleNamespace(monotonic=lambda:queued_at,time=time.time)):
+                background,fb=media.submit(request('background'),priority=Priority.BACKGROUND)
+                interactive,fi=media.submit(request('preview'),priority=Priority.INTERACTIVE)
+            media.kernel.resources.release('block');admit.set()
+            assert fi.result(timeout=10).success and fb.result(timeout=10).success
+            assert events[:2]==[interactive,background]
+    finally:admit.set();media.kernel.resources.release('block');media.kernel.events.unsubscribe(subscription)
 
 
 def test_model_corruption_and_unsafe_files_rejected(media):
