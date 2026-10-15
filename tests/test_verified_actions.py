@@ -330,11 +330,17 @@ class VerifiedActionTests(unittest.TestCase):
         def foreground(inputs, context):
             order.append(inputs["name"]); started.set()
             if inputs["name"] == "first":
-                release.wait(2)
+                self.assertTrue(release.wait(5), "Background work must release the foreground holder.")
             return ExecutionResult(TaskStatus.SUCCEEDED, True)
         self.kernel.registry.register(CapabilityDescriptor("fixture.fg", "Foreground", supported_resources=(ResourceClaim("FOREGROUND_UI", exclusive=True),)), foreground)
         self.kernel.registry.register(CapabilityDescriptor("fixture.io", "Background"), lambda *args: (order.append("background"), release.set(), ExecutionResult(TaskStatus.SUCCEEDED, True))[-1])
-        graph = TaskGraph((TaskNode("fixture.fg", {"name": "first"}), TaskNode("fixture.fg", {"name": "second"}), TaskNode("fixture.io")))
+        # Older Windows Python clocks can give all three tasks identical
+        # timestamps. Explicit FIFO ages keep random ID tie-breaking out of
+        # this resource-admission test without changing scheduler ordering.
+        now = time.time()
+        graph = TaskGraph((TaskNode("fixture.fg", {"name": "first"}, created_at=now-2),
+                           TaskNode("fixture.fg", {"name": "second"}, created_at=now-1),
+                           TaskNode("fixture.io", created_at=now)))
         scheduler = TaskScheduler(self.kernel); self.kernel.scheduler = scheduler
         result = scheduler.run_parallel(graph, ExecutionContext(), max_workers=2)
         self.assertTrue(result.success)

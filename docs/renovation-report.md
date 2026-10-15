@@ -1,6 +1,7 @@
 # Revised Phase 10 acceptance report
 
-Current acceptance, 2026-10-15: **1,077 tests and 62 subtests pass in 430.60 seconds**. Matching native wheel/frozen and installed checks pass; all twelve themes visibly animate, the composer stays inside the screen and navigation appears once. Native cached vector curves have closed position/velocity cycles. [Final software evidence](release-audit-evidence.json) supersedes earlier global gates; measured performance and hardware/provider limits remain explicit. Historical observations below retain their original scope.
+Current acceptance, 2026-10-15: **1,077 tests and 62 subtests pass in 398.39 seconds**. Matching native wheel/frozen and installed checks pass; all twelve themes visibly animate, the composer stays inside the screen and navigation appears once. Native cached vector curves have closed position/velocity cycles. [Final software evidence](release-audit-evidence.json) supersedes earlier global gates; measured performance and hardware/provider limits remain explicit. Historical observations below retain their original scope.
+
 
 **Historical reopened gate (now superseded by the current acceptance above).** The October 14 screenshot exposed an off-screen composer during native maximize. The initial geometry checks skipped hidden controls and did not compare controls against the monitor rectangle. Current source repairs require fresh package/dist acceptance before this phase is marked complete again. This report follows the 102 requested topics and retains the prior evidence as history. No public release, push or website deployment has occurred.
 

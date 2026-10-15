@@ -206,3 +206,8 @@ Phase 10 software, controlled validation and local distribution are accepted wit
 ## Current software gate — 2026-10-15
 
 1,077 tests and 62 subtests pass in 430.60 seconds. Current source `64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9` matches the final wheel, frozen archive and installed EXE. Native normal/maximize/restore, actual Send, twelve animated scenes, seventeen routes with one navigation surface, clean-dependency launch and installed upgrade pass. Models and user data are retained. [Current evidence](release-audit-evidence.json) and [the 135-topic audit](release-audit-report.md) record exact scope and checksums. Source/site publication is the final authorized stage; no tag or binary upload is authorized. Earlier progress entries below/above are historical and do not override this gate.
+
+
+## Current software gate â€” 2026-10-15
+
+1,077 tests and 62 subtests pass in 398.39 seconds. Current source `64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9` matches the final wheel, frozen archive and installed EXE. Native normal/maximize/restore, actual Send, twelve animated scenes, seventeen routes with one navigation surface, clean-dependency launch and installed upgrade pass. Models and user data are retained. [Current evidence](release-audit-evidence.json) and [the 135-topic audit](release-audit-report.md) record exact scope and checksums. Source/site publication is the final authorized stage; no tag or binary upload is authorized. Earlier progress entries below/above are historical and do not override this gate.

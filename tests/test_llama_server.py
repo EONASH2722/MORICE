@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from morice import llama_server
@@ -86,15 +88,19 @@ class LlamaServerSelectionTests(unittest.TestCase):
             executable = Path(directory) / "llama-server.exe"
             model.touch()
             executable.touch()
+            dependency = SimpleNamespace(**vars(subprocess))
             with (
                 patch.object(llama_server, "_server_path", return_value=str(executable)),
                 patch.object(llama_server, "_is_server_ready", return_value=True),
                 patch.object(
                     llama_server,
                     "_server_model_paths",
-                    return_value={os.path.normcase(str(model.resolve()))},
+                    # Match the helper's actual normcase(abspath) contract.
+                    # resolve() expands Windows 8.3 aliases and changes it.
+                    return_value={os.path.normcase(os.path.abspath(model))},
                 ),
-                patch("morice.llama_server.subprocess.Popen") as popen,
+                patch.object(llama_server, "subprocess", dependency),
+                patch.object(dependency, "Popen") as popen,
             ):
                 endpoint = llama_server.ensure_server(
                     str(model), 8192, 0, 4, 128

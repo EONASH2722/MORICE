@@ -138,7 +138,11 @@ def test_cancel_workflow_and_preserve_partial(runtime):
         started.set(); context.cancellation_token.wait(2); context.cancellation_token.raise_if_cancelled()
         return ExecutionResult(TaskStatus.SUCCEEDED, True, 1)
     work(k, handler=execute)
-    graph = TaskGraph((node(1, "kernel.echo"), node(2), node(3, dependencies=())))
+    completed_first = node(1, "kernel.echo")
+    # Partial preservation requires a completed predecessor, not a race with
+    # an independently scheduled blocking task that may start before the echo.
+    graph = TaskGraph((completed_first, node(2, dependencies=(completed_first.task_id,)),
+                       node(3, dependencies=(completed_first.task_id,))))
     future = a.submit(graph)
     assert started.wait(1)
     assert a.cancel(graph.graph_id)

@@ -1,6 +1,7 @@
 # Renovation feature parity matrix
 
-Current acceptance, 2026-10-15: **1,077 tests and 62 subtests pass in 430.60 seconds**. Matching native wheel/frozen and installed checks pass; all twelve themes visibly animate, the composer stays inside the screen and navigation appears once. Native cached vector curves have closed position/velocity cycles. [Final software evidence](release-audit-evidence.json) supersedes earlier global gates; measured performance and hardware/provider limits remain explicit. Historical observations below retain their original scope.
+Current acceptance, 2026-10-15: **1,077 tests and 62 subtests pass in 398.39 seconds**. Matching native wheel/frozen and installed checks pass; all twelve themes visibly animate, the composer stays inside the screen and navigation appears once. Native cached vector curves have closed position/velocity cycles. [Final software evidence](release-audit-evidence.json) supersedes earlier global gates; measured performance and hardware/provider limits remain explicit. Historical observations below retain their original scope.
+
 
 This matrix began before replacement views. The current source migrates the listed access paths; evidence is recorded per row. The preceding Phase 10 full-regression and installed startup passed, but the October 14 user screenshot reopened composer/maximize and theme acceptance. Fresh current-source frozen/full-suite/dist gates are required; older global pass statements in the rows describe the preceding build. A migrated route is not a claim that every external provider or destructive action was exercised.
 

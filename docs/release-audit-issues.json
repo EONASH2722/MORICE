@@ -21,6 +21,7 @@
         "build/phase10-final-20261014-disposal-Regression.log",
         "build/phase10-installed-canonical-startup.json",
         "build/phase10-installed-root-startup.json",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "affected_files": [
@@ -52,6 +53,7 @@
         "build/phase10-final-20261014-disposal-Regression.log",
         "build/phase10-installed-canonical-startup.json",
         "build/phase10-installed-root-startup.json",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "affected_files": [
@@ -82,6 +84,7 @@
         "build/phase10-final-20261014-disposal-Regression.log",
         "build/phase10-installed-canonical-startup.json",
         "build/phase10-installed-root-startup.json",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "affected_files": [
@@ -469,6 +472,7 @@
       "evidence": [
         "build/theme-composer-native/evidence.json",
         "build/phase11-cached-final-theme-composer.log",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "Native normal/maximize/restore typing and actual Send checks",
@@ -496,6 +500,7 @@
       ],
       "evidence": [
         "build/theme-composer-native/evidence.json",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "Required widget visibility, window bounds and availableGeometry assertions",
@@ -526,6 +531,7 @@
       "evidence": [
         "build/theme-composer-native/evidence.json",
         "docs/screenshots/current-manifest.json",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "tests/test_renovation_themes_motion.py and twelve native phase/pixel checks",
@@ -556,6 +562,7 @@
         "build/phase11-native-continuity-proof.log",
         "build/phase11-cached-vector-cinematic/evidence.json",
         "build/theme-composer-native/evidence.json",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "Native 0/24-second rendered equality, unique theme poses, finite-difference velocity continuity and cache reuse assertions",
@@ -583,6 +590,7 @@
       ],
       "evidence": [
         "build/phase11-cached-final-captures/evidence.json",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "Route-by-route navigation XOR assertions in UI and extracted-wheel smoke",
@@ -611,6 +619,7 @@
       ],
       "evidence": [
         "build/phase11-browser-owner-fixed-tests.log",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "Controlled two-window ownership/close checks and existing browser/coordinator suites",
@@ -643,6 +652,7 @@
         "build/phase11-single-nav-20261015-Regression.log",
         "build/phase11-vector-final-20261015-Regression.log",
         "build/phase11-project-browser-final-focus.log",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "Five focused real project/browser integrations pass in 136.72 seconds; matching full regression remains mandatory",
@@ -669,6 +679,7 @@
       ],
       "evidence": [
         "build/phase11-owned-suspended-launcher-cleanup.json",
+        "build/phase11-final-owned-process-inventory.json",
         "build/phase11-final-owned-process-inventory.json"
       ],
       "regression_test": "Post-regression process identity inventory",
@@ -699,6 +710,7 @@
       "evidence": [
         "https://github.com/EONASH2722/MORICE/actions/runs/37135472914/job/111239011054",
         "build/phase11-job-final-process-browser-focus.log",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "Existing exact-approval launch/restart tests; 156 focused process/browser/permission tests pass.",
@@ -736,6 +748,7 @@
         "build/phase11-bounded-native-process-research-icons-tests.log",
         "build/phase11-final-bounded-native-master.log",
         "build/phase11-final-master-source-receipt.json",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "Five real Windows tests: twelve immediate venv cancellations, surviving-child cleanup, unrelated-process preservation, failed assignment before command execution, and holder crash after assignment.",
@@ -769,6 +782,7 @@
         "build/phase11-icon-gc-before.json",
         "build/phase11-final-bounded-native-master.log",
         "build/phase11-final-master-source-receipt.json",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "Focused DPI/mode/cache checks plus actual current-source native Research master workflow; full regression and matching package/install gates remain pending.",
@@ -803,6 +817,7 @@
         "build/phase11-bounded-results-native-icons-tests.log",
         "build/phase11-final-bounded-native-master.log",
         "build/phase11-final-master-source-receipt.json",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "Actual completed experiment tests verify page size, total counts, Unicode/literal SQL-safe filtering beyond the first page and complete exports. A paused JSON decoder requires an independent existing knowledge writer to commit, proving that read locks have been released. Fresh native master/full suite/package/install acceptance remains pending.",
@@ -837,9 +852,42 @@
         "build/phase11-security-fixture-pid-authorization-proof.json",
         "build/phase11-security-fixture-suspended-child-cleanup.json",
         "build/phase11-direct-security-fixture-tests.log",
+        "docs/release-audit-evidence.json",
         "docs/release-audit-evidence.json"
       ],
       "regression_test": "The two real OS Security tests pass with direct single-process targets. The complete suite must be rerun with a post-run actual OS process inventory.",
+      "introduced_by_phase11": false,
+      "release_blocking": false
+    },
+    {
+      "issue_id": "R11-023",
+      "phase_origin": 11,
+      "subsystem": "Cross-host CI fixtures",
+      "category": "fixture_portability_and_ordering",
+      "severity": "MEDIUM",
+      "reproducibility": "PUBLIC_GITHUB_WINDOWS_PYTHON312_CI_LOG_CONFIRMED",
+      "summary": "Four fixtures assumed canonical-path formatting or a coincidental independent-task start order.",
+      "steps_to_reproduce": "Commit f4d30cf, CI run 38714805211 / job 116354784850: 1073 tests and 62 subtests pass. Updater expected RUNNER~1 instead of runneradmin; the warm-model mock used resolve rather than normcase(abspath); partial cancellation raced an unfinished echo; foreground ordering relied on coincident timestamps/random IDs.",
+      "expected": "Fixtures use actual interfaces and explicit causal/admission preconditions across host clocks and Windows path aliases.",
+      "actual": "Production updater canonicalization, exact reported-model identity and graph ordering functioned as declared; fixture assumptions differed.",
+      "risk": "False CI failures or an inadvertently shared stdlib Popen mock.",
+      "status": "FIXTURE_REPAIR_VERIFIED_LOCALLY_POST_PUSH_CI_CHECK_REQUIRED",
+      "repair_attempts": 1,
+      "resolution": "Expect canonical updater launch paths, isolate updater/llama subprocess dependencies in private namespaces, return the actual provider path-normalization contract, require a completed predecessor through real dependencies, and supply explicit FIFO ages for foreground admission. No production scheduler, permission, model identity or deadlines change.",
+      "affected_files": [
+        "tests/test_autonomous_platform.py",
+        "tests/test_llama_server.py",
+        "tests/test_parallel_agents.py",
+        "tests/test_verified_actions.py"
+      ],
+      "evidence": [
+        "https://github.com/EONASH2722/MORICE/actions/runs/38714805211",
+        "build/phase11-first-published-ci-failure.log",
+        "build/phase11-ci-fixture-focused-tests.log",
+        "docs/release-audit-evidence.json",
+        "build/phase11-ci-fixtures-20261015-Regression.json"
+      ],
+      "regression_test": "120 focused tests and the fresh complete 1077-test/62-subtest suite pass in 398.39 seconds with a clean actual OS inventory. Observe the follow-up GitHub CI result after push; runtime application bytes are unchanged.",
       "introduced_by_phase11": false,
       "release_blocking": false
     }
@@ -856,5 +904,6 @@
   "current_source_sha256": "64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9",
   "final_signoff": "D. PARTIAL / EXPERIMENTAL",
   "final_source_sha256": "64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9",
-  "final_evidence": "docs/release-audit-evidence.json"
+  "final_evidence": "docs/release-audit-evidence.json",
+  "post_push_ci_verification": "Required after corrective commit publication; observed separately from local software gates."
 }

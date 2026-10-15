@@ -1,6 +1,7 @@
 # Renovation architecture
 
-Current acceptance, 2026-10-15: **1,077 tests and 62 subtests pass in 430.60 seconds**. Matching native wheel/frozen and installed checks pass; all twelve themes visibly animate, the composer stays inside the screen and navigation appears once. Native cached vector curves have closed position/velocity cycles. [Final software evidence](release-audit-evidence.json) supersedes earlier global gates; measured performance and hardware/provider limits remain explicit. Historical observations below retain their original scope.
+Current acceptance, 2026-10-15: **1,077 tests and 62 subtests pass in 398.39 seconds**. Matching native wheel/frozen and installed checks pass; all twelve themes visibly animate, the composer stays inside the screen and navigation appears once. Native cached vector curves have closed position/velocity cycles. [Final software evidence](release-audit-evidence.json) supersedes earlier global gates; measured performance and hardware/provider limits remain explicit. Historical observations below retain their original scope.
+
 
 This document describes implemented components, not completion. The working gate and retained limitations are in [renovation-progress.md](renovation-progress.md). The production window factory selects the new shell and current package/install gates pass. Hidden compatibility construction remains a documented startup/memory cost.
 

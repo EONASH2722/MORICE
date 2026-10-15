@@ -3,11 +3,11 @@
   "date": "2026-10-15",
   "version": "0.9.0",
   "source_sha256": "64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9",
-  "test_source_sha256": "c5fe881acea78d8218569edca17c7da144e673a2ee33a46633eab9bc870ac091",
+  "test_source_sha256": "2669eae41ad287c97b587aacac23f3aefd312318524df5a5c4fd8db09a63bd91",
   "regression": {
     "tests": 1077,
     "subtests": 62,
-    "seconds": 430.6
+    "seconds": 398.39
   },
   "wheel": {
     "bytes": 12959111,
@@ -63,10 +63,9 @@
     "sha256": "19153a338d6d8bf9344ec8967972525a70f0bde37648e86aabf9c9a6aeabd1d8"
   },
   "privacy": {
-    "scan_scope_files_before_final_report": 657,
+    "scan_scope_files_before_final_report": 659,
     "findings": 0,
-    "screenshots": "Owned profiles; current-manifest.json; visually reviewed.",
-    "final_publishable_scan_files": 659
+    "screenshots": "Owned profiles; current-manifest.json; visually reviewed."
   },
   "storage_cleanup": {
     "receipt": "build/phase11-storage-cleanup-receipt.json",
@@ -107,12 +106,12 @@
   },
   "receipts": [
     {
-      "path": "build/phase11-audit-clean-fixtures-20261015-Regression.json",
-      "sha256": "c6057b0c03b4535a7504bfec0dc3d4941ddb23af6a36735134c520a46f053599"
+      "path": "build/phase11-ci-fixtures-20261015-Regression.json",
+      "sha256": "405d291a019eaefd5b4612d7cd83fa8dd08df5dee5f16a80e951db3ff7fb5cc7"
     },
     {
-      "path": "build/phase11-audit-clean-fixtures-20261015-Regression.log",
-      "sha256": "99e942e1dec0d5315e15b4acd5ed6489dab51712ceb2a5e0af55c81c688e07af"
+      "path": "build/phase11-ci-fixtures-20261015-Regression.log",
+      "sha256": "114ea4b5dc17befefbb90b4a8ff7236bb8b1d84f776234dbb98797e67f9e26c6"
     },
     {
       "path": "build/phase11-job-final-frozen-parity.json",
@@ -160,7 +159,7 @@
     },
     {
       "path": "build/phase11-final-owned-process-inventory.json",
-      "sha256": "d2d1a6b7c613817d199f077c403540d038828165f516e145330d8fa489d1ea2a"
+      "sha256": "8b20309f982ac4a3b7926a5dd7dcd743b9daa5b6a2fa2b7d459e62c1ff4ca239"
     },
     {
       "path": "build/phase11-final-master-source-receipt.json",
@@ -191,11 +190,13 @@
       "sha256": "2035057b85b9980c91a3bc0869a63e48cf39004b598624489a5a467618661ecb"
     }
   ],
-  "staged_source_review": {
-    "status": "REVIEWED_WITH_SOURCE_PRESERVATION_EXCEPTIONS",
-    "staged_paths": 364,
-    "application_and_test_bytes_unchanged": true,
-    "private_or_model_artifacts_staged": false,
-    "whitespace_scope": "Trailing line whitespace and space-before-tab checks pass across owned files. Preserve upstream GeoNames README attribution bytes and four harmless extra final blank lines; no validated application bytes changed for formatting."
+  "publication_observations": {
+    "first_source_commit": "f4d30cfb8ae5ba173716766626d2c6aaa0709710",
+    "pages_run": "https://github.com/EONASH2722/MORICE/actions/runs/38714805240",
+    "live_site": "https://eonash2722.github.io/MORICE/",
+    "live_site_qa": "Four changing motifs; pause/resume; four current native PNG HTTP hashes; keyboard; desktop/mobile layout; fresh console all pass.",
+    "first_ci": "Four cross-host fixture assumptions failed; preserved under R11-023.",
+    "corrective_ci": "Observe after follow-up push; not inferred from local suite.",
+    "application_bytes_changed_for_ci_correction": false
   }
 }

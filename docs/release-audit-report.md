@@ -1,6 +1,6 @@
 # Phase 11 release audit — MORICE 0.9.0
 
-Local software acceptance completed 2026-10-15: **1,077 tests and 62 subtests pass in 430.60 seconds**. Exact current-source wheel/frozen parity, isolated-dependency launch and both installed EXE paths pass. [Current evidence and checksums](release-audit-evidence.json) bind these results to source `64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9`. Authorized source/site publication is a separate final stage; no new public binary is claimed. Preexisting work, original models and user data are retained.
+Local software acceptance completed 2026-10-15: **1,077 tests and 62 subtests pass in 398.39 seconds**. Exact current-source wheel/frozen parity, isolated-dependency launch and both installed EXE paths pass. [Current evidence and checksums](release-audit-evidence.json) bind these results to source `64e3ca3cc532d7f592103fcb7c2e15338c3575d80f06cca5a67429758f6ac8c9`. Authorized source/site publication is a separate final stage; no new public binary is claimed. Preexisting work, original models and user data are retained.
 
 The audit distinguishes actual execution, controlled fixtures, static review, historical evidence and unavailable physical/provider checks. Decoration never represents real task progress. Current software verification does not certify arbitrary external applications, scientific experiments, physical devices or every model configuration.
 
@@ -16,7 +16,7 @@ Phases 1–9 code, Android changes, scientific renderers, original branding, ear
 
 ### 3. Initial full-suite result
 
-The preceding Phase 10 suite passed 1,058 tests and 62 subtests. Early 0.9.0 runs exposed an obsolete version assertion and browser/project fixture races; failures are retained. A later theme-source run passed 1,064 tests and 62 subtests. The final cached-vector/single-navigation run now passes 1,077 tests and 62 subtests pass in 430.60 seconds. Application and test fingerprints match the final receipts.
+The preceding Phase 10 suite passed 1,058 tests and 62 subtests. Early 0.9.0 runs exposed an obsolete version assertion and browser/project fixture races; failures are retained. A later theme-source run passed 1,064 tests and 62 subtests. The final cached-vector/single-navigation run now passes 1,077 tests and 62 subtests pass in 398.39 seconds. Application and test fingerprints match the final receipts.
 
 ### 4. Issue ledger summary
 
@@ -468,7 +468,7 @@ The verified candidate was promoted locally after matching application/test fing
 
 ### 116. Final full regression
 
-Final complete isolated regression: **1,077 tests and 62 subtests pass in 430.60 seconds**. Its receipt records current application and test-source fingerprints, exit zero and completion time. No application or test changes followed the run. Native package, clean dependency and installed launch checks are separate evidence, not replacements for the suite.
+Final complete isolated regression: **1,077 tests and 62 subtests pass in 398.39 seconds**. Its receipt records current application and test-source fingerprints, exit zero and completion time. No application or test changes followed the run. Native package, clean dependency and installed launch checks are separate evidence, not replacements for the suite.
 
 ### 117. Repeated/flaky test results
 
@@ -516,7 +516,7 @@ The user authorized local dist, repository commit/push, linked GitHub Pages, REA
 
 ### 128. Commit/push/tag result
 
-The final coherent source/site update is authorized after the completed local software gate. Remote main was rechecked at the original baseline before publication. Final commit/push identity and CI/Pages verification are recorded at the publication stage and in GitHub history; no force push or tag is part of this scope.
+The first authorized source/site update was pushed normally to main as `f4d30cfb8ae5ba173716766626d2c6aaa0709710`; its Pages workflow succeeded and the deployed site passed actual desktop/mobile interaction and asset-hash checks. That CI run exposed four fixture assumptions, now corrected without application changes and covered by a fresh complete regression. The follow-up commit/CI result is recorded by GitHub history and the local publication receipt; no force push, tag or binary upload is part of this scope.
 
 ### 129. Public release result
 
@@ -524,7 +524,7 @@ No new public binary release has been created. Local dist promotion is distinct 
 
 ### 130. Post-release verification
 
-After authorized source/site publication, verify remote commit identity, CI and Pages runs for that commit, then the live page/assets and expected content. A local Vite build or repository push alone does not prove deployment. No release-green status is inferred while a required workflow is failing, queued or unobserved.
+The actual deployed GitHub Pages page passes four distinct changing theme motifs, pause/resume, all four current native capture HTTP hashes, keyboard tabs, zero desktop/mobile overflow and a fresh-profile console with no errors or warnings. Its deployed website source is unchanged by the test-only follow-up. The follow-up Windows CI result must be observed after push; local success is not substituted for that external gate.
 
 ### 131. Final Git status
 

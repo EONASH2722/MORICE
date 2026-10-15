@@ -9,6 +9,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from morice.agent_orchestrator import AgentOrchestrator
@@ -440,9 +441,12 @@ class BackupExportUpdateTests(unittest.TestCase):
             )
             # The archive deliberately contains placeholder bytes, not a PE.
             # Verify relaunch intent without asking Windows to execute the stub.
-            with mock.patch('morice.updater.subprocess.Popen') as relaunch:
+            import morice.updater as updater
+            dependency = SimpleNamespace(**vars(subprocess))
+            with mock.patch.object(updater, 'subprocess', dependency), mock.patch.object(dependency, 'Popen') as relaunch:
                 self.assertEqual(run_updater(str(instruction), str(install), 0), 0)
-            relaunch.assert_called_once_with([str(install / 'MORICE.exe')], cwd=install)
+            canonical_install = install.resolve()
+            relaunch.assert_called_once_with([str(canonical_install / 'MORICE.exe')], cwd=canonical_install)
             self.assertEqual((install / "MORICE.exe").read_bytes(), b"new")
             self.assertTrue((updates / "last-update-result.json").is_file())
 
