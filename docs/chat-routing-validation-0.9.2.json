@@ -1,0 +1,162 @@
+{
+  "schema": "morice.chat-routing-validation.v1",
+  "version": "0.9.2",
+  "source_sha256": "e8af2005d0bcd80c477c2c028a797016069a707e5bee0d86ff7f64a4da9b99b5",
+  "test_source_sha256": "094c70debe5656440d94616814e25370df94cf36956de975dbef88864fbb2b5f",
+  "python": {
+    "passed": 1127,
+    "subtests_passed": 62,
+    "seconds": 533.17
+  },
+  "targeted": "Generic engineering, academic/technical percentage distinctions, quoted text, backend failures, assistant identity, capability inventory and previous-message recall; native normal, research and long-audit dispatch preserve the complete prompt. Actual owned subprocess tests force terminal output between EOF and exit and reject incomplete output.",
+  "exact_private_prompt": {
+    "status": "EXACT_PROMPT_REAL_MODEL_PASSED",
+    "prompt_sha256": "e62b4caf88d81153f498aad9597b5eb651c4fdaf6351c2a83055fa7ce89c126b",
+    "prompt_characters": 10563,
+    "model": "Parable-Qwen3-4B-Claude-Fable-5-GGUF-Q5_K_M.gguf",
+    "full_prompt_forwarded": true,
+    "model_requests": 1,
+    "elapsed_seconds": 28.3,
+    "visible_reply_matches": true,
+    "shutdown": {
+      "clean": true,
+      "failures": [],
+      "leases_remaining": 0,
+      "pending_workers": 0
+    }
+  },
+  "actual_reply_render": {
+    "scope": "Native rendering of the actual previously recorded model output, with motion and Glass enabled. No new or substituted inference.",
+    "status": "ACTUAL_REPLY_NATIVE_RENDER_PASSED",
+    "text_characters": 2219,
+    "color": "rgb(243, 245, 247)",
+    "rich_height": 1316,
+    "render_ready_seconds": 1.28,
+    "source_sha256": "e8af2005d0bcd80c477c2c028a797016069a707e5bee0d86ff7f64a4da9b99b5",
+    "shutdown": {
+      "clean": true,
+      "failures": [],
+      "leases_remaining": 0,
+      "pending_workers": 0
+    }
+  },
+  "model_check_limit": "One actual local 4B Qwen model, capped at 768 generated tokens. It produced an on-topic engineering response; numerical accuracy and completion of the full audit are not established. The reply contains unverified assumptions and must not be treated as engineering validation. The later media-process drain repair does not change chat routing; final regression covers both changes.",
+  "wheel": {
+    "sha256": "5dd09f0578b3b19f9e27eb25e4b078526b15909c74d3660706eb35c0c0cb5f03",
+    "equal_source_modules": 217,
+    "main_dependency_runtime": {
+      "package": "E:\\QC-OS-Data\\Temp\\morice-wheel-native-wal562iq\\package\\morice\\__init__.py",
+      "production_window_class": "RenovatedWindow",
+      "routes": [
+        "home",
+        "chats",
+        "projects",
+        "research",
+        "spatial",
+        "devices",
+        "media",
+        "automations",
+        "connectors",
+        "security",
+        "history",
+        "activity",
+        "tools",
+        "voice",
+        "artifacts",
+        "plugins",
+        "settings"
+      ],
+      "authored_icons": 65,
+      "spatial_actual_metres": 13488533.266420476,
+      "qt_platform": "windows",
+      "owned_windows_job_reaped": true,
+      "shutdown": {
+        "clean": true,
+        "failures": [],
+        "leases_remaining": 0,
+        "pending_workers": 0
+      }
+    },
+    "separate_dependency_runtime": {
+      "package": "E:\\QC-OS-Data\\Temp\\morice-wheel-native-d_fkpli9\\package\\morice\\__init__.py",
+      "production_window_class": "RenovatedWindow",
+      "routes": [
+        "home",
+        "chats",
+        "projects",
+        "research",
+        "spatial",
+        "devices",
+        "media",
+        "automations",
+        "connectors",
+        "security",
+        "history",
+        "activity",
+        "tools",
+        "voice",
+        "artifacts",
+        "plugins",
+        "settings"
+      ],
+      "authored_icons": 65,
+      "spatial_actual_metres": 13488533.266420476,
+      "qt_platform": "windows",
+      "owned_windows_job_reaped": true,
+      "shutdown": {
+        "clean": true,
+        "failures": [],
+        "leases_remaining": 0,
+        "pending_workers": 0
+      }
+    }
+  },
+  "vnext": {
+    "passed": 14,
+    "typecheck": "passed"
+  },
+  "local_website": {
+    "status": "CURRENT_PRODUCTION_SITE_QA_PASSED",
+    "releasePreview": "0.9.2",
+    "themes": {
+      "midnight": {
+        "animationChanged": true,
+        "animatedElements": 8
+      },
+      "glass": {
+        "animationChanged": true,
+        "animatedElements": 6
+      },
+      "ice": {
+        "animationChanged": true,
+        "animatedElements": 2
+      },
+      "solar": {
+        "animationChanged": true,
+        "animatedElements": 2
+      }
+    },
+    "desktop": {
+      "width": 1440,
+      "scroll": 1440
+    },
+    "mobile": {
+      "width": 390,
+      "scroll": 390,
+      "brokenImages": 0
+    },
+    "keyboardResearch": true,
+    "pauseResume": true,
+    "consoleErrors": []
+  },
+  "publication_gates": [
+    "Frozen bytecode/source parity at this application fingerprint",
+    "Fresh-profile native frozen startup and 17 routes",
+    "Installed canonical and root executable startup",
+    "Public portable/source/documentation archive audits and SHA-256 manifests",
+    "CI, tag package validation and Pages deployment at the final commit; live website QA"
+  ],
+  "publication_evidence": "Release Package-Contents.json adds the completed frozen and installation receipts. GitHub release links bind the independent workflow results to the final commit.",
+  "privacy": "The full user prompt and generated answer are retained only in ignored local build evidence. Public tests contain a generic example.",
+  "unchanged_limits": "Existing provider, physical audio/device, host RAM/VRAM and compositor frame-pacing limits remain. No blanket claim of zero remaining errors."
+}

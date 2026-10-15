@@ -261,6 +261,44 @@ def test_chat_and_live_action_show_pipeline_results_and_endpoint_errors(window, 
         finally: window._set_busy(False); window._set_chat_mode(previous_mode); window.navigate('home')
 
 
+@pytest.mark.parametrize('research', [False, True, 'audit'])
+def test_engineering_prompt_reaches_selected_model_intact(window, app, research):
+    from morice.pyside_app import ChatBubble
+    prompt = (
+        'You are an engineering advisor. ' + ('Calculate' if research else 'Explain') +
+        ' how you would model a vibration harvester with 70% converter efficiency. '
+        'Report results in milliwatts and explain losses. An earlier AI model may be wrong. '
+        'Do not generate code or a PDF.'
+    )
+    if research == 'audit':
+        prompt = '# Independent engineering review\n' + prompt + (
+            '\nI asked an earlier AI for advice. Review its response independently. '
+            'Explain what features you can build into the device and what assumptions fail. '
+            'Use results from the physical model, not unsupported claims. '
+            'Describe the measurements required before manufacturing.'
+        ) * 5
+    submitted = []
+    def generate(history, user_message, **kwargs):
+        submitted.append(user_message)
+        yield 'Controlled engineering response: loading reduces resonant motion.'
+    old_model, old_path = window.model_name, window.model_path
+    try:
+        window.model_name, window.model_path = 'controlled-model', ''
+        window.navigate('chats'); start = len(window.history)
+        with patch('morice.pyside_app.stream_chat', side_effect=generate), \
+             patch('morice.llm_client.stream_chat', side_effect=generate):
+            window.input.setText(prompt); window.send_btn.click()
+            pump(app, lambda: not window.is_busy and any(
+                row['role'] == 'assistant' for row in window.history[start:]), timeout=15)
+        reply = window._message_rows[-1].findChild(ChatBubble).message
+        assert submitted == [prompt], reply
+        assert 'Controlled engineering response:' in reply
+        assert '70% hurts' not in reply and 'Current model:' not in reply
+    finally:
+        window.model_name, window.model_path = old_model, old_path
+        window._set_busy(False); window.navigate('home')
+
+
 def test_research_create_keeps_submitted_title_and_new_draft_during_delivery(window, app):
     window.navigate('research'); view = window.routes['research']; submitted = []
     original = 'Compare benign model densities for the delayed creation fixture'

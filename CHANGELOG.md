@@ -4,6 +4,15 @@ All notable changes to MORICE are documented here.
 
 ## [Unreleased]
 
+## [0.9.2] — chat routing repair
+
+- Technical percentages and results no longer trigger exam consolation. Brief personal exam and emotional check-ins still work.
+- Mathematical and engineering models no longer trigger MORICE model identity or capability inventory replies. A bare mention of a model no longer requests a visual renderer.
+- References to earlier AI answers in a substantive prompt no longer trigger the previous-message recall shortcut.
+- Explicit requests not to generate code stay out of the project-file creation path.
+- Drain media worker events after process exit so a successful terminal result written between EOF and the exit check is not lost; reject incomplete final events.
+- Add regression coverage for the normal and research chat paths, preserving the submitted prompt through selected-model dispatch. See [release notes](docs/release-notes-0.9.2.md).
+
 ## [0.9.1] — desktop preview
 
 - Prevent duplicate Research project creation, keep the submitted project title, and preserve a new draft while the request finishes. Queue admission and worker failures allow retry without losing the draft.

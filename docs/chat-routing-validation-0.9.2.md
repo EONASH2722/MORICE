@@ -1,0 +1,19 @@
+# Chat routing validation — 0.9.2
+
+Application source SHA-256: `e8af2005d0bcd80c477c2c028a797016069a707e5bee0d86ff7f64a4da9b99b5`. Test source SHA-256: `094c70debe5656440d94616814e25370df94cf36956de975dbef88864fbb2b5f`. The [machine-readable record](chat-routing-validation-0.9.2.json) records the measured scope.
+
+The reported 10,563-character prompt was sent through the actual native application, research workflow and existing local Qwen model. The HTTP payload preserved the entire submitted prompt, one real model request completed, the engineering reply was present in the chat bubble, and shutdown left no workers or leases. No model reply was substituted by a fixture in this check. The full design document and generated answer stay in ignored local evidence.
+
+This was a bounded 768-token relevance check, not verification of the model's physics or calculations. The local model produced unverified assumptions; a complete, numerically correct engineering audit is not established by this repair. Research labels the interpretation as inferred, and its integrity check covers records and dependencies rather than scientific correctness.
+
+A separate native paint check displayed that actual recorded model output with Glass and motion enabled. The rendered document contained 2219 characters at 1316 pixels of layout height, with visible text color `rgb(243, 245, 247)`. The check waited for actual browser document readiness (about 1.28 seconds) before capturing and inspecting the native window; an immediate capture can precede asynchronous rich-text loading. This check reuses the actual recorded response and makes no additional inference claim. The private capture is excluded from publication.
+
+The final local suite passed **1127 tests and 62 subtests** in 533.17 seconds. Controlled native integration tests separately verify unchanged prompt delivery through normal chat, research chat and a long audit containing misleading shortcut keywords. Their controlled responses verify transport and UI delivery, not model quality. Real short model-identity and personal check-in commands still work. VNext passed 14 tests and typechecking.
+
+The first full run exposed a separate media worker EOF/exit race (1 failed, 1,124 passed and 62 subtests). The failed preview's retained metadata reported an exit code of zero with no result, while its background peer succeeded. The process reader now drains stable output after exit. A real owned child process test forces that ordering and separately rejects an incomplete final event. The final regression above includes this repair; no resource or ownership checks were removed.
+
+The built wheel matches all 217 current Python modules and was opened outside the repository with isolated profiles using both the main and separately installed dependency runtimes. Both exercised 17 native destinations, actual Spatial calculations, authored icons, process ownership and clean shutdown. Local production website checks passed four-theme motion, pause/resume, keyboard navigation, desktop/mobile overflow and console checks. Existing screenshot provenance remains attributed to the earlier capture; this patch changes routing and the download version.
+
+Publication additionally requires frozen bytecode/source parity, native frozen startup, installed executable checks, audited portable and source archives, and successful CI/package/Pages workflows for the final commit. Completed package and installation evidence is included in the release Package-Contents.json; workflow links and live website verification accompany publication. These gates are separate from the source checks reported above.
+
+Existing runtime authorities, permissions, leases, verification and cancellation remain in place. Physical audio/device, heavy inference memory, provider and compositor timing constraints remain as documented in the [release audit](release-audit-report.md) and [0.9.1 follow-up](followup-audit-0.9.1.md).

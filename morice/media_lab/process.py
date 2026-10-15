@@ -79,6 +79,7 @@ class OwnedMediaProcesses:
                 atomic_json(directory/'worker-owner.json',{'schema':1,'generation_id':identifier,'processes':ownership})
         try:
             with out.open('rb') as stream:
+                worker_exited=False
                 while True:
                     if context.cancellation_token:context.cancellation_token.raise_if_cancelled()
                     if context.deadline is not None and time.monotonic()>=context.deadline:
@@ -88,6 +89,8 @@ class OwnedMediaProcesses:
                     position=stream.tell();line=stream.readline(64*1024+1)
                     if len(line)>64*1024:raise MediaWorkerError('Worker event exceeds byte budget.')
                     if line and not line.endswith(b'\n'):
+                        if worker_exited:
+                            raise MediaWorkerError('Owned media worker ended with an incomplete event.')
                         stream.seek(position);line=b''
                     if line:
                         try:
@@ -118,7 +121,13 @@ class OwnedMediaProcesses:
                             raise MediaWorkerError('Host RAM safety margin reached; inference stopped.',oom=True)
                     except MediaWorkerError:raise
                     except Exception:pass  # Sampling cannot turn an exited worker into failure.
-                    if process.poll() is not None:break
+                    if process.poll() is not None:
+                        # The child can flush its terminal event between our
+                        # EOF read and poll(). Once exit is confirmed, drain
+                        # the stable file before deciding whether it replied.
+                        if worker_exited:break
+                        worker_exited=True
+                        continue
                     if context.cancellation_token:context.cancellation_token.wait(.03)
                     else:time.sleep(.03)
             if process.returncode or result is None:raise MediaWorkerError('Owned media worker exited without a valid result (exit '+str(process.returncode)+').')

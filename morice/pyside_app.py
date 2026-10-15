@@ -12505,6 +12505,11 @@ class MoriceWindow(QWidget):
         )
         if explanation_only:
             return False
+        if re.search(
+            r"\b(?:do not|don't|dont|never)\s+(?:generate|write|create|produce)\s+"
+            r"(?:any\s+)?(?:code|files?|scripts?)\b", lowered
+        ):
+            return False
         action_words = {
             "add",
             "build",

@@ -203,8 +203,22 @@ def emotional_checkin_response(text: str, user_title: str | None = None) -> str 
     lowered = text.strip().lower()
     title = address_clause(user_title=user_title)
 
+    # These are shortcuts for brief personal check-ins, not classifiers for
+    # arbitrary documents. Percentages and words such as "results" also occur
+    # in engineering, benchmark reports and quoted writing tasks.
+    if len(lowered) > 600 or len(lowered.split()) > 80:
+        return None
+    personal_statement = re.match(r"^(?:i\b|i'm\b|my\b)", lowered)
+    if not personal_statement:
+        return None
+
     score_match = re.search(r"\b(\d{1,3})\s*%", lowered)
-    if score_match and any(word in lowered for word in {"cbse", "board", "boards", "exam", "result", "marks"}):
+    academic_context = re.search(r"\b(?:cbse|boards?|exams?|school|grades?|marks)\b", lowered)
+    personal_score = re.match(
+        r"^(?:i\s+(?:have\s+)?(?:got|scored|received|earned)\b|"
+        r"my\s+(?:\w+\s+){0,4}(?:score|result|marks|grade)\b)", lowered
+    )
+    if score_match and int(score_match.group(1)) <= 100 and academic_context and personal_score:
         score = int(score_match.group(1))
         if score >= 75:
             return (
@@ -238,11 +252,17 @@ def emotional_checkin_response(text: str, user_title: str | None = None) -> str 
         "i am lonely",
         "i'm lonely",
         "i feel lonely",
-        "i failed",
         "i messed up",
         "i ruined it",
     }
-    if any(marker in lowered for marker in feeling_markers):
+    feeling_statement = any(
+        re.match(re.escape(marker) + r"(?:[\s,.!?]|$)", lowered)
+        for marker in feeling_markers
+    )
+    failed_exam = re.match(
+        r"^i failed(?:\s+(?:(?:my|the|an?)\s+)?(?:\w+\s+){0,2}exam)?[.!?]*$", lowered
+    )
+    if feeling_statement or failed_exam:
         return (
             f"That sounds heavy{title}. I am with you. This moment can hurt without defining your whole life. "
             "Tell me what happened, and we will sort through it together."
@@ -270,17 +290,17 @@ def wants_model_identity(text: str) -> bool:
         "what are you based on",
         "tell me your model name",
     }
-    if _matches_command(cleaned, exact, threshold=0.82):
+    if cleaned in exact:
         return True
-    # Catch conversational phrasing and small typos such as "which moderl are
-    # you currently running" before the prompt reaches a model that may guess.
-    has_model_word = bool(re.search(r"\bmodel\b|\bmod[a-z]{1,3}l\b", cleaned))
-    has_identity_word = bool(
-        re.search(r"\b(?:your|you|ai|using|based|running|current|currently)\b", cleaned)
-    )
-    if has_model_word and has_identity_word:
-        return True
-    return bool(re.search(r"\b(?:model|engine)\b", cleaned) and re.search(r"\b(?:your|you|ai|using|based)\b", cleaned))
+    # Require an actual question about this assistant. Co-occurrence of "you"
+    # and "model" is common in requests to analyze or build another model.
+    model_word = r"(?:model|mod[a-z]{1,3}l|engine)"
+    return bool(re.fullmatch(
+        rf"(?:please\s+)?(?:what|which)\s+(?:ai\s+)?{model_word}\s+"
+        r"(?:are\s+you|do\s+you)\s+(?:(?:currently|actually)\s+)?"
+        r"(?:using|running|use|run)(?:\s+on)?(?:\s+(?:boy|morice|please))?",
+        cleaned,
+    ))
 
 
 def help_text() -> str:

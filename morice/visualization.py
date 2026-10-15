@@ -615,7 +615,7 @@ class VisualizationManager:
         lowered = text.lower()
         visual_verb = bool(
             re.search(
-                r"\b(?:animate|diagram|draw|graph|model|plot|render|show|simulate|visuali[sz]e)\b",
+                r"\b(?:animate|diagram|draw|graph|plot|render|show|simulate|visuali[sz]e)\b",
                 lowered,
             )
         )

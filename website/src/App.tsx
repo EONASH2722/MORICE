@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 const repo = 'https://github.com/EONASH2722/MORICE'
-const sourceVersion = '0.9.1'
+const sourceVersion = '0.9.2'
 const workspaces = [
   { name: 'Core', icon: 'core', image: `morice-home.png?v=${sourceVersion}`, title: 'A calmer place to begin.', copy: 'A luminous Core, a compact composer, and the tools you need within reach.' },
   { name: 'Spatial', icon: 'globe', image: `morice-spatial.png?v=${sourceVersion}`, title: 'Real places. Deterministic answers.', copy: 'Explore Earth, resolve locations offline, and compare WGS84 surface and through-Earth distances.' },

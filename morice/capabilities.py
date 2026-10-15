@@ -234,6 +234,13 @@ def detect_capability_topic(text: str) -> str | None:
     if not words:
         return None
     cleaned = " ".join(words)
+    # Inventory shortcuts answer brief questions about MORICE. Embedded
+    # questions in a specification or audit belong to the requested analysis.
+    if len(words) > 60 or not re.match(
+        r"^(?:(?:please|morice|hey)\s+)*(?:what|which|list|describe|explain|tell|show)\b",
+        cleaned,
+    ):
+        return None
     self_reference = bool(re.search(r"\b(?:you|your|morice)\b", cleaned))
     if not self_reference:
         return None

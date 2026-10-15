@@ -67,6 +67,14 @@ def references_prior_context(text: str) -> bool:
 def wants_previous_user_message(text: str) -> bool:
     words = _words(text)
     word_set = set(words)
+    # A document can discuss earlier answers and contain "what", "show" and
+    # "I" without asking us to replace the entire answer with a recalled turn.
+    if len(words) > 40 or not re.match(
+        r"^(?:please\s+)?(?:what\s+(?:did\s+i|was\s+my|is\s+my)|"
+        r"repeat\b|remind\b|quote\b|show\s+(?:me\b|my\b)|tell\s+me\b)",
+        " ".join(words),
+    ):
+        return False
     if not references_prior_context(text):
         return False
     asks_recall = bool(

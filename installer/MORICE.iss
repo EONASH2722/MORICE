@@ -1,6 +1,6 @@
 #define MyAppName "MORICE"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.9.1"
+  #define MyAppVersion "0.9.2"
 #endif
 #define MyAppPublisher "EONASH2722"
 #define MyAppExeName "MORICE.exe"
