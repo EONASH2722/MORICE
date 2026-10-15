@@ -39,6 +39,12 @@ All five older README images were replaced in place. The [23-image manifest](scr
 
 The [machine-readable follow-up validation](followup-validation-0.9.1.json) records software/package evidence without private profile paths. Release archives have CRC checks, metadata checks and SHA-256 manifests. Use the tagged 0.9.1 preview assets; the older 0.8.0 stable and Android releases retain their original scope.
 
+## Independent CI clock finding
+
+The first main CI passed 1,094 tests, 62 subtests, all 14 VNext tests and type checking. The initial tag run reproduced a timing-dependent failure in the existing kernel deadline fixture: it assumed a real seven-millisecond sleep would advance the monotonic clock past a one-millisecond deadline. [CPython 3.12 on Windows uses GetTickCount64](https://raw.githubusercontent.com/python/cpython/3.12/Python/pytime.c), whose ticks can be longer than that interval. The production deadline check was already present; the fixture now advances only the execution module's clock and confirms that the handler actually ran. All 36 kernel tests pass with this correction. No application module or executable changed.
+
+This remains a concrete runtime constraint for Python 3.12 on Windows: sub-tick deadline precision is limited by that runtime's monotonic clock. The packaged Python 3.14 executable uses QueryPerformanceCounter, verified locally at 100-nanosecond reported resolution. This is clock resolution, not a promise of real-time scheduling. The full-regression snapshot above records the test fingerprint before the fixture correction; current tagged CI validates the corrected test set separately.
+
 ## Retained controls
 
 The redundant confirmation above was a defect and has been removed. Existing permission decisions, exact destructive-action approvals, device authentication, action verification, process ownership and resource protection remain. No unconditional permission bypass or unrestricted hazardous-research mode was introduced. The existing Phase 2 kernel, graph, workers, coordinator, shared state and leases retain their authority.

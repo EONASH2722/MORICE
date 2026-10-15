@@ -9,6 +9,7 @@ This preview publishes the renovated desktop interface and the existing cross-ph
 - Pressing Send processes a typed request immediately. Passive speech retains its wake activation behavior. The composer uses neutral text, and name/title edits save when leaving the field.
 - Long rich messages grow with their content, reflow to the actual available width and pass vertical wheel movement to the conversation. Only documents above 32,768 layout pixels retain a themed inner scroll area to bound the browser surface.
 - Live Action uses the current theme, responsive camera controls and the shared composer. Context actions wrap without clipping, and message reactions use original vector icons.
+- The existing kernel deadline fixture uses a controlled clock, avoiding a timing-dependent assertion on Python 3.12 Windows runners. The production deadline checks remain unchanged.
 
 The desktop includes twelve distinct animated themes, Glass, continuous procedural motion, authored icons, a visible composer, one workspace navigation surface and the original logo. Updated repository screenshots show the current interface, including graph, simulation, project and personalization views.
 
@@ -23,5 +24,7 @@ The portable archive includes the small offline speech recognition model and its
 The follow-up audit is recorded in [followup-audit-0.9.1.md](followup-audit-0.9.1.md). It distinguishes source tests, native package checks, actual local-model inference and actual Vosk/Windows SAPI processing with bounded memory audio transports. Physical microphone/speaker validation remains separate.
 
 This remains a preview with partial and experimental hardware/provider support. Fresh heavy-model generation depends on sufficient available RAM/VRAM; the previously accepted host-RAM limitation remains. General desktop semantic understanding, external providers and physical audio/devices require separate validation. Decorative rendering does not promise 60 fps. SQLite and Windows process-ownership boundaries retain the concrete limits in the [release audit](release-audit-report.md).
+
+Python 3.12 on Windows has coarse monotonic-clock ticks, so deadlines shorter than one tick do not have sub-millisecond precision. The packaged Python 3.14 executable uses the higher-resolution performance counter. Neither configuration promises real-time scheduling. The follow-up audit records the original CI failure, its fixture correction and the separate validation snapshots.
 
 Permissions, exact approvals for high-risk operations, process cleanup, resource leases, verification contracts, device trust and computational research safety remain active. They protect existing work and keep reported outcomes tied to evidence. Passing the checks is not a guarantee that every possible defect has been eliminated.

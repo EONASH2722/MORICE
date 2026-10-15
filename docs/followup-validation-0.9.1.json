@@ -2,12 +2,14 @@
   "schema": "morice.followup-validation.v1",
   "version": "0.9.1",
   "source_sha256": "f7dedf318b775650354645984f6f77b22d606cc3f0bbdb6ad13158a28cd55575",
-  "test_source_sha256": "f5b4024dd732cd1d6632811bb6082dcd0f7b68a02478fb498f5cb480120dcad0",
+  "test_source_sha256": "a8594662f6f60a2548b26e5d95c9edfd1d600706f0c687cdc095cedba4323055",
   "full_regression": {
     "passed": 1094,
     "subtests_passed": 62,
     "seconds": 479.18,
-    "exit_code": 0
+    "exit_code": 0,
+    "test_source_sha256": "f5b4024dd732cd1d6632811bb6082dcd0f7b68a02478fb498f5cb480120dcad0",
+    "scope": "Historical full suite before the clock-fixture correction; application modules remain byte-identical."
   },
   "frozen": {
     "status": "FROZEN_ARCHIVE_PARITY_PASSED",
@@ -132,5 +134,12 @@
     "scope": "Actual Vosk and Windows SAPI; recorded input and bounded memory audio transports, not physical microphone/speaker certification."
   },
   "scope": "Software and owned native application checks. Existing Phase 2 authorities, permissions, verification and resource protections retained. Hardware/provider/RAM/SQLite/process-boundary limits remain documented; no zero-defect guarantee.",
-  "audit": "docs/followup-audit-0.9.1.md"
+  "audit": "docs/followup-audit-0.9.1.md",
+  "clock_fixture_validation": {
+    "kernel_tests_passed": 36,
+    "seconds": 2.9,
+    "application_changed": false,
+    "reason": "Python 3.12 Windows GetTickCount64 ticks can exceed the old seven-millisecond sleep; use a controlled execution-module clock and assert handler invocation.",
+    "runtime_constraint": "Python 3.12 Windows sub-tick deadlines are limited by its monotonic clock; packaged Python 3.14 uses QueryPerformanceCounter. No real-time scheduling guarantee."
+  }
 }

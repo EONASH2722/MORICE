@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -367,8 +368,22 @@ class KernelTests(unittest.TestCase):
         handler.assert_not_called()
 
     def test_completion_within_poll_interval_still_enforces_deadline(self):
-        self.register(handler=lambda i, c: (time.sleep(.007), ok(i, c))[1])
-        result = self.kernel.dispatch("test.work", {}, timeout=.001)
+        # Python 3.12's Windows monotonic clock uses GetTickCount64. A real
+        # 7 ms sleep can fit inside one clock tick, making this assertion
+        # depend on the host timer phase. Advance only the execution module's
+        # clock so completion precedes its first poll but exceeds the deadline.
+        clock = [100.0]
+        invoked = threading.Event()
+        def complete_after_deadline(inputs, context):
+            clock[0] += .007
+            invoked.set()
+            return ok(inputs, context)
+        self.register(handler=complete_after_deadline)
+        execution_clock = SimpleNamespace(monotonic=lambda: clock[0],
+            perf_counter=time.perf_counter, time=time.time)
+        with patch('morice.kernel.execution.time', execution_clock):
+            result = self.kernel.dispatch("test.work", {}, timeout=.001)
+        self.assertTrue(invoked.is_set())
         self.assertEqual(result.errors[0].code, ErrorCode.TIMEOUT)
 
 
