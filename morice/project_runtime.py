@@ -118,8 +118,15 @@ def validate_project_file(relative_path: str, content: str) -> None:
             raise ProjectValidationError(f"{path} does not contain a complete HTML document.")
 
 
-def detect_python_requirements(files: dict[str, str]) -> list[str]:
+def detect_python_requirements(files: dict[str, str], project_root=None) -> list[str]:
     packages: set[str] = set()
+    local_modules = set()
+    for path in files:
+        parts = Path(path.replace('\\', '/')).parts
+        if parts and parts[-1].endswith('.py'):
+            local_modules.add(Path(parts[-1]).stem)
+            local_modules.update(parts[:-1])
+    roots = (Path(project_root), Path(project_root) / 'src') if project_root else ()
     for path, content in files.items():
         if os.path.splitext(path)[1].lower() != ".py":
             continue
@@ -131,10 +138,12 @@ def detect_python_requirements(files: dict[str, str]) -> list[str]:
             names: list[str] = []
             if isinstance(node, ast.Import):
                 names = [alias.name.split(".")[0] for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
+            elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
                 names = [node.module.split(".")[0]]
             for name in names:
-                if not name or name in PYTHON_STDLIB or name.startswith("_"):
+                if not name or name in PYTHON_STDLIB or name in sys.stdlib_module_names or name in local_modules or name.startswith("_"):
+                    continue
+                if any((root / (name + '.py')).is_file() or (root / name / '__init__.py').is_file() for root in roots):
                     continue
                 packages.add(IMPORT_PACKAGE_ALIASES.get(name, name))
     return sorted(packages, key=str.lower)

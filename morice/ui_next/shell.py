@@ -147,7 +147,7 @@ class RenovatedWindow(ExistingPresenter):
         self._apply_renovated_theme()
         restored_route = self.workspace_state.presentation_route if self._session_enabled else 'home'
         if restored_route not in self.routes and restored_route not in self.route_factories: restored_route = 'home'
-        self.navigation.set_expanded(self._session_enabled and self.workspace_state.presentation_navigation_expanded)
+        self.navigation.set_expanded(self.workspace_state.presentation_navigation_expanded if self._session_enabled else True)
         self.navigate(restored_route)
         self.ui_bridge.event_arrived.connect(self._runtime_event)
         self.theme_engine.changed.connect(lambda *_: self.effect_clock.configure())
@@ -171,7 +171,8 @@ class RenovatedWindow(ExistingPresenter):
         controls = QHBoxLayout()
         for widget, label in ((self.attach_btn, 'Attach'), (self.voice_btn, 'Voice')):
             widget.setParent(frame); widget.setText(''); widget.setToolTip(label); widget.setAccessibleName(label); widget.setProperty('morice_icon', label.casefold()); widget.setMinimumWidth(0); widget.setFixedWidth(40); widget.setFixedHeight(self.theme_engine.tokens.control_height); widget.show(); controls.addWidget(widget)
-        hint = QLabel('Your workspace'); hint.setProperty('role', 'secondary'); controls.addWidget(hint, 1)
+        self.composer_hint = QLabel('Your workspace'); self.composer_hint.setWordWrap(True)
+        self.composer_hint.setProperty('role', 'secondary'); controls.addWidget(self.composer_hint, 1)
         self.composer_options = QPushButton('Context'); self.composer_options.setProperty('morice_icon', 'context'); self.composer_options.setCheckable(True); controls.addWidget(self.composer_options)
         layout.addLayout(controls)
         self.composer_details = QWidget(frame); details = FlowLayout()
@@ -208,6 +209,9 @@ class RenovatedWindow(ExistingPresenter):
             except Exception as exc:
                 self.status_line.setText('This workspace could not open: ' + str(exc)[:300]); return
         if key not in self.routes: return
+        if not self.is_busy and not self._project_build_id:
+            if key == 'projects': self._set_chat_mode('project')
+            elif key in {'home', 'chats'}: self._set_chat_mode('normal')
         self.active_route = key; self.route_stack.setCurrentWidget(self.routes[key]); self.navigation.set_active(key)
         self.navigation.setVisible(key != 'home'); self.action_deck.set_active(key); self.core_button.setVisible(key != 'home')
         self.action_deck.setVisible(not self.navigation.isVisible())
@@ -215,10 +219,11 @@ class RenovatedWindow(ExistingPresenter):
         self.composer.setVisible(key in {'home', 'chats', 'projects', 'voice'})
         self._size_renovated_composer()
         if key == 'spatial': self.routes[key].set_context(self.runtime.spatial.snapshot())
-        if key == 'projects': self.project_lookup_btn.show()
+        if key == 'projects': self.project_lookup_btn.show(); self.routes[key].refresh_state()
         if key in {'automations', 'connectors', 'security'}: self.routes[key].select_route(key)
         self.effect_clock.request()
         if hasattr(self, 'cursor_lighting'): self.cursor_lighting.set_targets()
+        self._refresh_send_button_state()
 
     def _ambient_view(self):
         if not hasattr(self, '_renovated_ambient'): self._renovated_ambient = AmbientWorkspace(self.runtime, self.ui_bridge, self)
@@ -248,17 +253,80 @@ class RenovatedWindow(ExistingPresenter):
 
     def append_message(self, *args, **kwargs):
         result = super().append_message(*args, **kwargs)
+        if getattr(self, '_project_presentation_active', False) and 'projects' in self.routes:
+            author = args[0] if args else kwargs.get('author', 'MORICE')
+            message = args[1] if len(args) > 1 else kwargs.get('message', '')
+            self.routes['projects'].record_message(author, message)
         if hasattr(self, 'renderer_clocks'): self.renderer_clocks.register(self)
         if getattr(self,'_renovated_ready',False):self._refresh_rich_appearance()
         return result
+
+    def _project_submission_action(self):
+        if getattr(self, '_renovated_ready', False) and self.active_route == 'projects':
+            return self.routes['projects'].action.currentData()
+        return super()._project_submission_action()
+
+    def _refresh_send_button_state(self):
+        super()._refresh_send_button_state()
+        if not getattr(self, '_renovated_ready', False): return
+        project = self.active_route == 'projects'
+        if not self.is_busy:
+            if project:
+                build = self._project_submission_action() == 'build'
+                self.send_btn.setText('Build files' if build else 'Ask project')
+                self.input.setPlaceholderText('Describe the files to create or changes to make…' if build else 'Ask a question about this project…')
+            else: self.input.setPlaceholderText('Ask MORICE…')
+        self.composer_hint.setText('Project folder · review changes before saving' if project and self.project_access != 'full'
+            else 'Project folder · files can be saved directly' if project else 'Your workspace')
+        if 'projects' in self.routes:
+            self.routes['projects'].action.setEnabled(not self.is_busy and not self._project_build_id)
+        if project and self._project_build_id:
+            self.send_btn.setText('Building…'); self.send_btn.setEnabled(False)
+
+    def _on_thinking_update(self, detail):
+        super()._on_thinking_update(detail)
+        if getattr(self, '_project_presentation_active', False):
+            self.routes['projects'].feedback.setText(detail)
+
+    def _on_project_changes_ready(self, summary, diff_html):
+        super()._on_project_changes_ready(summary, diff_html)
+        if getattr(self, '_renovated_ready', False):
+            view = self.routes['projects']; view.refresh_state()
+            if self._project_build_id and self.assistant_hub.browser_page.parent() is view.preview:
+                self._set_project_workspace_tab(4)
+
+    def _set_project_workspace_tab(self, index):
+        super()._set_project_workspace_tab(index)
+        if getattr(self, '_renovated_ready', False) and 'projects' in self.routes:
+            QTimer.singleShot(0, self.routes['projects'].ensure_primary_visible)
+
+    def _on_project_build_result(self, session):
+        super()._on_project_build_result(session)
+        if getattr(self, '_renovated_ready', False):
+            view = self.routes['projects']; view.refresh_state()
+            view.feedback.setText('Files saved. Check Output for the build and verification results.')
+            view.record_message('Build result', self.changes_action_status.text())
+            self._refresh_send_button_state()
+
+    def _send_queued_message_if_ready(self):
+        if not self.is_busy and self.message_queue and getattr(self, '_renovated_ready', False):
+            self.navigate(getattr(self, '_request_workspace_route', 'chats'))
+        super()._send_queued_message_if_ready()
 
     def _refresh_rich_appearance(self):
         for view in self.findChildren(RichContentView):view.apply_design_tokens(self.theme_engine.tokens)
 
     def _set_assistant_hub_visible(self, visible):
         if not getattr(self, '_renovated_ready', False): return super()._set_assistant_hub_visible(visible)
+        if visible and getattr(self, '_project_preview_preparing', False): return
         self.navigate('tools' if visible else 'chats')
         if visible: self._refresh_workspace_hub()
+
+    def _prepare_build_browser(self, root):
+        if not getattr(self, '_renovated_ready', False): return super()._prepare_build_browser(root)
+        self._project_preview_preparing = True
+        try: return super()._prepare_build_browser(root)
+        finally: self._project_preview_preparing = False
 
     def toggle_mode_panel(self):
         if not getattr(self, '_renovated_ready', False): return super().toggle_mode_panel()
@@ -423,11 +491,12 @@ class RenovatedWindow(ExistingPresenter):
 
     def _dock_composer_immediate(self):
         if not getattr(self, '_renovated_ready', False): return super()._dock_composer_immediate()
-        self.composer_centered = False; self.navigate('chats')
+        self.composer_centered = False
+        if self.active_route not in {'projects', 'voice'}: self.navigate('chats')
 
     def _dock_composer(self):
         if not getattr(self, '_renovated_ready', False): return super()._dock_composer()
-        if self.active_route != 'projects': self.navigate('chats')
+        if self.active_route not in {'projects', 'voice'}: self.navigate('chats')
 
     def toggle_sidebar(self):
         if not getattr(self, '_renovated_ready', False): return super().toggle_sidebar()
@@ -471,7 +540,21 @@ class RenovatedWindow(ExistingPresenter):
     def on_send(self):
         if not getattr(self, '_renovated_ready', False): return super().on_send()
         text = self.input.text().strip()
-        if SpatialService.is_context_command(text):
+        if not text: return
+        if self.is_busy and self.active_route != getattr(self, '_request_workspace_route', self.active_route):
+            self.status_line.setText('Finish or stop the current response before sending from another workspace.')
+            return
+        if self._project_build_id and self.active_route == 'projects':
+            self.routes['projects'].feedback.setText('A build is already running. Follow its progress in Output, or choose Stop build before starting another.')
+            return
+        if not self.is_busy:
+            self._request_workspace_route = 'chats' if self.active_route == 'home' else self.active_route
+            self._project_presentation_active = self.active_route == 'projects'
+            if self.active_route == 'projects':
+                self._set_chat_mode('project'); self._set_project_workspace_tab(3)
+            elif self.active_route in {'home', 'chats'}:
+                self._set_chat_mode('normal')
+        if self.active_route != 'projects' and SpatialService.is_context_command(text):
             self.input.clear()
             wake_epoch = self.wake_controller.epoch if self.wake_controller.active else None
             cancellation = self.wake_controller.interaction_token if wake_epoch is not None else None
@@ -563,10 +646,22 @@ class RenovatedWindow(ExistingPresenter):
         return result
 
     def _finish_response_delivery(self, author, message, is_user, **kwargs):
+        if getattr(self, '_project_presentation_active', False) and kwargs.get('already_visible'):
+            self.routes['projects'].record_message(author, message)
         result = super()._finish_response_delivery(author, message, is_user, **kwargs)
+        self._project_presentation_active = False
+        if getattr(self, '_renovated_ready', False): self.routes['projects'].refresh_state()
         if getattr(self, '_renovated_ready', False) and self.wake_controller.active and not is_user:
             self.wake_controller.result(message)
         return result
+
+    def _on_project_patch_result(self, payload):
+        super()._on_project_patch_result(payload)
+        if getattr(self, '_renovated_ready', False): self.routes['projects'].refresh_state()
+
+    def _reject_pending_project_patch(self):
+        super()._reject_pending_project_patch()
+        if getattr(self, '_renovated_ready', False): self.routes['projects'].refresh_state()
 
     def _runtime_event(self, event):
         kind = event['type']

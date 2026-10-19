@@ -1,8 +1,8 @@
 # MORICE Documentation
 
-This documentation describes the current `0.9.0` source candidate. Published Windows/Android `0.8.0` binaries are older builds with the previous interface. Current source adds the renovated workspace, verified runtime extensions, Research, Mesh, Media and Spatial with the concrete provider/hardware constraints in each phase guide.
+This documentation describes MORICE `0.9.3`, including the simpler Project and Experiment workflows. Earlier Windows/Android `0.8.0` packages use the previous interface. Each phase guide retains its own provider and hardware constraints.
 
-The [Renovation architecture](renovation-architecture.md), [Renovation acceptance report](renovation-report.md) and [135-topic release audit](release-audit-report.md) identify current implementation, exact validation and remaining gates.
+The [current workspace validation](workspace-validation-0.9.3.md) records the latest checks and concrete limits. The [Renovation architecture](renovation-architecture.md), [Renovation acceptance report](renovation-report.md) and [135-topic release audit](release-audit-report.md) identify current implementation, exact validation and remaining gates.
 
 ## Start Here
 
@@ -12,6 +12,7 @@ The [Renovation architecture](renovation-architecture.md), [Renovation acceptanc
 | [Feature matrix](feature-matrix.md) | Exact implemented, conditional, and unavailable capabilities |
 | [Models and performance](model-guide.md) | GGUF/Ollama setup, GPU fit, and tuning |
 | [Reviewer fixes](reviewer-fixes.md) | Neutral personalization, composer help, Precision behavior, computed graph insights and readable numbers |
+| [Projects and Experiments](simple-workspaces.md) | Build and save files, ask about a project, review experiments, and inspect actual results |
 | [Project Mode](project-mode.md) | Folder access, project generation, review, apply, tests, and Git status |
 | [Android companion](android-companion.md) | APK installation, secure pairing, voice, Live Vision, task grants, and validation limits |
 | [Desktop pets](desktop-pets.md) | Animated companions, click-to-open behavior, drag interactions, fullscreen handling, and transparent showcase assets |
@@ -33,7 +34,8 @@ The [Renovation architecture](renovation-architecture.md), [Renovation acceptanc
 
 ## Project Information
 
-- [Release notes](release-notes-0.8.0.md)
+- [Current release notes](release-notes-0.9.3.md)
+- [Earlier 0.8.0 release notes](release-notes-0.8.0.md)
 - [Release audit](release-audit-0.8.0.md)
 - [Changelog](../CHANGELOG.md)
 - [Contributing](../CONTRIBUTING.md)

@@ -697,7 +697,10 @@ def test_profile_import_denial_prevents_picker(window):
 def test_project_lookup_and_context_quick_actions_are_reachable(window,app):
     previous=window.project_lookup_mode
     try:
-        window.navigate('projects');app.processEvents();assert window.project_lookup_btn.isVisible()
+        window.navigate('projects');app.processEvents()
+        options = window.routes['projects'].options_button
+        if not options.isChecked(): options.click()
+        assert window.project_lookup_btn.isVisible()
         QTest.mouseClick(window.project_lookup_btn,Qt.LeftButton);assert window.project_lookup_mode!=previous
         window._refresh_mode_panel();assert window.project_lookup_btn.isVisible()
         window.navigate('home');window.composer_options.setChecked(True);app.processEvents()

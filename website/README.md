@@ -1,6 +1,6 @@
 # MORICE website
 
-The product overview is a React + TypeScript application built with Vite. The existing GitHub Pages workflow deploys `website/dist`. Current source is 0.9.0; published Windows/Android 0.8.0 downloads are explicitly labelled as earlier builds.
+The product overview is a React + TypeScript application built with Vite. The existing GitHub Pages workflow deploys `website/dist`. Current source is 0.9.3; published Windows/Android 0.8.0 downloads are explicitly labelled as earlier builds.
 
 ## Current production-build previews
 
@@ -8,7 +8,7 @@ The product overview is a React + TypeScript application built with Vite. The ex
 | --- | --- |
 | ![Glass website hero](../docs/screenshots/website-hero-current.png) | ![Ice website scene and compact mobile workspace tabs](../docs/screenshots/website-mobile-current.png) |
 
-These owned-browser captures show the local production build on October 15, 2026. The embedded desktop images come from the actual renovated native app in isolated profiles. They do not establish live deployment or infer model activity.
+These owned-browser captures show the local production build for version 0.9.3. The embedded desktop images come from the actual renovated native app in isolated profiles. They do not establish live deployment or infer model activity.
 
 ## Development
 
@@ -34,7 +34,7 @@ Vite's local preview serves the build at its root. Relative asset paths also sup
 
 `src/styles.css` defines theme variables, distinct closed animation cycles, focus states and responsive layouts. Animation endpoints return to the same pose. The website pauses decoration when hidden, exposes a visible motion control and honours the operating system's Reduced Motion setting. It uses system fonts and no icon pack.
 
-`public/` holds the original MORICE logo and four current native workspace captures. The older `NeuralCanvas.tsx` and `useScrollProgress.ts` remain unimported historical source; the current page does not mount a scrolling cinematic canvas.
+`public/` holds the original MORICE logo and five current native workspace captures, including Projects. The older `NeuralCanvas.tsx` and `useScrollProgress.ts` remain unimported historical source; the current page does not mount a scrolling cinematic canvas.
 
 ## Verification and deployment
 

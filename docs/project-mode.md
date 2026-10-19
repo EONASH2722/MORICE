@@ -2,16 +2,18 @@
 
 Project Mode turns natural-language requests into reviewable workspace changes. It is not a shell with unrestricted silent access.
 
+See the [current Projects and Experiments quick guide](simple-workspaces.md).
+
 ## Start A Project
 
 1. Open **Projects** from the Core launcher or workspace sidebar.
-2. Select `+` beside the project folder field.
+2. Select **Choose folder** beside the project folder field. Builder mode is automatic.
 3. Choose or create a folder outside the MORICE application directory.
-4. Select **Limited to folder** for the recommended boundary, or **Full access** when the work spans other locations.
-5. Choose local or **Online+local** context.
-6. State the deliverable, language, framework, target platform, constraints, and verification command.
+4. Under **Build settings**, choose the existing access and local/online context options.
+5. Keep **Build or edit files** selected, describe the deliverable, language, framework, target platform and constraints, then select **Build files**.
+6. In folder-limited mode, inspect **Review** and choose **Save reviewed files** to apply the proposal and start the available checks. Use **Ask about this project** for an explanation.
 
-![Current MORICE Projects workspace in an owned empty profile](screenshots/morice-projects.png)
+![Current MORICE Projects workspace with a saved and verified addition example](screenshots/morice-projects.png)
 
 ## Build Pipeline
 

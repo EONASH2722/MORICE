@@ -155,8 +155,19 @@ class ProjectBuildRuntime:
             raise PermissionError("Proposal root differs from the authorized project.")
         ctx=replace(ctx,cancellation_token=ctx.cancellation_token or CancellationToken(),deadline=min(ctx.deadline or float("inf"),time.monotonic()+min(60,limits.max_wall_seconds)),metadata={**ctx.metadata,"model_budget":budget})
         from .proposals import scoped_snapshot
-        prompt=("Propose the requested local application. Return only JSON {\"files\":[{\"path\":\"relative path\",\"content\":\"complete source\"}]}. Include real tests. Do not run commands, create binaries, publish or change Git. Preserve unrelated files.\nGoal: "+redact_text(goal)[:500]+"\n"+scoped_snapshot(root,self.tools.indexer,max_chars=900,max_files=2,query=goal)[:1000])
-        task=TaskNode("agent.reason",{"prompt":prompt[:2000]},constraints={"role":"coder"},description="Propose minimal source and tests from the user's project goal")
+        instructions = ("Propose the requested local application. Return only JSON {\"files\":[{\"path\":\"relative path\",\"content\":\"complete source\"}]}. Include real tests. Do not run commands, create binaries, publish or change Git. Preserve unrelated files.\nGoal: ")
+        prompt = instructions + redact_text(goal)
+        # Keep the complete goal ahead of optional repository excerpts. Never
+        # silently discard later requirements to fit the shared 2,000-character
+        # task contract. Oversized goals remain stored and visibly partial.
+        if len(prompt) > 2000:
+            session.status = "partial"
+            self._issue(session, "environment", "planning", "This build request exceeds the shared proposal context budget. Split it into smaller file changes; the complete requirements remain stored and no proposal was applied.")
+            self.save(session); return session
+        remaining = 2000 - len(prompt) - 1
+        if remaining > 150:
+            prompt += "\n" + scoped_snapshot(root,self.tools.indexer,max_chars=min(900, remaining // 2),max_files=2,query=goal)[:remaining]
+        task=TaskNode("agent.reason",{"prompt":prompt},constraints={"role":"coder"},description="Propose minimal source and tests from the user's project goal")
         graph,result=self._graph(session,[task],ctx,authorize,False)
         session.metrics["proposal_model_budget"]=budget.snapshot()
         if not result.success:
@@ -205,6 +216,8 @@ class ProjectBuildRuntime:
         return session
 
     def _issue(self, session, category, stage, evidence):
+        if category in {"permission", "user_intervention", "environment"}:
+            session.metrics["source_repair_blocked"] = True
         evidence = redact_text(evidence)[-4000:]
         identity = hashlib.sha256((category + stage + evidence).encode()).hexdigest()[:24]
         current = next((v for v in session.issues if v["issue_id"] == identity), None)
@@ -314,7 +327,15 @@ class ProjectBuildRuntime:
             value = task.result.output or {}
             logs = str(value.get("stderr", "")) + "\n" + str(value.get("stdout", "")) if isinstance(value, dict) else str(value)
             errors = "\n".join(e.message for e in task.result.errors)
-            category = "permission" if any(e.code == ErrorCode.PERMISSION_DENIED for e in task.result.errors) else "dependency" if "ModuleNotFoundError" in logs or stage == "dependencies" else "test" if stage == "test" else "build" if stage == "build" else "visual" if stage == "ui" else stage
+            if any(e.code == ErrorCode.PERMISSION_DENIED for e in task.result.errors):
+                category = "permission"
+            elif any(e.detail == "UserInterventionRequired" for e in task.result.errors):
+                category = "user_intervention"
+                errors += "\nVerification needs attention in the application before it can continue; source repair cannot resolve this action."
+            elif any(e.code in {ErrorCode.CAPABILITY_UNAVAILABLE, ErrorCode.RESOURCE_UNAVAILABLE, ErrorCode.DEPENDENCY_MISSING} for e in task.result.errors):
+                category = "environment"
+            else:
+                category = "dependency" if "ModuleNotFoundError" in logs or stage == "dependencies" else "test" if stage == "test" else "build" if stage == "build" else "visual" if stage == "ui" else stage
             self._issue(session, category, stage, errors + "\n" + logs)
 
     def _commands(self, session, context, authorize, sequential):
@@ -576,6 +597,7 @@ class ProjectBuildRuntime:
             revisions = 0
             while not token.cancelled and time.monotonic() < context.deadline:
                 revision = session.revision
+                session.metrics.pop("source_repair_blocked", None)
                 try:
                     okay = self._implement(session, context, authorize, sequential, limits)
                     okay = okay and self._commands(session, context, authorize, sequential)
@@ -606,6 +628,11 @@ class ProjectBuildRuntime:
                     break
                 issues = [v for v in session.issues if v["status"] != "resolved"]
                 if not issues or any(v["repair_attempts"] >= limits.max_attempts_per_issue for v in issues):
+                    break
+                if session.metrics.get("source_repair_blocked"):
+                    # A source edit cannot supply consent, reveal a hidden
+                    # browser, install a provider or free a leased resource.
+                    # Return the actual blocked result without an LLM wait.
                     break
                 self._progress(session, "diagnosing_and_repairing", context)
                 for change in session.changes:

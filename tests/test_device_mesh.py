@@ -83,7 +83,10 @@ def test_explicit_pair_mutual_tls_and_real_execution(mesh_nodes):
 
 def test_pair_requires_both_confirmations_and_wrong_code_pin_expiry(mesh_nodes):
     a, b, _ = mesh_nodes
-    window = b.transport.enable_pairing(seconds=1)
+    # Exercise confirmation, pin and code rejection while the pairing window
+    # is live. Expiry is explicitly controlled below, independently of TLS
+    # handshake timing or machine/build load.
+    window = b.transport.enable_pairing()
     with pytest.raises(PermissionError):
         a.begin_pair("127.0.0.1", window["pair_port"], window["code"], window["fingerprint"])
     with pytest.raises(PermissionError):

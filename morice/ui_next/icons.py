@@ -225,8 +225,11 @@ class UiIconBinder(QObject):
         app.installEventFilter(self); theme.changed.connect(self.refresh)
         self.refresh()
     def _owned(self, widget):
+        from shiboken6 import isValid
         current = widget
-        while current is not None:
+        # Polish/show can arrive while Qt is retiring layout items. Only live
+        # QObject parents can belong to this window's control hierarchy.
+        while isinstance(current, QObject) and isValid(current):
             if current is self.owner: return True
             current = current.parent()
         return False
@@ -239,6 +242,7 @@ class UiIconBinder(QObject):
         elif isinstance(widget, QAbstractButton) and not isinstance(widget, (QCheckBox, QRadioButton)):
             if widget.property('morice_icon_in_content'): return
             name = widget.property('morice_icon') or semantic_icon(widget.accessibleName() or widget.toolTip() or widget.text())
+            if name not in MARKS: name = semantic_icon(str(name))
             widget.setIcon(icon(name, self.theme, primary=widget.property('role') == 'primary')); widget.setIconSize(QSize(19, 19))
             icon_only = not bool(widget.text().strip())
             if widget.property('icon_only') != icon_only:
@@ -248,7 +252,8 @@ class UiIconBinder(QObject):
             for index in range(widget.count()): widget.setTabIcon(index, icon(semantic_icon(widget.tabText(index)), self.theme))
             self._bound.add(widget)
         elif isinstance(widget, QAction) and not widget.isSeparator():
-            widget.setIcon(icon(widget.property('morice_icon') or semantic_icon(widget.text()), self.theme)); self._bound.add(widget)
+            name = widget.property('morice_icon') or semantic_icon(widget.text())
+            widget.setIcon(icon(name if name in MARKS else semantic_icon(str(name)), self.theme)); self._bound.add(widget)
     def eventFilter(self, source, event):
         # Retained model controls keep their original callbacks, while their
         # obsolete galaxy decoration must neither paint nor keep a timer alive.

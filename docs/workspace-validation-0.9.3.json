@@ -1,0 +1,204 @@
+{
+  "schema": "morice.workspace-validation.v1",
+  "version": "0.9.3",
+  "date": "2026-10-19",
+  "source_sha256": "1fbbba93da7977c708d52b15e71b816e6fd99ca833d8902c1c8ec0e9290ba610",
+  "test_source_sha256": "90b2651a72d7fe072934a3ef098c4748ff31bcd1870c80c32933f321dfb506b0",
+  "fingerprint_method": "Sorted morice/**/*.py or tests/**/*.py: Windows relative path bytes followed by file bytes, SHA-256.",
+  "python": {
+    "passed": 1147,
+    "subtests_passed": 62,
+    "seconds": 590.93
+  },
+  "project": {
+    "review_preserved": true,
+    "source_files_written": true,
+    "output": "5",
+    "session_status": "verified",
+    "same_kernel": true
+  },
+  "experiment": {
+    "status": "COMPLETED",
+    "actual_runs": 5,
+    "densities": [
+      2000.0,
+      1600.0,
+      1333.3333333333333,
+      1142.857142857143,
+      1000.0
+    ],
+    "same_kernel": true
+  },
+  "native_scope": "Native Qt actions, deterministic scaffold, actual saved files and actual scientific runs. No model inference claim.",
+  "shutdown": {
+    "clean": true,
+    "failures": [],
+    "leases_remaining": 0,
+    "pending_workers": 0
+  },
+  "controlled_model_checks": "Explicit and bundled/default model dispatch receive the complete small project goal; controlled source proposals pass through the existing builder, review, actual disk writes and actual Python unit-test execution. No new real-weight inference was performed.",
+  "other_coverage": [
+    "Project Ask stays in Updates without writes",
+    "Explicit no-code instruction retains explanation intent",
+    "Project-to-chat navigation preserves drafts and deterministic math fast path",
+    "Web Preview reuses the existing browser page and bridge; Tools can reclaim it",
+    "Local, relative and standard-library imports do not become pip dependencies",
+    "Oversized goals remain stored as partial and do not silently truncate requirements",
+    "Missing experiment inputs preserve the draft; natural-language sweep runs without chat fallback",
+    "Compact Save/Run controls retain minimum height; review areas scroll",
+    "All 65 authored icon names remain valid",
+    "Blocked browser/user/permission/environment verification returns without a model source-repair call; a fresh retry can repair code after the environment recovers",
+    "Delayed GPU detection ignores a closing window"
+  ],
+  "native_capture": {
+    "routes": [
+      "home",
+      "chats",
+      "projects",
+      "research",
+      "spatial",
+      "devices",
+      "media",
+      "automations",
+      "connectors",
+      "security",
+      "history",
+      "activity",
+      "tools",
+      "voice",
+      "artifacts",
+      "plugins",
+      "settings"
+    ],
+    "captures": 25,
+    "workflow_captures": 9,
+    "qt_platform": "windows",
+    "device_pixel_ratio": 1.25,
+    "manifest": "screenshots/current-manifest.json",
+    "method": "Actual owned Qt production window with isolated demonstration profiles, driven through its controls. Not a physical mouse/microphone/device certification."
+  },
+  "wheel": {
+    "sha256": "e0f9a514ab8e11b580793ec1bef753c58fb853827dfcfdf7d899776696982c3b",
+    "equal_source_modules": 218,
+    "routes": 17,
+    "authored_icons": 65,
+    "owned_windows_job_reaped": true,
+    "main_runtime_clean_shutdown": true,
+    "separate_runtime_clean_shutdown": true,
+    "dependency_scope": "Main installed dependency runtime and a separate existing dependency venv; not a fresh dependency installation."
+  },
+  "frozen": {
+    "source_equal_modules": 216,
+    "omitted_cli_modules": [
+      "morice.__main__",
+      "morice.cli"
+    ],
+    "files": 3311,
+    "exe_sha256": "4d74d754ae5f1e06466cc0d22273c8529ca3a604d13ee27bc7f0dde77734e264",
+    "no_gguf_or_generative_weights": true,
+    "existing_vosk_retained": true,
+    "startup_routes": 17,
+    "critical_failures": 0,
+    "canonical_and_root_installed_startup": "passed",
+    "existing_local_models_retained": 3
+  },
+  "vnext": {
+    "passed": 14,
+    "typecheck": "passed",
+    "scope": "Unchanged VNext source; local tests and typecheck passed during this update. Exact-commit CI repeats these checks."
+  },
+  "local_website": {
+    "status": "CURRENT_PRODUCTION_SITE_QA_PASSED",
+    "releasePreview": "0.9.3",
+    "themes": {
+      "midnight": {
+        "animationChanged": true,
+        "animatedElements": 8
+      },
+      "glass": {
+        "animationChanged": true,
+        "animatedElements": 6
+      },
+      "ice": {
+        "animationChanged": true,
+        "animatedElements": 2
+      },
+      "solar": {
+        "animationChanged": true,
+        "animatedElements": 2
+      }
+    },
+    "desktop": {
+      "width": 1440,
+      "scroll": 1440
+    },
+    "mobile": {
+      "width": 390,
+      "scroll": 390,
+      "brokenImages": 0
+    },
+    "keyboardResearch": true,
+    "pauseResume": true,
+    "consoleErrors": [],
+    "consoleWarnings": [],
+    "captures": [
+      {
+        "name": "Core",
+        "sha256": "b2e429dfd9012a9ef621238bd572ca118253123978ceb0bd01d7a78b80d9feb6",
+        "loaded": true
+      },
+      {
+        "name": "Projects",
+        "sha256": "1172c65e25a2e9d3ffb10d624f051912e1f86df3651610c8b4b6a963917ff4ce",
+        "loaded": true
+      },
+      {
+        "name": "Spatial",
+        "sha256": "ac864f1d5598b2f4c0e51707643756367db3e17b709ce8e362511c797e6b61bd",
+        "loaded": true
+      },
+      {
+        "name": "Research",
+        "sha256": "b7aa4040f95764eeb162e9ffad655189d68e27737c3c267cd1df4c2af60b1d6f",
+        "loaded": true
+      },
+      {
+        "name": "Media",
+        "sha256": "053d61e085b5e87a4c301e9f6ebd1da60f6dd03c577d2f08b766996b4bc73eb9",
+        "loaded": true
+      }
+    ]
+  },
+  "audit": [
+    {
+      "step": "Choose a folder and Build/Ask intent",
+      "health": "passed",
+      "evidence": "screenshots/morice-projects.png"
+    },
+    {
+      "step": "Build, review, save and inspect actual source/output",
+      "health": "passed within supported scope",
+      "evidence": "screenshots/morice-project-review.png"
+    },
+    {
+      "step": "Describe an experiment or enter required model values",
+      "health": "passed within four-model scope",
+      "evidence": "screenshots/morice-research.png"
+    },
+    {
+      "step": "Review inputs, run and inspect stored results",
+      "health": "passed within computational model scope",
+      "evidence": "screenshots/morice-research-results.png"
+    }
+  ],
+  "retained_development_failures": "An early full run exposed a one-second pairing fixture expiry under concurrent build load; the fixture now controls expiry explicitly while production permissions/TTL stay unchanged. Native compact review inspection caught a squeezed Save button despite the earlier visibility-only check; scroll layout and minimum-height coverage were corrected before the final build. A later full run exposed unnecessary model source repair after browser UserInterventionRequired; the repaired final source stops that attempt and guards a late GPU callback on close.",
+  "constraints": [
+    "Automatic source proposal task budget is 2,000 characters including instructions; Project model output stays bounded at up to 1,024 tokens. Oversized goals are visibly partial. Arbitrary large application generation is not certified.",
+    "Toolchains, dependencies, providers and compatible model weights must be installed. Source generation does not imply a compiled executable.",
+    "Experiments cover driven oscillator, thermal expansion, ideal mixture density and vacuum particle models. Their stored results are computational outputs, not measured physical validation.",
+    "New heavy inference checks remain constrained by about 3.5 GiB available RAM; the user previously accepted documentation of this limit.",
+    "Physical audio/camera/Android/provider checks and compositor animation frame pacing are not certified by these software checks."
+  ],
+  "authorities": "Existing CapabilityKernel, TaskGraph, WorkerManager, AgentCoordinator, SharedTaskState, resource leases, verification, permission handling and owned processes are extended, not duplicated.",
+  "publication": "Release Package-Contents.json binds matching installed and archived checks. Independent CI, Release validation and Pages links plus live-site QA are added to the new release after those exact-commit checks pass."
+}

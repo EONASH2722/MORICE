@@ -12146,7 +12146,7 @@ class MoriceWindow(QWidget):
         self.gpu_status_input.setToolTip(self.gpu_profile.message)
 
     def _detect_gpu_profile(self, auto: bool = False):
-        if getattr(self, "_gpu_detection_busy", False):
+        if getattr(self, "_is_closing", False) or getattr(self, "_gpu_detection_busy", False):
             return
         self._gpu_detection_busy = True
         self.detect_gpu_btn.setEnabled(False)
@@ -12491,8 +12491,15 @@ class MoriceWindow(QWidget):
             f"Lookup policy: {lookup}"
         )
 
+    def _project_submission_action(self) -> str:
+        """Presentation may explicitly choose Build or Ask; legacy callers infer."""
+        return "auto"
+
     def _is_project_build_request(self, text: str) -> bool:
         if not self._project_capable_mode():
+            return False
+        action = self._project_submission_action()
+        if action == "ask":
             return False
         lowered = " ".join((text or "").lower().split())
         if not lowered:
@@ -12502,6 +12509,7 @@ class MoriceWindow(QWidget):
             or lowered.startswith("ask:")
             or lowered.startswith("explain:")
             or lowered.startswith("question:")
+            or bool(re.match(r"^(?:explain\b|what (?:is|are)\b|how (?:does|do|is)\b|why\b)", lowered))
         )
         if explanation_only:
             return False
@@ -12510,6 +12518,8 @@ class MoriceWindow(QWidget):
             r"(?:any\s+)?(?:code|files?|scripts?)\b", lowered
         ):
             return False
+        if action == "build":
+            return True
         action_words = {
             "add",
             "build",
@@ -12823,7 +12833,7 @@ class MoriceWindow(QWidget):
         if not staged_files:
             raise ProjectValidationError("The project response did not contain any valid source files.")
 
-        requirements = detect_python_requirements(file_contents)
+        requirements = detect_python_requirements(file_contents, self.project_folder)
         has_requirements = any(os.path.basename(path).lower() == "requirements.txt" for path in file_contents)
         if requirements and not has_requirements:
             requirements_content = "\n".join(requirements) + "\n"
@@ -13122,10 +13132,16 @@ class MoriceWindow(QWidget):
 
     def _configure_project_backend(self):
         # Reuse the selected chat backend through Phase 2's shared adapter.
-        if self.model_name or self.model_path:
+        # An empty UI selection means the bundled/default chat model, not that
+        # Builder has no backend. Resolve it without loading weights here.
+        from .llm_client import DEFAULT_MODEL, _resolve_gguf_path
+        requested_model = self.model_name or DEFAULT_MODEL
+        model_path = _resolve_gguf_path(self.model_path, requested_model, bool(self.model_name))
+        model_id = self.model_name or (os.path.basename(model_path) if model_path else DEFAULT_MODEL)
+        if self.model_path and not model_path:
+            return ""
+        if model_id:
             from .agent_runtime.models import ModelReply
-            model_id = self.model_name or os.path.basename(self.model_path)
-            model_path = self.model_path
             def backend(*, prompt, model_id, max_output_tokens, context):
                 remaining = max(1, min(60, context.deadline-time.monotonic()))
                 class CancellationView:
@@ -13139,6 +13155,7 @@ class MoriceWindow(QWidget):
                 return ModelReply(text, model_id, min(len(prompt.encode("utf-8")), max(1,len(prompt)//4)),
                     min(max_output_tokens, max(1,len(text)//4)))
             self.runtime.agents.models.configure(model_id, backend)
+        return model_id
 
     def _start_project_build(self, session, *, resume=False):
         from .kernel import CancellationToken, ExecutionContext
@@ -13150,7 +13167,7 @@ class MoriceWindow(QWidget):
         root = Path(session.project_root).resolve()
         if session.architecture.get("runtime", {}).get("kind") == "web":
             self._emit_background("project_browser_prepare", str(root))
-        self._configure_project_backend()
+        selected_model = self._configure_project_backend()
         def authorize(task):
             cap = task.capability_requirement
             if cap == "filesystem.apply_patch":
@@ -13168,7 +13185,7 @@ class MoriceWindow(QWidget):
             return ""
         context = ExecutionContext(project_id=str(root), cancellation_token=token,
             progress=lambda stage: self._emit_background("project_output_ready", f"Build {session.session_id[:8]}: {stage}"),
-            metadata={"model_config":{"selected_model": self.model_name or os.path.basename(self.model_path), "allow_fallback":False}})
+            metadata={"model_config":{"selected_model": selected_model, "allow_fallback":False, "max_output_tokens":1024}})
         def worker():
             try:
                 result = builder.resume(session.session_id, context, authorize=authorize) if resume else builder.build(session, context, authorize=authorize)
@@ -13462,22 +13479,24 @@ class MoriceWindow(QWidget):
     def _set_project_workspace_tab(self, index: int):
         if not hasattr(self, "project_workspace_stack"):
             return
-        clean_index = max(0, min(2, int(index)))
+        buttons = (self.project_files_tab, self.project_changes_tab, self.project_output_tab)
+        titles = ("Project files", "Project changes", "Project output")
+        if hasattr(self, "project_updates_tab"):
+            buttons += (self.project_updates_tab,)
+            titles += ("Project updates",)
+        if hasattr(self, "project_preview_tab"):
+            buttons += (self.project_preview_tab,)
+            titles += ("Project preview",)
+        clean_index = max(0, min(len(buttons) - 1, int(index)))
         self.project_workspace_stack.setCurrentIndex(clean_index)
-        for button_index, button in enumerate(
-            (
-                self.project_files_tab,
-                self.project_changes_tab,
-                self.project_output_tab,
-            )
-        ):
+        for button_index, button in enumerate(buttons):
             button.setProperty(
                 "active", "true" if button_index == clean_index else "false"
             )
             button.style().unpolish(button)
             button.style().polish(button)
         self.changes_title.setText(
-            ("Project files", "Project changes", "Project output")[clean_index]
+            titles[clean_index]
         )
         if clean_index == 0:
             self._refresh_project_tree()
@@ -15462,230 +15481,233 @@ class MoriceWindow(QWidget):
             )
             return
 
-        if self._handle_desktop_command(user_input):
-            realtime_request.trace.mark_event("first_visible_token")
-            realtime_request.trace.mark_event("fast_response_visible")
-            self.runtime.realtime.complete_generation(realtime_request.epoch)
-            self.runtime.realtime.finish_speech(realtime_request.epoch)
-            self._save_workspace_session()
-            return
-
-        if live_vision_result is not None and live_vision_result.success:
-            lower_input = user_input.casefold()
-            visual_subject = (
-                live_vision_result.extracted_text.strip()
-                or live_vision_result.summary.strip()
-            )
-            if re.search(r"\bcopy\s+(?:it|this|that|the text)\b", lower_input):
-                QApplication.clipboard().setText(visual_subject)
-                self._append_direct_reply(
-                    user_input,
-                    "Copied the processed visual text to the clipboard."
-                    if live_vision_result.extracted_text.strip()
-                    else "Copied the processed visual description to the clipboard.",
-                    address=False,
-                )
-                return
-            if visual_subject and re.search(
-                r"\b(?:search|look up)\s+(?:it|this|that|the text)\b",
-                lower_input,
-            ):
-                if self._handle_natural_pc_control(
-                    f"search the web for {visual_subject}"
-                ):
-                    self._save_workspace_session()
-                    return
-
-        if self._handle_natural_node_control(user_input):
-            self._save_workspace_session()
-            return
-
-        if self._handle_natural_pc_control(user_input):
-            self._save_workspace_session()
-            return
-
-        if self._handle_parallel_workflow(user_input):
-            self._save_workspace_session()
-            return
-
-        summon_message = summon_response(user_input, resolve_user_address(self._identity_profile()))
-        if summon_message:
-            self._append_direct_reply(user_input, summon_message, address=False)
-            return
-
-        riddle_reply = riddle_response(user_input)
-        if riddle_reply:
-            self._append_direct_reply(user_input, riddle_reply)
-            return
-
-        emotional_reply = emotional_checkin_response(user_input, resolve_user_address(self._identity_profile()))
-        if emotional_reply:
-            self._append_direct_reply(user_input, emotional_reply)
-            return
-
-        father_reply = father_identity_response(user_input, resolve_user_address(self._identity_profile()))
-        if father_reply:
-            self._append_direct_reply(user_input, father_reply)
-            return
-
         harmful_reply = harmful_request_response(user_input, resolve_user_address(self._identity_profile()))
         if harmful_reply:
             self._append_direct_reply(user_input, harmful_reply, address=False)
             return
 
-        datetime_reply = current_datetime_response(user_input)
-        if datetime_reply:
-            self._append_direct_reply(user_input, datetime_reply)
-            return
-
-        if wants_first_message(user_input) and self.first_user_message:
-            self._append_direct_reply(user_input, self.first_user_message)
-            return
-
-        prior_user_messages = self.user_messages[:-1]
-        if wants_previous_user_message(user_input):
-            previous_message = previous_user_message(prior_user_messages)
-            reply = (
-                f'Your previous message was: "{previous_message}"'
-                if previous_message
-                else "There is no previous user message in this chat yet."
-            )
-            self._append_direct_reply(user_input, reply)
-            return
-
-        if wants_memory_list(user_input):
-            recent = prior_user_messages[-5:]
-            if recent:
-                self._append_direct_reply(user_input, " | ".join(recent))
-            else:
-                self._append_direct_reply(user_input, "No earlier messages yet.")
-            return
-
-        if wants_memory_search(user_input):
-            terms = extract_memory_terms(user_input)
-            matches = []
-            for msg in reversed(prior_user_messages):
-                if all(term in msg.lower() for term in terms):
-                    matches.append(msg)
-                if len(matches) >= 3:
-                    break
-            if matches:
-                self._append_direct_reply(user_input, " | ".join(matches))
-            else:
-                self._append_direct_reply(user_input, "I do not see that in your earlier messages.")
-            return
-
-        if is_acknowledgement(user_input):
-            self._append_direct_reply(user_input, "Understood.")
-            return
-
-        capability_topic = detect_capability_topic(user_input)
-        if capability_topic:
-            self._append_direct_reply(
-                user_input,
-                capability_answer(capability_topic, self.emoji_level),
-            )
-            return
-
-        if wants_help(user_input):
-            self._append_direct_reply(user_input, help_text())
-            return
-
-        if wants_model_identity(user_input):
-            self._append_direct_reply(user_input, self._model_status_line())
-            return
-
-        if wants_precision_on(user_input):
-            self._set_precision_state(True)
-            self._append_direct_reply(user_input, "Precision mode enabled.")
-            return
-
-        if wants_precision_off(user_input):
-            self._set_precision_state(False)
-            self._append_direct_reply(user_input, "Precision mode disabled.")
-            return
-
-        if wants_math_steps_on(user_input):
-            self.math_steps_mode = True
-            self._append_direct_reply(user_input, "Math steps mode enabled.")
-            return
-
-        if wants_math_steps_off(user_input):
-            self.math_steps_mode = False
-            self._append_direct_reply(user_input, "Math steps mode disabled.")
-            return
-
-        if wants_unity_movement(user_input):
-            if wants_unity_3d(user_input):
-                script = unity_3d_movement_script()
-            else:
-                script = unity_2d_movement_script()
-            self._append_direct_reply(
-                user_input,
-                self._address(f"Here is the script.\n{script}"),
-                address=False,
-            )
-            return
-
-        if wants_html_cube_movement(user_input):
-            self._append_direct_reply(
-                user_input,
-                self._address(f"Here is the script.\n{html_cube_movement_script()}"),
-                address=False,
-            )
-            return
-
-        # A simulation prompt can contain a bare number (for example, "80 particles").
-        # Keep it out of the quick-math path so the live physics workspace receives it.
-        if not self.math_steps_mode and not wants_steps_detail(user_input) and not is_science_request(user_input):
-            math_result = compute_math(user_input)
-            if math_result is not None:
-                self._append_direct_reply(user_input, shorten_reply(math_result))
-                return
-
-        if wants_notes_search(user_input):
-            term = extract_notes_term(user_input)
-            if term:
-                hits = search_notes(term, max_hits=5)
-                self.last_notes_hits = hits
-                self.last_notes_term = term
-                if hits:
-                    details = "\n".join(
-                        f"{hit['source']}: {hit['text']}" for hit in hits
-                    )
-                    self._append_direct_reply(
-                        user_input,
-                        f"Found {len(hits)} match(es) for {term}.\n\n{details}",
-                    )
-                else:
-                    self._append_direct_reply(
-                        user_input,
-                        f"No matches for {term} in notes.",
-                    )
-                return
-
-        if wants_notes_summary(user_input) and self.last_notes_hits:
-            summary = summarize_notes_hits(self.last_notes_hits)
-            self._append_direct_reply(user_input, summary)
-            return
-
-        from .research.service import research_intent
-        research_request = research_intent(
-            user_input, self.pending_research_paths, bool(self._research_project_id)
-        )
-        if research_request:
-            self._run_research_request(user_input, realtime_request, image_path)
-            return
-
-        if self._handle_science_request(user_input):
-            realtime_request.trace.mark_event("first_visible_token")
-            self.runtime.realtime.complete_generation(realtime_request.epoch)
-            self.runtime.realtime.finish_speech(realtime_request.epoch)
-            return
-
-        retry_project_request = self._is_project_retry_request(user_input)
+        # Resolve explicit project work before keyword shortcuts, research and science.
+        # A simulator application is still a build request, not a lab experiment.
+        retry_project_request = self._project_submission_action() != "ask" and self._is_project_retry_request(user_input)
         project_source_input = self.last_project_request if retry_project_request else user_input
         project_build_request = retry_project_request or self._is_project_build_request(user_input)
+        if not project_build_request:
+            if self._handle_desktop_command(user_input):
+                realtime_request.trace.mark_event("first_visible_token")
+                realtime_request.trace.mark_event("fast_response_visible")
+                self.runtime.realtime.complete_generation(realtime_request.epoch)
+                self.runtime.realtime.finish_speech(realtime_request.epoch)
+                self._save_workspace_session()
+                return
+
+            if live_vision_result is not None and live_vision_result.success:
+                lower_input = user_input.casefold()
+                visual_subject = (
+                    live_vision_result.extracted_text.strip()
+                    or live_vision_result.summary.strip()
+                )
+                if re.search(r"\bcopy\s+(?:it|this|that|the text)\b", lower_input):
+                    QApplication.clipboard().setText(visual_subject)
+                    self._append_direct_reply(
+                        user_input,
+                        "Copied the processed visual text to the clipboard."
+                        if live_vision_result.extracted_text.strip()
+                        else "Copied the processed visual description to the clipboard.",
+                        address=False,
+                    )
+                    return
+                if visual_subject and re.search(
+                    r"\b(?:search|look up)\s+(?:it|this|that|the text)\b",
+                    lower_input,
+                ):
+                    if self._handle_natural_pc_control(
+                        f"search the web for {visual_subject}"
+                    ):
+                        self._save_workspace_session()
+                        return
+
+            if self._handle_natural_node_control(user_input):
+                self._save_workspace_session()
+                return
+
+            if self._handle_natural_pc_control(user_input):
+                self._save_workspace_session()
+                return
+
+            if self._handle_parallel_workflow(user_input):
+                self._save_workspace_session()
+                return
+
+            summon_message = summon_response(user_input, resolve_user_address(self._identity_profile()))
+            if summon_message:
+                self._append_direct_reply(user_input, summon_message, address=False)
+                return
+
+            riddle_reply = riddle_response(user_input)
+            if riddle_reply:
+                self._append_direct_reply(user_input, riddle_reply)
+                return
+
+            emotional_reply = emotional_checkin_response(user_input, resolve_user_address(self._identity_profile()))
+            if emotional_reply:
+                self._append_direct_reply(user_input, emotional_reply)
+                return
+
+            father_reply = father_identity_response(user_input, resolve_user_address(self._identity_profile()))
+            if father_reply:
+                self._append_direct_reply(user_input, father_reply)
+                return
+
+            datetime_reply = current_datetime_response(user_input)
+            if datetime_reply:
+                self._append_direct_reply(user_input, datetime_reply)
+                return
+
+            if wants_first_message(user_input) and self.first_user_message:
+                self._append_direct_reply(user_input, self.first_user_message)
+                return
+
+            prior_user_messages = self.user_messages[:-1]
+            if wants_previous_user_message(user_input):
+                previous_message = previous_user_message(prior_user_messages)
+                reply = (
+                    f'Your previous message was: "{previous_message}"'
+                    if previous_message
+                    else "There is no previous user message in this chat yet."
+                )
+                self._append_direct_reply(user_input, reply)
+                return
+
+            if wants_memory_list(user_input):
+                recent = prior_user_messages[-5:]
+                if recent:
+                    self._append_direct_reply(user_input, " | ".join(recent))
+                else:
+                    self._append_direct_reply(user_input, "No earlier messages yet.")
+                return
+
+            if wants_memory_search(user_input):
+                terms = extract_memory_terms(user_input)
+                matches = []
+                for msg in reversed(prior_user_messages):
+                    if all(term in msg.lower() for term in terms):
+                        matches.append(msg)
+                    if len(matches) >= 3:
+                        break
+                if matches:
+                    self._append_direct_reply(user_input, " | ".join(matches))
+                else:
+                    self._append_direct_reply(user_input, "I do not see that in your earlier messages.")
+                return
+
+            if is_acknowledgement(user_input):
+                self._append_direct_reply(user_input, "Understood.")
+                return
+
+            capability_topic = detect_capability_topic(user_input)
+            if capability_topic:
+                self._append_direct_reply(
+                    user_input,
+                    capability_answer(capability_topic, self.emoji_level),
+                )
+                return
+
+            if wants_help(user_input):
+                self._append_direct_reply(user_input, help_text())
+                return
+
+            if wants_model_identity(user_input):
+                self._append_direct_reply(user_input, self._model_status_line())
+                return
+
+            if wants_precision_on(user_input):
+                self._set_precision_state(True)
+                self._append_direct_reply(user_input, "Precision mode enabled.")
+                return
+
+            if wants_precision_off(user_input):
+                self._set_precision_state(False)
+                self._append_direct_reply(user_input, "Precision mode disabled.")
+                return
+
+            if wants_math_steps_on(user_input):
+                self.math_steps_mode = True
+                self._append_direct_reply(user_input, "Math steps mode enabled.")
+                return
+
+            if wants_math_steps_off(user_input):
+                self.math_steps_mode = False
+                self._append_direct_reply(user_input, "Math steps mode disabled.")
+                return
+
+            if wants_unity_movement(user_input):
+                if wants_unity_3d(user_input):
+                    script = unity_3d_movement_script()
+                else:
+                    script = unity_2d_movement_script()
+                self._append_direct_reply(
+                    user_input,
+                    self._address(f"Here is the script.\n{script}"),
+                    address=False,
+                )
+                return
+
+            if wants_html_cube_movement(user_input):
+                self._append_direct_reply(
+                    user_input,
+                    self._address(f"Here is the script.\n{html_cube_movement_script()}"),
+                    address=False,
+                )
+                return
+
+            # A simulation prompt can contain a bare number (for example, "80 particles").
+            # Keep it out of the quick-math path so the live physics workspace receives it.
+            if not self.math_steps_mode and not wants_steps_detail(user_input) and not is_science_request(user_input):
+                math_result = compute_math(user_input)
+                if math_result is not None:
+                    self._append_direct_reply(user_input, shorten_reply(math_result))
+                    return
+
+            if wants_notes_search(user_input):
+                term = extract_notes_term(user_input)
+                if term:
+                    hits = search_notes(term, max_hits=5)
+                    self.last_notes_hits = hits
+                    self.last_notes_term = term
+                    if hits:
+                        details = "\n".join(
+                            f"{hit['source']}: {hit['text']}" for hit in hits
+                        )
+                        self._append_direct_reply(
+                            user_input,
+                            f"Found {len(hits)} match(es) for {term}.\n\n{details}",
+                        )
+                    else:
+                        self._append_direct_reply(
+                            user_input,
+                            f"No matches for {term} in notes.",
+                        )
+                    return
+
+            if wants_notes_summary(user_input) and self.last_notes_hits:
+                summary = summarize_notes_hits(self.last_notes_hits)
+                self._append_direct_reply(user_input, summary)
+                return
+
+            from .research.service import research_intent
+            research_request = research_intent(
+                user_input, self.pending_research_paths, bool(self._research_project_id)
+            )
+            if research_request:
+                self._run_research_request(user_input, realtime_request, image_path)
+                return
+
+            if self._handle_science_request(user_input):
+                realtime_request.trace.mark_event("first_visible_token")
+                self.runtime.realtime.complete_generation(realtime_request.epoch)
+                self.runtime.realtime.finish_speech(realtime_request.epoch)
+                return
+
         if project_build_request and not retry_project_request:
             self.last_project_request = user_input
         if project_build_request and not self._ensure_project_folder_for_build():
@@ -15738,12 +15760,12 @@ class MoriceWindow(QWidget):
                     fast_manifest = project_scaffold(project_source_input, self.project_folder)
                     if not fast_manifest:
                         from .kernel import CancellationToken, ExecutionContext
-                        self._configure_project_backend()
+                        selected_model = self._configure_project_backend()
                         prepared_session = self.runtime.autonomous_builder.project_runtime.generate(
                             self.project_folder, project_source_input,
                             ExecutionContext(project_id=self.project_folder,
                                 cancellation_token=CancellationToken(parent=realtime_request.cancellation),
-                                metadata={"model_config":{"selected_model":self.model_name or os.path.basename(self.model_path),"allow_fallback":False}}))
+                                metadata={"model_config":{"selected_model":selected_model,"allow_fallback":False,"max_output_tokens":1024}}))
                         if prepared_session.changes:
                             fast_manifest = {"files":[{"path":v["path"],"content":v["content"]} for v in prepared_session.changes]}
                     if fast_manifest:

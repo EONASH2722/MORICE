@@ -6,9 +6,9 @@
 
 <h1 align="center">MORICE</h1>
 
-## Current source: 0.9.2
+## Current source: 0.9.3
 
-The [0.9.2 routing patch](docs/release-notes-0.9.2.md) keeps engineering percentages, results, mathematical models and references to earlier AI answers from triggering unrelated canned replies. The full reported prompt was reproduced privately; public tests use a generic engineering example. See the [validation record](docs/chat-routing-validation-0.9.2.md) for scope and limits.
+The [0.9.3 workspace update](docs/release-notes-0.9.3.md) makes Project navigation select the file-building workflow, keeps project updates and browser previews together, and adds a guided experiment form. See the [Projects and Experiments guide](docs/simple-workspaces.md) for creating files, reviewing changes, and running real computations.
 
 The renovated desktop uses a luminous Core, a visible message composer, authored vector icons and twelve distinct visual themes. Shapes turn, breathe, float and unfurl in continuous loops; particles follow closed paths without jumping between screen edges. LOW quality keeps inexpensive ambient motion, while Reduced Motion and hidden/minimized windows pause decoration. The original logo is unchanged and the Core contains no eyes or face.
 
@@ -46,9 +46,9 @@ Choose **Theme** in the top bar to preview a theme or toggle **Animate the works
 
 ![Deterministic Spatial workspace](docs/screenshots/morice-spatial.png)
 
-**Validation scope:** the [0.9.1 follow-up audit](docs/followup-audit-0.9.1.md) covers the current fixes, including visible replies with animation enabled, long-message scrolling, typed requests without a wake phrase, identity edits and Live Action. A real local Qwen chat and six complete local spoken replies were exercised. The preceding [full release audit](docs/release-audit-report.md) records 1,077 tests and 62 subtests and the earlier package/installed checks at its own source fingerprint. Physical audio/devices, heavy media inference and compositor frame pacing remain scoped; compatible providers and sufficient RAM/VRAM are still required.
+**Validation scope:** the [0.9.3 workspace validation](docs/workspace-validation-0.9.3.md) covers the current Project file-generation, review/save, experiment execution, compact layouts and matching package checks. The preserved [0.9.2 chat repair](docs/chat-routing-validation-0.9.2.md), [0.9.1 UI follow-up](docs/followup-audit-0.9.1.md) and [original release audit](docs/release-audit-report.md) record earlier checks at their own source fingerprints. Physical audio/devices, heavy inference memory and compositor frame pacing remain scoped; compatible providers and sufficient RAM/VRAM are required.
 
-**Downloads:** [Windows 0.9.2 desktop preview and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.2) include the renovated interface and chat routing repair. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest stable release](https://github.com/EONASH2722/MORICE/releases/latest).
+**Downloads:** [Windows 0.9.3 desktop preview and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.3) include simpler Project and Research workflows, the renovated interface, and the earlier chat routing repair. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest stable release](https://github.com/EONASH2722/MORICE/releases/latest).
 
 ### Installation
 
@@ -60,7 +60,7 @@ python -m venv .venv
 
 Use Python 3.12+ for the desktop. Local media model dependencies may require a separate compatible runtime; the main app remains usable when those providers are unavailable. See [troubleshooting](docs/troubleshooting.md), [architecture](docs/architecture.md) and [the renovation report](docs/renovation-report.md).
 
-The [0.9.2 desktop preview](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.2) contains the renovated Windows app and matching Python packages. Install `morice_ai-0.9.2-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
+The [0.9.3 desktop preview](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.3) contains the renovated Windows app and matching Python packages. Install `morice_ai-0.9.3-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
 
 
 <p align="center">
@@ -188,13 +188,12 @@ MORICE includes a host-managed agent pipeline rather than sending every request 
 
 Project Mode is a development workspace for generating and editing real files.
 
-1. Select or create a work folder.
-2. Choose folder-limited or broader access.
-3. Choose local or online-plus-local context.
-4. Describe the application, game, website, language, framework, and constraints.
-5. Review the proposed project tree and red/green diffs.
-6. Inspect command output, tests, errors, and Git status.
-7. Apply, reject, continue, or undo the validated change set.
+1. Open **Projects** and select **Choose folder**. Builder mode is automatic.
+2. Keep **Build or edit files** selected, describe the changes, and select **Build files**.
+3. Under **Review**, inspect the proposal and select **Save reviewed files**. Discard or undo remain available.
+4. Inspect real files under **Files**, verification and errors under **Output**, and responses under **Updates**. Web previews stay in Projects.
+
+Use **Ask about this project** for an explanation. Access and local/online controls are under **Build settings**. See the [Projects and Experiments guide](docs/simple-workspaces.md) for the guided experiment form and concrete remaining limits.
 
 The process panel preserves an expandable observed-action trace after completion. It shows selected
 routes, detected tools, files written, commands executed, and verification results, excluding private
@@ -202,7 +201,7 @@ model chain-of-thought. MORICE reports file, build, test, editor, and playtest s
 
 ## Live Action
 
-Choose **Mode > Live Action**, or use the speaker button beside the composer, to enter and wake the camera-centered workspace; no second wake phrase is required. Live Action uses offline Vosk speech-to-text for user turns and interruptible ElevenLabs streaming speech for MORICE replies. Its live transcript, glass response overlay, and typed composer retain attachments, graphs, Lab, Tools, desktop actions, and project-building. The camera remains off until explicitly enabled, frames stay in memory, and visual inference runs on demand rather than on every preview frame.
+Choose **Voice > Live Action**, or use the microphone button beside the composer, to enter and wake the camera-centered workspace; no second wake phrase is required. Live Action uses offline Vosk speech-to-text for user turns and interruptible ElevenLabs streaming speech for MORICE replies. Its live transcript, glass response overlay, and typed composer retain attachments, graphs, Lab, Tools, desktop actions, and project-building. The camera remains off until explicitly enabled, frames stay in memory, and visual inference runs on demand rather than on every preview frame.
 
 Choose **Normal Chat** or **Project**, press the active speaker button again, or use **Exit Live Action** to exit. MORICE immediately stops the camera, cancels microphone capture, reply playback, and vision inference, clears temporary frames/visual memory, and ignores late callbacks. Background wake is now opt-in: explicitly set `MORICE_ENABLE_ALWAYS_ON_WAKE=1` before running the listener. It never activates the camera and yields the microphone to Live Action. The installer no longer enables it by default.
 
@@ -222,7 +221,7 @@ The model browser detects available GPU memory and presents a practical run plan
 | 8 GB | Comfortable offload with additional context headroom |
 | 12 GB+ | Headroom for longer contexts or a larger replacement model |
 
-Actual performance depends on quantization, context length, GPU layers, drivers, system RAM, and other workloads. Use **Panel > Change model** to choose a GGUF or local Ollama model that fits the machine.
+Actual performance depends on quantization, context length, GPU layers, drivers, system RAM, and other workloads. Use **Settings > Models** or **Context > Model** to choose a GGUF or local Ollama model that fits the machine.
 
 The VRAM table is configuration guidance, not a measured RTX 3050 performance claim.
 No new model comparison or throughput result is published by this fix. The earlier
@@ -281,7 +280,7 @@ Download the signed APK from the [MORICE Android Release](https://github.com/EON
 Advanced users can install the model-free wheel included with the release:
 
 ```powershell
-python -m pip install .\morice_ai-0.9.2-py3-none-any.whl
+python -m pip install .\morice_ai-0.9.3-py3-none-any.whl
 morice
 ```
 

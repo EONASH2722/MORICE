@@ -777,7 +777,8 @@ class InlineVisualizationTests(unittest.TestCase):
             with open(target, encoding="utf-8") as source:
                 self.assertEqual(source.read(), "print('before')\n")
 
-    def test_full_access_applies_project_files_instead_of_only_staging_them(self):
+    @patch("morice.pyside_app.stream_chat")
+    def test_full_access_applies_project_files_instead_of_only_staging_them(self, completion):
         with tempfile.TemporaryDirectory() as folder:
             self.window.project_folder = folder
             self.window.project_access = "full"
@@ -801,7 +802,20 @@ class InlineVisualizationTests(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(folder, "index.html")))
             self.assertNotIn("Patch ready for review", result["message"])
             self.assertFalse(result["project_verified"])
+            # This hidden browser cannot provide rendered inspection. That
+            # limitation must settle as unverified, without loading a model
+            # to propose source changes for a visibility/consent requirement.
             self._wait_for_project_build()
+            completion.assert_not_called()
+
+    def test_closed_window_ignores_delayed_gpu_detection(self):
+        self.window.close()
+        self.window.detect_gpu_btn.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        with patch.object(self.window, "_start_background_task") as start:
+            self.window._gpu_detection_busy = False
+            self.window._detect_gpu_profile(auto=True)
+        start.assert_not_called()
 
     def test_folder_access_still_requires_review_before_writing(self):
         with tempfile.TemporaryDirectory() as folder:

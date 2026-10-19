@@ -1,35 +1,38 @@
 # MORICE User Manual
 
+This guide describes the 0.9.3 desktop. For the shortest file-building and experiment walkthrough, use [Projects and Experiments](simple-workspaces.md).
+
 ## Install
 
-### Installer
+### Earlier 0.8.0 installer
+
+No new 0.9.3 installer is included. Use the current portable ZIP or Python package below for this update.
 
 Keep `MORICE-Setup-v0.8.0-Windows-x64.exe` and all numbered installer `.bin` slices from the same release together. Run the setup executable and launch MORICE from the installed shortcut.
 
 ### Portable
 
-Keep every portable `.part*` file, the `.parts.json` manifest, and the provided reassembly script together. Open PowerShell in that folder and run `powershell -NoProfile -ExecutionPolicy Bypass -File .\MORICE-Portable-v0.8.0-Windows-x64-reassemble.ps1`. Extract the verified ZIP and launch `MORICE.exe`; do not run it from inside the ZIP or separate the executable from `_internal`.
+Download `MORICE-Portable-v0.9.3-Windows-x64.zip` from the [0.9.3 release](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.3), verify its SHA-256 against the accompanying checksums, and extract it. Launch `MORICE.exe` from the extracted folder; keep `_internal` beside it. Large language and generative model weights are installed separately. Earlier multipart 0.8.0 packages require all their matching parts and their reassembly script.
 
 ### Python package
 
-The wheel is a model-free advanced installation. Install the downloaded `morice_ai-0.8.0-py3-none-any.whl` with `python -m pip install <wheel-path>`, then run `morice`. Configure a local GGUF or Ollama model in the application. This release does not claim a public package-manager channel until publication is independently verified.
+The wheel is a model-free advanced installation. Install the downloaded `morice_ai-0.9.3-py3-none-any.whl` with `python -m pip install <wheel-path>`, then run `morice`. Configure a local GGUF or Ollama model in the application. This release does not claim a public package-manager channel until publication is independently verified.
 
 ### Android companion
 
 Download `MORICE-Android-0.8.0-android.apk` and its JSON manifest from the Android
 release. Verify the SHA-256 value, install it on Android 9 or newer, then use **Devices** on the
-phone and **Panel > Pair a device** on the desktop. Compare and confirm the same six-digit pairing
+phone and the **Devices** workspace on the desktop. Compare and confirm the same six-digit pairing
 code on both devices. Pairing is explicit, time-limited, encrypted, and grants capabilities in each
 direction separately. See the [Android companion guide](android-companion.md).
 
 ## First Launch
 
-1. Start MORICE.
-2. Open **Panel** and choose how MORICE addresses you and your wake phrase.
-3. Review theme, font, emoji amount, maturity, motion, contrast, and scale.
-4. Open the mode panel and choose **Normal chat**.
-5. Use **Change model** if the configured local model is unavailable or does not fit your hardware.
-6. Run **Detect GPU** for a local VRAM estimate.
+1. Start MORICE and open **Chats** to send a normal message.
+2. Open **Settings → Personalization** to choose how MORICE addresses you.
+3. Use **Theme** in the top bar for visual themes and motion, and Settings for font, contrast and scale.
+4. Open **Settings → Models** to select an installed GGUF or Ollama model and inspect hardware fit.
+5. Open **Projects** when you want files created or edited, **Research** for supported experiments, or **Voice** for Live Action.
 
 MORICE opens with a clean visible conversation. Durable memory, project records, and platform data are separate services and do not repopulate the chat transcript.
 
@@ -37,13 +40,12 @@ MORICE opens with a clean visible conversation. Durable memory, project records,
 
 Type a message and press Enter or **Send**. The Send button remains disabled while the input is empty or a non-steerable action is active. During a long local completion, the composer can queue or steer a follow-up instead of creating overlapping replies.
 
-- **Precision:** requests a more deliberate response profile.
-- **Personalised:** applies the saved address and response-style instructions.
-- **Attach:** selects an image for supported multimodal/context workflows.
-- **Voice:** enters or exits the dedicated camera-centered Live Action workspace.
-- **Model:** opens model selection.
-- **Mode:** switches between Normal Chat, Project Mode, and Live Action.
-- **Quick actions:** opens common commands and tools.
+- **Attach:** selects supported files for context.
+- **Microphone:** enters or exits the Voice/Live Action workspace.
+- **Context:** reveals project/model context controls when needed.
+- **Projects:** selects the file-building workflow; use Build or Ask within that workspace.
+- **Settings:** configures models, personalization, voice and appearance.
+- **Search · Ctrl K:** finds commands and additional controls.
 
 Use explicit nouns, values, and units. MORICE corrects common spelling errors using conversation context, but precise requests improve local-model results.
 
@@ -65,14 +67,13 @@ Controls vary by family: zoom, pan, rotate, hover inspection, 2D/3D switch, paus
 
 ## Project Mode
 
-1. Open the mode panel and select **Project**.
-2. Select `+` and choose a work folder outside the MORICE installation.
-3. Choose **Limited to folder** or **Full access**.
-4. Choose local or **Online+local** context.
-5. Ask for a complete project or a concrete edit.
-6. Review Project files, Project changes, and Project output.
-7. Apply or reject the exact proposed change set.
-8. Inspect tests, run logs, terminal output, and Git status.
+1. Open **Projects**, then **Choose folder** and select a work folder outside the installation.
+2. Keep **Build or edit files** selected and describe a concrete, bounded change.
+3. Select **Build files**. In folder-limited mode, inspect **Review**, then select **Save reviewed files** or **Discard proposal**.
+4. Inspect actual source under **Files**, checks and errors under **Output**, and replies under **Updates**. Web previews appear in **Preview**.
+5. Use **Ask about this project** for explanations without file changes. **Build settings** contains access and lookup controls.
+
+The [Projects and Experiments guide](simple-workspaces.md) explains the shared task/output limits and unavailable toolchain behavior. Large applications should be developed through smaller changes.
 
 MORICE asks the coding model for file artifacts rather than instructions to copy and paste. Invalid or unsafe project JSON cannot replace existing files. Read the full [Project Mode guide](project-mode.md).
 
@@ -80,6 +81,15 @@ After a change, **Show process** remains available. It records detected project 
 the exact files found on disk, real build/test commands, exit codes, and verification results. A
 file-only result, unavailable editor, skipped playtest, and successful runnable build are distinct
 states; MORICE does not label them all “done.”
+
+## Experiments
+
+1. Open **Research → New experiment**.
+2. Describe a supported experiment with values and units, or choose a model and enter values in the form.
+3. Select **Review experiment** and inspect its actual inputs, limits and planned run count.
+4. Select **Run experiment**, then open **Results** for stored numerical outputs.
+
+The guided form supports driven oscillators, thermal expansion, ideal mixture density and vacuum particles. Missing inputs remain visible in Research; no chat fallback invents an experiment. **Notebooks** and **Advanced** reveal the existing stored projects and technical controls. See [Projects and Experiments](simple-workspaces.md) for sweeps and concrete limits.
 
 ## Android Companion
 
@@ -139,13 +149,13 @@ See the [desktop-pet guide](desktop-pets.md) for behavior details and transparen
 
 ## Live Action Mode
 
-Choose **Mode > Live Action**, or press the speaker button beside the composer. Entering Live Action also wakes MORICE, so no second wake phrase is required. MORICE starts offline Vosk transcription, auto-sends the recognized turn when configured, streams an ElevenLabs reply when reply speech and a key are configured, and then resumes listening. Live Action replaces chat bubbles/history with a camera-centered workspace, a live transcript, a glass streaming-response overlay, and its own typed composer. Chat, graphs, Lab, Tools, attachments, PC control, and Project build requests still use their normal pipelines.
+Open **Voice → Live Action**, or press the microphone button beside the chat composer. Entering Live Action also wakes MORICE, so no second wake phrase is required. MORICE starts offline Vosk transcription, auto-sends the recognized turn when configured, streams an ElevenLabs reply when reply speech and a key are configured, and then resumes listening. Live Action replaces chat bubbles/history with a camera-centered workspace, a live transcript, a glass streaming-response overlay, and its own typed composer. Chat, graphs, Lab, Tools, attachments, PC control, and Project build requests still use their normal pipelines.
 
 The camera remains off until **Turn camera on** is pressed. Select the camera, resolution, FPS, and mirror setting in the Live Action toolbar. Preview frames remain in memory and are never recorded to disk. Vision runs on the newest real frame only after a visual request such as “What am I holding?” The optional **Scene awareness** toggle tracks only lightweight scene changes; it does not run the visual model continuously. Low-quality, stale, missing, or unavailable frames produce an explicit failure instead of a guessed answer. Provider-supported normalized regions may be drawn on the preview; MORICE does not fabricate targeting boxes.
 
-Choose **Normal Chat** or **Project**, press the active speaker button again, or use **Exit Live Action** to leave. Leaving stops the camera, microphone capture, speech playback, and pending vision work immediately; it clears raw frames and short-lived visual memory and ignores late callbacks. MORICE intentionally starts outside Live Action after every launch.
+Use **Exit Live Action**, select **Normal chat** in Voice, or press the active microphone button again to leave. Leaving stops the camera, microphone capture, speech playback, and pending vision work immediately; it clears raw frames and short-lived visual memory and ignores late callbacks. MORICE intentionally starts outside Live Action after every launch.
 
-Set the wake line and audio devices in **Panel > Live Action voice configuration**. Microphone quality is improved through adaptive gain, noise-floor calibration, default-device fallback, and diagnostics, but Windows microphone privacy permissions and actual hardware still matter. ElevenLabs is optional for reply speech; without a configured key, the glass text response still works.
+Set the wake line and audio devices in **Settings → Voice**. Microphone quality is improved through adaptive gain, noise-floor calibration, default-device fallback, and diagnostics, but Windows microphone privacy permissions and actual hardware still matter. ElevenLabs is optional for reply speech; without a configured key, the glass text response still works.
 
 Open **Tools > Diagnostics > Voice** to inspect the selected/default input device, supported sample rate, input level, VAD activity, partial/final transcript, confidence availability, and recognition latency. **Test Microphone** captures a short temporary sample, optionally plays it back, and discards the audio immediately.
 

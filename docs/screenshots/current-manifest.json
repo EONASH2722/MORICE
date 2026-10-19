@@ -1,12 +1,12 @@
 {
-  "date": "2026-10-16",
-  "version": "0.9.1",
-  "source_sha256": "f7dedf318b775650354645984f6f77b22d606cc3f0bbdb6ad13158a28cd55575",
-  "website_source_sha256": "132d5c3cfeaadb5984cc3bf788b4c1a9367d126db859fe5d302eee220ae91479",
+  "date": "2026-10-19",
+  "version": "0.9.3",
+  "source_sha256": "1fbbba93da7977c708d52b15e71b816e6fd99ca833d8902c1c8ec0e9290ba610",
+  "website_source_sha256": "22b32296a8c3a8ec5887d60c55f1da1f99b5719b955f954549e4d23814aec099",
   "website_fingerprint_method": "Sorted website/src and website/public files, POSIX relative path then bytes.",
   "qt_platform": "windows",
   "device_pixel_ratio": 1.25,
-  "scope": "Native owned application only, isolated demonstration data. Camera/microphone/providers remain off; graph, physics and geographic fixtures are actual computations. Stills do not certify frame pacing.",
+  "scope": "Native owned application only, isolated demonstration data. Camera/microphone/providers remain off; graph, physics and geographic fixtures are actual computations. Stills do not certify frame pacing. Project files and experiment results are actual deterministic demonstration outputs.",
   "routes": [
     "home",
     "chats",
@@ -26,13 +26,13 @@
     "plugins",
     "settings"
   ],
-  "native_capture_script": "scripts/capture_current_ui.py",
-  "local_site_validation": "build/phase11-091-current-production-site-qa.json",
+  "native_capture_script": "scripts/capture_current_ui.py and scripts/demo_workspace_flows.py",
+  "local_site_validation": "build/phase11-093-current-production-site-qa.json",
   "files": [
     {
       "path": "docs/screenshots/morice-home.png",
-      "sha256": "7f8de02646a2100636d7b8339dedd3104a22f82dbe89d6e35b07dd9b0005b796",
-      "bytes": 256256,
+      "sha256": "b2e429dfd9012a9ef621238bd572ca118253123978ceb0bd01d7a78b80d9feb6",
+      "bytes": 334813,
       "route": "home",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -40,8 +40,8 @@
     },
     {
       "path": "website/public/morice-home.png",
-      "sha256": "7f8de02646a2100636d7b8339dedd3104a22f82dbe89d6e35b07dd9b0005b796",
-      "bytes": 256256,
+      "sha256": "b2e429dfd9012a9ef621238bd572ca118253123978ceb0bd01d7a78b80d9feb6",
+      "bytes": 334813,
       "route": "home",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -49,8 +49,8 @@
     },
     {
       "path": "docs/screenshots/morice-spatial.png",
-      "sha256": "4c46b08e0fda263bd54b292fa7cf30c67db2ca043dd18446c9bd1a260a92eed3",
-      "bytes": 345460,
+      "sha256": "ac864f1d5598b2f4c0e51707643756367db3e17b709ce8e362511c797e6b61bd",
+      "bytes": 430901,
       "route": "spatial",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -58,8 +58,8 @@
     },
     {
       "path": "website/public/morice-spatial.png",
-      "sha256": "4c46b08e0fda263bd54b292fa7cf30c67db2ca043dd18446c9bd1a260a92eed3",
-      "bytes": 345460,
+      "sha256": "ac864f1d5598b2f4c0e51707643756367db3e17b709ce8e362511c797e6b61bd",
+      "bytes": 430901,
       "route": "spatial",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -67,8 +67,8 @@
     },
     {
       "path": "docs/screenshots/morice-research.png",
-      "sha256": "7b79eeb6a5e8d3caa665f7fa0b8a8fdf00d0034bc1306c26a2216920e9cd1340",
-      "bytes": 134574,
+      "sha256": "b7aa4040f95764eeb162e9ffad655189d68e27737c3c267cd1df4c2af60b1d6f",
+      "bytes": 184691,
       "route": "research",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -76,8 +76,8 @@
     },
     {
       "path": "website/public/morice-research.png",
-      "sha256": "7b79eeb6a5e8d3caa665f7fa0b8a8fdf00d0034bc1306c26a2216920e9cd1340",
-      "bytes": 134574,
+      "sha256": "b7aa4040f95764eeb162e9ffad655189d68e27737c3c267cd1df4c2af60b1d6f",
+      "bytes": 184691,
       "route": "research",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -85,8 +85,8 @@
     },
     {
       "path": "docs/screenshots/morice-media.png",
-      "sha256": "58e688dbb956d90f24f4e6db2d8c8fb0591b2b2ce50f8ad70eef81f553c16b00",
-      "bytes": 184584,
+      "sha256": "053d61e085b5e87a4c301e9f6ebd1da60f6dd03c577d2f08b766996b4bc73eb9",
+      "bytes": 259155,
       "route": "media",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -94,8 +94,8 @@
     },
     {
       "path": "website/public/morice-media.png",
-      "sha256": "58e688dbb956d90f24f4e6db2d8c8fb0591b2b2ce50f8ad70eef81f553c16b00",
-      "bytes": 184584,
+      "sha256": "053d61e085b5e87a4c301e9f6ebd1da60f6dd03c577d2f08b766996b4bc73eb9",
+      "bytes": 259155,
       "route": "media",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -103,17 +103,17 @@
     },
     {
       "path": "docs/screenshots/morice-projects.png",
-      "sha256": "20c35979d2a2f73a5254112810fb15c5690b6f2b8283aa3a7971a44203e12e44",
-      "bytes": 175375,
+      "sha256": "1172c65e25a2e9d3ffb10d624f051912e1f86df3651610c8b4b6a963917ff4ce",
+      "bytes": 177515,
       "route": "projects",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
-      "fixture": null
+      "fixture": "Real saved and verified addition source with main.py selected"
     },
     {
       "path": "docs/screenshots/morice-settings.png",
-      "sha256": "d56da3a25fc3cf2bebd8a8995a7a97683253007475f110185cd4544214d403a8",
-      "bytes": 210751,
+      "sha256": "4bcd26d2f339a610ea795cd4345753335f3653b5ebb5cc65c0ddb87b695cf728",
+      "bytes": 263114,
       "route": "settings",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -121,8 +121,8 @@
     },
     {
       "path": "docs/screenshots/morice-devices.png",
-      "sha256": "36e2dd0fbc765490ebedde5391d5f42fc083b1ff8fbb1c138069d220afef7868",
-      "bytes": 118897,
+      "sha256": "f78962e653a50732a140ebb019f046273eb687757f5aace2f72107073473b530",
+      "bytes": 162185,
       "route": "devices",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -130,8 +130,8 @@
     },
     {
       "path": "docs/screenshots/morice-activity.png",
-      "sha256": "aac0f616af2cdc18e2b2f2b5a54dac87db3d343cdbb0cf3f54a60d291db34536",
-      "bytes": 193199,
+      "sha256": "376fbd9b4208c72e2b7672df6d33c480e75d0efffb4f1ebc2ac407876fcaefbe",
+      "bytes": 254888,
       "route": "activity",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -139,8 +139,8 @@
     },
     {
       "path": "docs/screenshots/morice-voice.png",
-      "sha256": "dc9bd8b54ec461e64a9bc725cc03d5897a640ae8101ed4e3a0109b8765508b32",
-      "bytes": 159461,
+      "sha256": "da857d3fed5054732cd338349f649815e85312c8dfbbd94a090e5bf5163b2d3c",
+      "bytes": 265318,
       "route": "voice",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -148,8 +148,8 @@
     },
     {
       "path": "docs/screenshots/morice-theme-glass.png",
-      "sha256": "275ca8fe540725d869479d488f67b849873ad0b7836a34bae22a9e015aeca7a4",
-      "bytes": 202507,
+      "sha256": "2a58a9931c5c83567c757f43d22698bea79507bd3d95912780e8953bb0716231",
+      "bytes": 205740,
       "route": "home",
       "preset": "GLASS",
       "capture_kind": "native_owned_qt_window",
@@ -157,8 +157,8 @@
     },
     {
       "path": "docs/screenshots/morice-theme-amethyst.png",
-      "sha256": "45a8bf4a0a065f8e6ded6439c287eecee94934719c5d002715b4eaf20e6724b7",
-      "bytes": 247027,
+      "sha256": "8e03de52b3d8ec1d9ab012fa18be85dc1f00126cd7ee7ce6a30c69c4594b54a0",
+      "bytes": 246090,
       "route": "home",
       "preset": "AMETHYST",
       "capture_kind": "native_owned_qt_window",
@@ -166,8 +166,8 @@
     },
     {
       "path": "docs/screenshots/morice-theme-arctic.png",
-      "sha256": "55a86b0c19e4520eb28da6de4eaa3272867a7e9b76dd4699dcf33b1abf56f979",
-      "bytes": 222747,
+      "sha256": "2fa3e142fe4be3a7cb9eb88a728dca34527eade313f86096eb81ae3f8fa9a73e",
+      "bytes": 219866,
       "route": "home",
       "preset": "ARCTIC",
       "capture_kind": "native_owned_qt_window",
@@ -175,8 +175,8 @@
     },
     {
       "path": "docs/reviewer-images/morice-home.png",
-      "sha256": "1160a474742b8b955c5c9d6ce01b469b7be9b1dd02588b75433bb98df8e539bf",
-      "bytes": 240173,
+      "sha256": "98a839b3dadfa2336c13018488a6d9cb858c92cc6c7556f44cb8fe7313656b4c",
+      "bytes": 242293,
       "route": "home",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -184,8 +184,8 @@
     },
     {
       "path": "docs/reviewer-images/morice-graph.png",
-      "sha256": "f2670e75a824e7eedd789ce20f59eb926b3ce8d83623cd9ff73e85918c015612",
-      "bytes": 186072,
+      "sha256": "b396e0fea088d675c0193740a23286c4d000a0dd0bc31d30c975f5f255987639",
+      "bytes": 193467,
       "route": "artifacts",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -193,8 +193,8 @@
     },
     {
       "path": "docs/reviewer-images/morice-simulation.png",
-      "sha256": "cffd1b0eef84a7c86fcb1ae7bbef61b7241fc51f07ab72e4be2419eb4cb01109",
-      "bytes": 173014,
+      "sha256": "7404224e1e6143cca4e0d6751c73ce73d3acbc9d29b97e803e1a5cec0e04d6e8",
+      "bytes": 181445,
       "route": "artifacts",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -202,8 +202,8 @@
     },
     {
       "path": "docs/reviewer-images/morice-project.png",
-      "sha256": "29d3b050d7415b944793bcc592c554d817978f1b4ad47bb285619c9a76769b09",
-      "bytes": 178111,
+      "sha256": "b09ffccfa02a65328c8d876800c41d8b47bd9fc5e8c5707ab6f643345c4a1635",
+      "bytes": 180998,
       "route": "settings",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -211,24 +211,69 @@
     },
     {
       "path": "docs/reviewer-images/morice-personalization.png",
-      "sha256": "ecf3775b1889c6a9506963f00ca4d03a2a22c7152144ab54bb15095fbcd30a5b",
-      "bytes": 178010,
+      "sha256": "6af385181ad33c1fc63b0b556aa6d5a9ef85ca9177586346d91c09af75cb009f",
+      "bytes": 180056,
       "route": "settings",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
       "fixture": "Owned demonstration form of address: Sir"
     },
     {
+      "path": "docs/screenshots/morice-project-review.png",
+      "sha256": "c3ba6a271f2176221555a905272bfcaa8810f944cb9e4255cf63ff2e66315d00",
+      "bytes": 190948,
+      "route": "projects",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": "Actual deterministic addition proposal"
+    },
+    {
+      "path": "docs/screenshots/morice-research-results.png",
+      "sha256": "777925b7f3c9894e1b432a803a1509ad2ebd079463bb1353923802c10eb08e54",
+      "bytes": 142471,
+      "route": "research",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": "Actual five-run ideal density sweep"
+    },
+    {
       "path": "docs/screenshots/website-hero-current.png",
-      "sha256": "6df9da3b178a4d9fe894a8bd94c41bf168e6eaaced6f6d32a87bd924e98567c5",
-      "bytes": 220855,
+      "sha256": "80066b1e386f14434ed01325c28300a3fdf31196fe95f4a610e5e0c23d3c75c9",
+      "bytes": 220867,
       "capture_kind": "owned_browser_local_production_site"
     },
     {
       "path": "docs/screenshots/website-mobile-current.png",
-      "sha256": "ff13b03787ee8cdf1a2d732b53305bfa7f0c5d13ed8cac8ec09ea70c54f0ff89",
-      "bytes": 100113,
+      "sha256": "6bfca65f09a9b7a1413e6182a2d812b3eb8be15c1fc5088a7626c36874239a80",
+      "bytes": 100563,
       "capture_kind": "owned_browser_local_production_site"
+    },
+    {
+      "path": "website/public/morice-projects.png",
+      "sha256": "1172c65e25a2e9d3ffb10d624f051912e1f86df3651610c8b4b6a963917ff4ce",
+      "bytes": 177515,
+      "route": "projects",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": "Actual saved addition source"
+    },
+    {
+      "path": "docs/screenshots/morice-project-review-compact.png",
+      "sha256": "88fb7badef81de68b7230758089e4e52ac189271ea2f25afc3a307e8c9a2fc10",
+      "bytes": 105748,
+      "route": "projects",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": "Compact review with usable Save reviewed files"
+    },
+    {
+      "path": "docs/screenshots/morice-research-review-compact.png",
+      "sha256": "f1ad4c3c162dab60e5f6f5e00d2b288fe81402733631da53043934607910fdb1",
+      "bytes": 127496,
+      "route": "research",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": "Compact scrollable inputs and pinned Run experiment"
     }
   ]
 }

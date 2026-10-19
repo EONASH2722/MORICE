@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 
 const repo = 'https://github.com/EONASH2722/MORICE'
-const sourceVersion = '0.9.2'
+const sourceVersion = '0.9.3'
 const workspaces = [
   { name: 'Core', icon: 'core', image: `morice-home.png?v=${sourceVersion}`, title: 'A calmer place to begin.', copy: 'A luminous Core, a compact composer, and the tools you need within reach.' },
+  { name: 'Projects', icon: 'code', image: `morice-projects.png?v=${sourceVersion}`, title: 'From a request to real files.', copy: 'Choose a folder, describe a change, review the proposal and save the files. Keep updates, checks and the existing browser preview together.' },
   { name: 'Spatial', icon: 'globe', image: `morice-spatial.png?v=${sourceVersion}`, title: 'Real places. Deterministic answers.', copy: 'Explore Earth, resolve locations offline, and compare WGS84 surface and through-Earth distances.' },
-  { name: 'Research', icon: 'research', image: `morice-research.png?v=${sourceVersion}`, title: 'Keep evidence close to the question.', copy: 'Inspect provenance, run controlled computations, and pause or resume experiments without losing results.' },
+  { name: 'Research', icon: 'research', image: `morice-research.png?v=${sourceVersion}`, title: 'A clearer path to an experiment.', copy: 'Describe a supported model or enter values in a form. Review the plan, run real computations, and inspect stored results.' },
   { name: 'Media', icon: 'image', image: `morice-media.png?v=${sourceVersion}`, title: 'A local studio, with clear limits.', copy: 'Choose compatible local models, review the queue, and inspect verified artifacts. Generation depends on installed models and available resources.' },
 ] as const
 

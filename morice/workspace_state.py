@@ -97,7 +97,7 @@ class WorkspaceState:
     splitter_sizes: list[int] = field(default_factory=list)
     workspace_preset: str = "balanced"
     presentation_route: str = "home"
-    presentation_navigation_expanded: bool = False
+    presentation_navigation_expanded: bool = True
     history: list[dict[str, str]] = field(default_factory=list)
     user_messages: list[str] = field(default_factory=list)
     recent_files: list[str] = field(default_factory=list)
@@ -199,7 +199,7 @@ class WorkspaceState:
             splitter_sizes=clean_splitter_sizes,
             workspace_preset=workspace_preset,
             presentation_route=presentation_route.lower(),
-            presentation_navigation_expanded=data.get("presentation_navigation_expanded") is True,
+            presentation_navigation_expanded=data.get("presentation_navigation_expanded", True) is True,
             history=_clean_messages(data.get("history")),
             user_messages=_clean_string_list(
                 data.get("user_messages"), MAX_HISTORY_ITEMS, item_limit=120_000

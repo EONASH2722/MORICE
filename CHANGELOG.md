@@ -4,6 +4,16 @@ All notable changes to MORICE are documented here.
 
 ## [Unreleased]
 
+## [0.9.3] — simpler Projects and Experiments
+
+- Projects selects Builder mode automatically, resolves explicit Build/Ask intent before keyword shortcuts, and uses the bundled chat model when no custom model is selected.
+- Keep Project updates and the existing verified browser preview in the Project workspace. Make folder selection, review/save, progress and cancellation explicit.
+- Add a plain-language experiment entry and unit-labelled model form, reviewed run plans, persistent results, and visible missing-input errors. Keep specification JSON and diagnostics under Advanced.
+- Reduce primary navigation and show labels by default for new sessions. Preserve existing saved navigation preferences and all tool routes.
+- Exclude local Python modules and relative imports from inferred pip dependencies. Preserve complete bounded proposal goals or report an oversized request as partial instead of silently truncating requirements.
+- Add native file-generation, actual script execution, real experiment, compact-window and shared-runtime regression coverage.
+- Keep compact review/save and experiment run controls usable while details scroll. Stop automatic source repair for user/permission/environment verification blocks, and ignore delayed GPU detection after window close.
+
 ## [0.9.2] — chat routing repair
 
 - Technical percentages and results no longer trigger exam consolation. Brief personal exam and emotional check-ins still work.

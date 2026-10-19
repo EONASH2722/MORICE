@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import json
 
-from PySide6.QtCore import Qt, QItemSelectionModel
+from PySide6.QtCore import Qt, QItemSelectionModel, QTimer
 from PySide6.QtWidgets import (QWidget, QDialog, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QTabWidget, QScrollArea, QSplitter, QLineEdit,
-    QPlainTextEdit, QFormLayout, QTableWidgetItem)
+    QPlainTextEdit, QFormLayout, QTableWidgetItem, QComboBox, QTextBrowser, QHeaderView, QSizePolicy)
 
 from ..research.ui import ResearchDialog
 from ..device_mesh.ui import DevicesDialog
@@ -19,6 +19,8 @@ from ..ambient.ui import AmbientDialog
 from ..research.history_ui import ChatHistoryDialog
 from ..plugin_ui import PluginCenter
 from .research_graph import EvidenceGraph
+from .responsive import FlowLayout
+from .experiment_form import ExperimentForm
 
 
 def page(title, description=''):
@@ -46,36 +48,69 @@ def button_rows(layout, buttons, columns=3):
 
 class ResearchWorkspace(ResearchDialog):
     def __init__(self, services, bridge, parent=None, *, theme=None):
-        self.bridge = bridge; self._bridge_preparing = False; self._ready = False; self._creating_project = False
+        self.bridge = bridge; self._bridge_preparing = False; self._ready = False; self._creating_project = False; self._controlling = False
         self._meta_reading = False; self._meta_again = False; self._result_reading = False; self._result_key = None; self._meta_rows = {}; self._pending_select_id = None
         super().__init__(services.research, parent=parent)
         self.setWindowFlags(Qt.Widget); self.timer.stop(); self.pool.shutdown(wait=False, cancel_futures=True)
         controls = list(self.findChildren(QPushButton)); self.retained_controls = QWidget(self); self.retained_controls.hide()
         root = self.layout(); retire_layout(root, self.retained_controls)
         root.setContentsMargins(24, 20, 24, 20)
-        heading = QLabel('Research'); heading.setProperty('role', 'title'); root.addWidget(heading)
-        root.addWidget(QLabel('Evidence, reproducible experiments and computational results.'))
+        heading = QLabel('Research'); heading.setProperty('role', 'title')
+        heading_row = QHBoxLayout(); heading_row.addWidget(heading, 1); root.addLayout(heading_row)
+        root.addWidget(QLabel('Describe a test → review the inputs → run it and view saved results.'))
+        self.notebooks_button = QPushButton('Notebooks'); self.notebooks_button.setCheckable(True)
+        self.notebooks_button.setAccessibleName('Research notebooks')
+        self.notebooks_button.setProperty('morice_icon', 'projects'); heading_row.addWidget(self.notebooks_button)
+        self.notebooks = QWidget(); notebooks = QVBoxLayout(self.notebooks); notebooks.setContentsMargins(0, 0, 0, 0)
         project_row = QHBoxLayout(); project_row.addWidget(self.projects, 1)
         self.objective = QLineEdit(); self.objective.setPlaceholderText('New research objective'); project_row.addWidget(self.objective, 1)
-        self.create_button = QPushButton('Create project'); self.create_button.clicked.connect(self.create_project); project_row.addWidget(self.create_button); root.addLayout(project_row)
-        root.addWidget(self.status); self.tabs = QTabWidget(); root.addWidget(self.tabs, 1)
-        _, experiment = self.add_page('Experiments'); experiment.addWidget(self.filter); experiment.addWidget(self.experiments, 1); experiment.addWidget(self.progress)
-        button_rows(experiment, controls[:4], 4)
+        self.create_button = QPushButton('Create notebook'); self.create_button.clicked.connect(self.create_project); project_row.addWidget(self.create_button); notebooks.addLayout(project_row)
+        root.addWidget(self.notebooks); self.notebooks.hide(); self.notebooks_button.toggled.connect(self.notebooks.setVisible)
+        self.feedback = QLabel('Start with an experiment below. Its inputs and results are saved automatically.')
+        self.feedback.setWordWrap(True); root.addWidget(self.feedback)
+        notebooks.addWidget(self.status); self.status.hide(); self.tabs = QTabWidget(); root.addWidget(self.tabs, 1)
+        _, new = self.add_page('New experiment')
+        self.editor = ExperimentForm(self.manager.registry); self.editor.prepare_requested.connect(self._prepare_request)
+        new.addWidget(self.editor)
+        self.experiments_page, experiment = self.add_page('Experiments')
+        self.experiment_scroll = QScrollArea(); self.experiment_scroll.setWidgetResizable(True)
+        self.experiment_scroll.setFrameShape(QScrollArea.NoFrame)
+        self.experiment_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        experiment_content = QWidget(); review_layout = QVBoxLayout(experiment_content); review_layout.setContentsMargins(0, 0, 0, 0)
+        self.review = QPlainTextEdit('Select a saved experiment to review or run.'); self.review.setReadOnly(True)
+        self.review.setAccessibleName('Reviewed experiment inputs and model limits')
+        self.review.setMinimumHeight(96); self.review.setMaximumHeight(160); review_layout.addWidget(self.review)
+        review_layout.addWidget(self.filter); review_layout.addWidget(self.experiments, 1); review_layout.addWidget(self.progress)
+        self.experiments.setMinimumHeight(100)
+        self.experiment_scroll.setWidget(experiment_content); experiment.addWidget(self.experiment_scroll, 1)
+        self.experiment_controls = controls[:4]
+        self.run_button, self.pause_button, self.cancel_button, self.compare_button = self.experiment_controls
+        self.run_button.setText('Run experiment'); self.run_button.setProperty('role', 'primary')
+        self.compare_button.setText('Compare selected')
+        action_row = FlowLayout()
+        for button in self.experiment_controls: action_row.addWidget(button); button.setEnabled(False)
+        experiment.addLayout(action_row)
+        self.experiments.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        for index in range(1, 5): self.experiments.horizontalHeader().setSectionResizeMode(index, QHeaderView.ResizeToContents)
         _, results = self.add_page('Results'); results.addWidget(self.run_filter); results.addWidget(self.runs, 1)
         self.results_note = QLabel('Completed run data remains in the existing experiment store.'); self.results_note.setWordWrap(True); results.addWidget(self.results_note)
         self.run_filter.setPlaceholderText('Filter stored runs by index, parameters, status or outputs')
         _, evidence = self.add_page('Evidence'); evidence.addWidget(self.evidence); self.evidence_summary = QPlainTextEdit(); self.evidence_summary.setReadOnly(True); evidence.addWidget(self.evidence_summary, 1)
-        _, simulation = self.add_page('Simulation'); simulation.addWidget(self.plot, 1)
+        self.simulation_page, simulation = self.add_page('Simulation'); simulation.addWidget(self.plot, 1)
         playback = QHBoxLayout()
         for widget in (self.play, next(button for button in controls if button.text() == 'Step'), self.speed, self.trails): playback.addWidget(widget)
         simulation.addLayout(playback); simulation.addWidget(self.scrub); simulation.addWidget(self.frame_status)
-        _, specification = self.add_page('Specification'); self.specification.setMaximumHeight(16777215); specification.addWidget(self.specification, 1)
+        self.specification_page, specification = self.add_page('Specification'); self.specification.setMaximumHeight(16777215); specification.addWidget(self.specification, 1)
         self.prepare_button = next(button for button in controls if button.text().startswith('Prepare reviewed')); specification.addWidget(self.prepare_button)
-        self.graph = EvidenceGraph(theme) if theme is not None else None
+        self.graph = EvidenceGraph(theme) if theme is not None else None; self.graph_page = None
         if self.graph is not None:
-            _, graph_layout = self.add_page('Evidence graph'); graph_layout.addWidget(self.graph,1)
+            self.graph_page, graph_layout = self.add_page('Evidence graph'); graph_layout.addWidget(self.graph,1)
             graph_note = QLabel('Stored relationships only. No links or scientific support are inferred. View shows up to 200 records.'); graph_note.setWordWrap(True); graph_layout.addWidget(graph_note)
-        root.addWidget(self.detail); self.detail.setMaximumHeight(160)
+        self.advanced_button = QPushButton('Advanced'); self.advanced_button.setCheckable(True)
+        self.advanced_button.setAccessibleName('Advanced research details')
+        self.advanced_button.setProperty('morice_icon', 'more'); heading_row.addWidget(self.advanced_button)
+        root.addWidget(self.detail); self.detail.setMaximumHeight(160); self.detail.hide()
+        self.advanced_button.toggled.connect(self._show_advanced); self._show_advanced(False)
         self.tabs.currentChanged.connect(self._tab_changed)
         self.timer.setInterval(1000)
         self._ready = True
@@ -95,15 +130,23 @@ class ResearchWorkspace(ResearchDialog):
 
     def _created(self, envelope, objective):
         self._creating_project = False; self.create_button.setEnabled(True)
-        if not envelope['ok']: self.detail.setPlainText(envelope['error']); return
+        if not envelope['ok']: self._error(envelope['error']); return
         self.project_id = envelope['value']; self.projects.addItem(objective, self.project_id)
         self.projects.setCurrentIndex(self.projects.findData(self.project_id))
         if self.objective.text().strip() == objective: self.objective.clear()
         self.refresh()
 
     def _tab_changed(self, index):
-        if index != 3: self.play_timer.stop()
-        if index == 2: self.inspect_evidence(); self.evidence_summary.setPlainText(self.detail.toPlainText())
+        if self.tabs.widget(index) is not self.simulation_page: self.play_timer.stop()
+        if self.tabs.tabText(index) == 'Evidence': self.inspect_evidence(); self.evidence_summary.setPlainText(self.detail.toPlainText())
+
+    def _show_advanced(self, visible):
+        self.detail.setVisible(visible)
+        for view in (self.specification_page, self.graph_page):
+            if view is not None: self.tabs.setTabVisible(self.tabs.indexOf(view), visible)
+
+    def _error(self, message):
+        self.detail.setPlainText(str(message)); self.feedback.setText(str(message))
 
     def refresh(self, *_):
         if not self._ready: return super().refresh()
@@ -117,7 +160,7 @@ class ResearchWorkspace(ResearchDialog):
             return {'rows':rows, 'snapshot':snapshot, 'project_id':project_id}
         def apply(envelope):
             self._meta_reading = False
-            if not envelope['ok']: self.detail.setPlainText(envelope['error']); return
+            if not envelope['ok']: self._error(envelope['error']); return
             value = envelope['value']
             if value['project_id'] != self.project_id:
                 if self.isVisible(): self.refresh()
@@ -136,8 +179,14 @@ class ResearchWorkspace(ResearchDialog):
                     self.experiments.selectionModel().setCurrentIndex(self.experiments.model().index(index,0),QItemSelectionModel.NoUpdate)
                     if self._pending_select_id: self.experiments.selectRow(index); self._pending_select_id = None
             self.experiments.blockSignals(False)
+            if not rows:
+                self.runs.setRowCount(0); self.progress.setValue(0); self._result_key = None
+                self.review.setPlainText('No experiments in this notebook. Open New experiment to create one.')
+                for button in self.experiment_controls: button.setEnabled(False)
+            self.compare_button.setEnabled(len(self.experiments.selectionModel().selectedRows()) == 2)
             snapshot = value['snapshot']
             if snapshot:
+                self.status.show()
                 if self.graph is not None: self.graph.set_snapshot(snapshot)
                 records = snapshot['records']
                 self.status.setText(f"{snapshot['objective']}\n{sum(row['kind']=='question' for row in records)} questions · {sum(row['kind']=='hypothesis' for row in records)} hypotheses · {sum(row['stale'] for row in records)} stale records")
@@ -153,7 +202,11 @@ class ResearchWorkspace(ResearchDialog):
     def select(self):
         if not self._ready: return super().select()
         self.inspection_mode = False; identifier = self.selected_id()
-        if not identifier or self._result_reading: return
+        self.compare_button.setEnabled(len(self.experiments.selectionModel().selectedRows()) == 2)
+        if not identifier:
+            for button in (self.run_button, self.pause_button, self.cancel_button): button.setEnabled(False)
+            return
+        if self._result_reading: return
         text = self.run_filter.text().casefold(); metadata = self._meta_rows.get(identifier, {})
         key = (identifier, metadata.get('updated'), metadata.get('completed_runs'), metadata.get('status'), text)
         if self._result_key == key: return
@@ -162,11 +215,21 @@ class ResearchWorkspace(ResearchDialog):
             return self.manager.get(identifier,True,run_limit=500,run_filter=text)
         def apply(envelope):
             self._result_reading = False
-            if not envelope['ok']: self.detail.setPlainText(envelope['error']); return
+            if not envelope['ok']: self._error(envelope['error']); return
             if identifier != self.selected_id():
                 if self.isVisible(): self.select()
                 return
             row = envelope['value']; self._result_key = key
+            state = row['status']; running = state in {'QUEUED', 'RUNNING'}
+            self.run_button.setEnabled(not running and not self._controlling)
+            self.run_button.setText('Resume experiment' if state in {'PAUSED', 'CANCELLED'} else 'Completed' if state.startswith('COMPLETED') else 'Run experiment')
+            # Completed experiments are immutable; use a new reviewed plan instead.
+            if state.startswith('COMPLETED'): self.run_button.setEnabled(False)
+            self.pause_button.setEnabled(running and not self._controlling)
+            self.cancel_button.setEnabled(state in {'QUEUED', 'RUNNING', 'PAUSED'} and not self._controlling)
+            values = ', '.join(f"{name.replace('_', ' ')} = {quantity['value']} {quantity['unit']}" for name, quantity in row['spec']['parameters'].items())
+            self.review.setPlainText(f"{row['title']} · {state.replace('_', ' ').title()}\n"
+                f"{row['completed_runs']} / {row['estimate']['planned_runs']} runs saved\n{values}\n{row['estimate']['limitations']}")
             self.progress.setRange(0,row['estimate']['planned_runs']); self.progress.setValue(row['completed_runs'])
             self.detail.setPlainText(json.dumps({'summary':row['summary'],'error':row['error'],'specification':row['spec']},indent=2)[:30000])
             self.runs.setSortingEnabled(False); self.runs.setRowCount(len(row['runs']))
@@ -187,20 +250,40 @@ class ResearchWorkspace(ResearchDialog):
     def prepare(self):
         if self._bridge_preparing: return
         try: spec = json.loads(self.specification.toPlainText())
-        except ValueError as exc: self.detail.setPlainText(str(exc)); return
-        self._bridge_preparing = True; self.prepare_button.setEnabled(False)
+        except ValueError as exc: self._error(str(exc)); return
+        self._prepare_request(spec)
+
+    def _prepare_request(self, spec):
+        if self._bridge_preparing: return
+        self._bridge_preparing = True; self.prepare_button.setEnabled(False); self.editor.prepare_button.setEnabled(False)
+        self.projects.setEnabled(False); self.feedback.setText('Checking your inputs and preparing an experiment for review…')
         def completed(envelope):
-            self._bridge_preparing = False; self.prepare_button.setEnabled(True)
-            if not envelope['ok']: self.detail.setPlainText(envelope['error']); return
+            self._bridge_preparing = False; self.prepare_button.setEnabled(True); self.editor.prepare_button.setEnabled(True); self.projects.setEnabled(True)
+            if not envelope['ok']: self._error(envelope['error']); return
             row = envelope['value']; self.project_id = row['project_id']
             self._pending_select_id = row['id']
             if self.projects.findData(self.project_id) < 0: self.projects.addItem(self.runtime.project(self.project_id).objective[:100], self.project_id)
             self.projects.setCurrentIndex(self.projects.findData(self.project_id)); self.refresh()
             for index in range(self.experiments.rowCount()):
                 if self.experiments.item(index, 0).data(Qt.UserRole) == row['id']: self.experiments.selectRow(index); break
-            self.tabs.setCurrentIndex(0)
+            self.tabs.setCurrentWidget(self.experiments_page)
+            self.feedback.setText(f"Ready to run: {row['estimate']['planned_runs']} computational runs. Review the inputs below, then select Run experiment.")
         project_id = self.project_id or None
-        self.bridge.submit('research-prepare', lambda: self.manager.prepare(spec, project_id=project_id), completed)
+        try: self.bridge.submit('research-prepare', lambda: self.manager.prepare(spec, project_id=project_id), completed)
+        except (ValueError, RuntimeError) as exc: completed({'ok': False, 'error': str(exc)})
+
+    def control(self, action):
+        identifier = self.selected_id()
+        if not identifier or self._controlling: return
+        self._controlling = True
+        for button in self.experiment_controls: button.setEnabled(False)
+        def completed(envelope):
+            self._controlling = False; self._result_key = None
+            if not envelope['ok']: self._error(envelope['error'])
+            else: self.feedback.setText('Experiment updated. Progress and results are saved in this notebook.')
+            self.refresh()
+        try: self.bridge.submit('research-experiment-control', lambda: action(identifier), completed)
+        except (ValueError, RuntimeError) as exc: completed({'ok': False, 'error': str(exc)})
 
     def tick(self):
         self.refresh()
@@ -313,22 +396,134 @@ class PluginsWorkspace(PluginCenter):
 
 
 class ProjectsWorkspace(QWidget):
-    """Existing Builder forms, review controls and terminal in the new route."""
+    """One visible task, destination and result over the established Builder."""
     def __init__(self, window):
         super().__init__(); self.owner = window
-        root = QVBoxLayout(self); root.setContentsMargins(24, 20, 24, 20)
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        self.scroll = QScrollArea(); self.scroll.setWidgetResizable(True); self.scroll.setFrameShape(QScrollArea.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget(); root = QVBoxLayout(content); root.setContentsMargins(16, 8, 16, 8); root.setSpacing(8)
+        self.scroll.setWidget(content); outer.addWidget(self.scroll)
         heading = QLabel('Projects'); heading.setProperty('role', 'title'); root.addWidget(heading)
-        note = QLabel('Plan, build, test and review using the established Builder runtime.'); note.setProperty('role', 'secondary'); root.addWidget(note)
+        note = QLabel('Choose a folder → describe your changes → review and save the files.')
+        note.setWordWrap(True); note.setProperty('role', 'secondary'); root.addWidget(note)
         setup = QHBoxLayout()
-        for field in (window.project_folder_input, window.project_add_btn, window.project_mode_btn): setup.addWidget(field)
+        window.project_folder_input.setMinimumWidth(0)
+        window.project_folder_input.setPlaceholderText('Choose where MORICE should save your project')
+        window.project_add_btn.setText('Choose folder'); window.project_add_btn.setMinimumWidth(0)
+        window.project_add_btn.setMaximumWidth(16777215)
+        window.project_add_btn.setFixedHeight(window.theme_engine.tokens.control_height)
+        setup.addWidget(window.project_folder_input, 1); setup.addWidget(window.project_add_btn)
         root.addLayout(setup)
-        access = QHBoxLayout()
-        for field in (window.folder_access_btn, window.full_access_btn, window.project_lookup_btn): access.addWidget(field)
+        actions = QHBoxLayout()
+        self.action = QComboBox(); self.action.addItem('Build or edit files', 'build'); self.action.addItem('Ask about this project', 'ask')
+        self.action.setAccessibleName('Project prompt action')
+        self.action.currentIndexChanged.connect(lambda: window._refresh_send_button_state())
+        actions.addWidget(self.action, 1)
+        self.options_button = QPushButton('Build settings'); self.options_button.setCheckable(True)
+        self.options_button.setProperty('morice_icon', 'settings'); actions.addWidget(self.options_button)
+        self.stop_button = QPushButton('Stop build'); self.stop_button.setProperty('morice_icon', 'stop')
+        self.stop_button.clicked.connect(self.stop_build); actions.addWidget(self.stop_button); self.stop_button.hide()
+        root.addLayout(actions)
+        self.options = QWidget(); options = QVBoxLayout(self.options); options.setContentsMargins(0, 0, 0, 0)
+        access = FlowLayout()
+        for field in (window.folder_access_btn, window.full_access_btn, window.project_lookup_btn):
+            field.setMinimumWidth(0); access.addWidget(field)
         window.project_lookup_btn.setAccessibleName('Project lookup scope'); window.project_lookup_btn.setProperty('morice_icon','search'); window.project_lookup_btn.show()
-        access.addStretch(1); root.addLayout(access)
-        root.addWidget(window.mode_status); root.addWidget(window.changes_summary)
+        options.addLayout(access); options.addWidget(window.mode_status)
+        root.addWidget(self.options); self.options.hide(); self.options_button.toggled.connect(self.options.setVisible)
+        self.feedback = QLabel('Describe what to build below. MORICE will prepare real files for your review.')
+        self.feedback.setWordWrap(True); root.addWidget(self.feedback)
+        window.changes_summary.setParent(self); root.addWidget(window.changes_summary); window.changes_summary.show()
         window.changes_content.setParent(self); root.addWidget(window.changes_content, 1); window.changes_content.show()
         window.changes_content.setMinimumWidth(0); window.project_workspace_stack.setMinimumWidth(0)
+        # The route may shrink; review controls must retain usable hit areas.
+        # Scroll the project surface instead of collapsing its review page.
+        window.project_workspace_stack.setMinimumHeight(280)
+        self.updates = QTextBrowser(); self.updates.setOpenExternalLinks(False)
+        self.updates.document().setMaximumBlockCount(1000)
+        self.updates.setAccessibleName('Project conversation and progress'); self.updates.setPlaceholderText('Your project requests and responses appear here. Files and verification stay in this workspace.')
+        window.project_workspace_stack.addWidget(self.updates)
+        window.project_updates_tab = QPushButton('Updates'); window.project_updates_tab.setProperty('morice_icon', 'chats')
+        window.project_updates_tab.clicked.connect(lambda: window._set_project_workspace_tab(3))
+        window.changes_content.layout().itemAt(0).layout().addWidget(window.project_updates_tab)
+        self.preview = QWidget(); self.preview_layout = QVBoxLayout(self.preview); self.preview_layout.setContentsMargins(0, 0, 0, 0)
+        window.project_workspace_stack.addWidget(self.preview)
+        window.project_preview_tab = QPushButton('Preview'); window.project_preview_tab.setProperty('morice_icon', 'spatial')
+        window.project_preview_tab.clicked.connect(self.show_preview); window.project_preview_tab.hide()
+        window.changes_content.layout().itemAt(0).layout().addWidget(window.project_preview_tab)
+        window.changes_apply_btn.setText('Save reviewed files'); window.changes_apply_btn.setProperty('role', 'primary')
+        window.changes_reject_btn.setText('Discard proposal')
+        window.project_changes_tab.setText('Review')
+        # A tree and readable preview share the available area instead of two
+        # full-width, vertically competing panes.
+        files = window.project_files_page.layout()
+        files.removeWidget(window.project_file_tree); files.removeWidget(window.project_file_preview)
+        self.file_split = QSplitter(Qt.Horizontal)
+        self.file_split.addWidget(window.project_file_tree); self.file_split.addWidget(window.project_file_preview)
+        self.file_split.setSizes([240, 520]); files.addWidget(self.file_split, 1)
+        window.project_file_tree.setMinimumWidth(0); window.project_file_preview.setMinimumWidth(0)
+        window._set_project_workspace_tab(0)
+        self.refresh_state()
+
+    def record_message(self, author, message):
+        from html import escape
+        self.updates.append('<b>' + escape(str(author)) + '</b><p style="white-space:pre-wrap">' + escape(str(message)) + '</p>')
+        self.updates.verticalScrollBar().setValue(self.updates.verticalScrollBar().maximum())
+        QTimer.singleShot(0, self.ensure_primary_visible)
+
+    def ensure_primary_visible(self):
+        if not self.isVisible(): return
+        window = self.owner
+        if window.project_workspace_stack.currentIndex() == 0 and not window.changes_available:
+            self.scroll.verticalScrollBar().setValue(0); return
+        target = window.changes_apply_btn if window.pending_project_patch and window.project_workspace_stack.currentIndex() == 1 else window.project_workspace_stack.currentWidget()
+        if target is not None: self.scroll.ensureWidgetVisible(target, 0, 12)
+
+    def show_preview(self):
+        hub = self.owner.assistant_hub
+        index = hub.tools_subtabs.indexOf(hub.browser_page)
+        if index >= 0: hub.tools_subtabs.removeTab(index)
+        self.preview_layout.addWidget(hub.browser_page); hub.browser_page.show()
+        self.owner.project_preview_tab.show(); self.owner.navigate('projects')
+        self.owner._set_project_workspace_tab(4)
+
+    def release_preview(self):
+        hub = self.owner.assistant_hub
+        if hub.browser_page.parent() is self.preview:
+            self.preview_layout.removeWidget(hub.browser_page)
+            hub.tools_subtabs.insertTab(2, hub.browser_page, 'Browser')
+            self.owner.project_preview_tab.hide()
+
+    def refresh_state(self):
+        window = self.owner
+        building = bool(window._project_build_id)
+        window.changes_summary.setVisible(bool(window.changes_available) or building)
+        self.stop_button.setVisible(building)
+        for field in (window.project_folder_input, window.project_add_btn, self.action, self.options):
+            field.setEnabled(not window.is_busy and not building)
+        pending = bool(window.pending_project_patch)
+        window.changes_apply_btn.setVisible(pending); window.changes_reject_btn.setVisible(pending)
+        window.changes_verify_btn.setVisible(not pending); window.changes_run_btn.setVisible(not pending)
+        window.changes_undo_btn.setVisible(bool(window.last_project_undo_id))
+        window.changes_resume_btn.setVisible(bool(window._last_project_build_id) and not window._project_build_id)
+        if pending:
+            self.feedback.setText('Your files are ready. Open Review, check the changes, then select Save reviewed files.')
+            window.changes_action_status.setText('These files have not been saved yet. Save reviewed files to start the checks.')
+        elif window._project_build_id: self.feedback.setText('Building and checking your project. Progress is available in Output.')
+        elif not window.project_folder: self.feedback.setText('Choose a folder first, or use the default MORICE Projects / Quick Build folder.')
+        QTimer.singleShot(0, self.ensure_primary_visible)
+
+    def stop_build(self):
+        token = self.owner._project_build_token
+        if token is not None:
+            token.cancel('User chose Stop build.')
+            self.feedback.setText('Stopping the build. Completed file changes and checks remain visible in this project.')
+
+    def resizeEvent(self, event):
+        if hasattr(self, 'file_split'): self.file_split.setOrientation(Qt.Vertical if self.width() < 600 else Qt.Horizontal)
+        if hasattr(self, 'scroll'): QTimer.singleShot(0, self.ensure_primary_visible)
+        super().resizeEvent(event)
 
 
 class ToolsWorkspace(QWidget):
@@ -356,8 +551,15 @@ class ToolsWorkspace(QWidget):
         self._previous_plugin_panels(contributions, callback); self.mount_plugin_pages()
 
     def show_tab(self, name):
+        if name == 'Browser':
+            if getattr(self.owner, '_project_preview_preparing', False):
+                self.owner.routes['projects'].show_preview(); return
+            self.owner.routes['projects'].release_preview()
         self.owner.navigate('activity' if name == 'Activity' else 'tools')
         tools = ('System', 'Notes', 'Browser', 'Media', 'Desktop')
         if name in tools:
-            self.tabs.setCurrentIndex(1); self.owner.assistant_hub.tools_subtabs.setCurrentIndex(tools.index(name))
+            self.tabs.setCurrentIndex(1)
+            subtabs = self.owner.assistant_hub.tools_subtabs
+            index = next((i for i in range(subtabs.count()) if subtabs.tabText(i) == name), -1)
+            if index >= 0: subtabs.setCurrentIndex(index)
         elif name != 'Activity': self.tabs.setCurrentIndex({'Files': 0, 'Tools': 1, 'Platform': 2, 'Dashboard': 3}.get(name, 0))

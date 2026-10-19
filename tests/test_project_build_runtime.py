@@ -74,6 +74,25 @@ def test_real_python_build_test_run_and_artifact(builder, tmp_path):
     assert any(v["role"] == "coder" for v in result.workers)
 
 
+def test_source_proposal_preserves_later_requirements_or_reports_budget(builder, tmp_path):
+    from morice.agent_runtime.models import ModelReply
+    runtime, _ = builder; received = []
+    goal = 'Create a Python conversion script. ' + 'Keep the implementation dependency free. ' * 18 + 'Final requirement: expose convert_celsius in main.py.'
+    def backend(*, prompt, model_id, **kwargs):
+        received.append(prompt)
+        text = json.dumps({'files': [{'path': 'main.py', 'content': 'def convert_celsius(value):\n    return value * 9 / 5 + 32\n'}]})
+        return ModelReply(text, model_id, len(prompt.encode()), len(text)//4)
+    runtime.agents.models.configure('controlled-coder', backend)
+    context = ExecutionContext(metadata={'model_config': {'selected_model': 'controlled-coder', 'allow_fallback': False}})
+    result = runtime.generate(tmp_path/'preserved', goal, context)
+    assert result.changes and len(received) == 1
+    assert goal in json.loads(received[0])['task']
+    received.clear()
+    oversized = runtime.generate(tmp_path/'oversized', goal * 5, context)
+    assert oversized.status == 'partial' and not oversized.changes and not received
+    assert 'context budget' in oversized.result_card()['issues'][0]['evidence']
+
+
 def test_logic_failure_drives_actual_repair_and_retest(builder, tmp_path):
     runtime, approve = builder
     session = calculator(runtime, tmp_path / "broken", broken=True)
@@ -479,3 +498,37 @@ def test_reviewed_remote_builder_binding_rechecks_current_source(builder, tmp_pa
         with pytest.raises(PermissionError): observer({"session_id": "unreviewed"}, ExecutionContext())
     finally:
         mesh.close()
+
+
+@pytest.mark.parametrize('code,detail,category', [
+    ('internal_error', 'UserInterventionRequired', 'user_intervention'),
+    ('permission_denied', '', 'permission'),
+    ('capability_unavailable', '', 'environment'),
+])
+def test_unavailable_verification_does_not_request_source_repair(builder, tmp_path, monkeypatch, code, detail, category):
+    from morice.kernel import ErrorCode, ExecutionResult, TaskGraph, TaskNode
+    runtime, approve = builder
+    session = calculator(runtime, tmp_path/'blocked-check')
+    def blocked(current, *args):
+        task = TaskNode('browser.inspect', {})
+        task.result = ExecutionResult.failure(ErrorCode(code), 'Actual verification unavailable.', detail=detail)
+        runtime._graph_issues(current, TaskGraph((task,)), 'ui')
+        current.health['ui'] = 'fail'
+        return False
+    monkeypatch.setattr(runtime, '_runtime', blocked)
+    repair = Mock()
+    result = runtime.build(session, authorize=approve, repair=repair)
+    assert not result.success and Path(session.project_root, 'main.py').is_file()
+    assert any(issue['category'] == category for issue in result.issues)
+    assert result.metrics['source_repair_blocked'] and not result.repair_history
+    repair.assert_not_called()
+
+
+def test_old_environment_issue_does_not_block_fresh_code_repair(builder, tmp_path):
+    runtime, approve = builder
+    session = calculator(runtime, tmp_path/'restored-environment', broken=True)
+    runtime._issue(session, 'environment', 'runtime', 'Previously unavailable provider')
+    def repair(current, issues):
+        return scaffold('Create a Python calculator that adds two numbers', session.project_root)['files'][:1]
+    result = runtime.build(session, authorize=approve, repair=repair)
+    assert result.success and len(result.repair_history) == 1

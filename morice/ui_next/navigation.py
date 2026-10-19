@@ -15,8 +15,8 @@ class Route:
 
 ROUTES = tuple(Route(key, 'Core' if key == 'home' else key.title(), 'core' if key == 'home' else key) for key in ('home', 'chats', 'projects', 'research', 'spatial', 'devices',
     'media', 'automations', 'connectors', 'security', 'history', 'activity', 'tools', 'voice', 'artifacts', 'plugins', 'settings'))
-PRIMARY = ('home', 'chats', 'projects', 'research', 'spatial', 'media', 'devices', 'activity')
-ADVANCED = ('automations', 'connectors', 'security', 'tools', 'voice', 'artifacts', 'plugins')
+PRIMARY = ('home', 'chats', 'projects', 'research', 'voice', 'media')
+ADVANCED = ('spatial', 'devices', 'activity', 'tools', 'artifacts', 'automations', 'connectors', 'security', 'plugins')
 
 
 class NavigationRail(MaterialSurface):
@@ -39,7 +39,7 @@ class NavigationRail(MaterialSurface):
             button.clicked.connect(lambda checked=False, key=route.key: self.selected.emit(key)); self.buttons[route.key] = button
         for key in PRIMARY: routes_layout.addWidget(self.buttons[key])
         self.more = QPushButton('More'); self.more.setProperty('morice_icon', 'more'); self.more.setCheckable(True)
-        self.more.setAccessibleName('More workspaces'); self.more.setToolTip('Automations, Connectors, Security, Tools, Voice, Artifacts and Plugins')
+        self.more.setAccessibleName('More workspaces'); self.more.setToolTip('Spatial, Devices, Activity, Tools, Artifacts, Automations, Connectors, Security and Plugins')
         self.more.clicked.connect(self.set_more_expanded); routes_layout.addWidget(self.more)
         self.advanced = QWidget(); extra = QVBoxLayout(self.advanced); extra.setContentsMargins(0, 0, 0, 0); extra.setSpacing(6)
         for key in ADVANCED: extra.addWidget(self.buttons[key])
@@ -69,7 +69,7 @@ class NavigationRail(MaterialSurface):
 
     def set_more_expanded(self, expanded):
         self.more_expanded = bool(expanded); self.more.setChecked(self.more_expanded); self.advanced.setVisible(self.more_expanded)
-        self.more.setAccessibleDescription('Expanded' if self.more_expanded else 'Collapsed; activate to show seven more workspaces')
+        self.more.setAccessibleDescription('Expanded' if self.more_expanded else 'Collapsed; activate to show more workspaces')
 
     def enable_route(self, key, enabled, reason=''):
         button = self.buttons[key]; button.setEnabled(enabled); button.setToolTip(reason if not enabled else next(route.label for route in ROUTES if route.key == key))
