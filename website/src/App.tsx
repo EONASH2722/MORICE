@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react'
 
 const repo = 'https://github.com/EONASH2722/MORICE'
-const sourceVersion = '0.9.3'
+const sourceVersion = '0.9.4'
 const workspaces = [
   { name: 'Core', icon: 'core', image: `morice-home.png?v=${sourceVersion}`, title: 'A calmer place to begin.', copy: 'A luminous Core, a compact composer, and the tools you need within reach.' },
   { name: 'Projects', icon: 'code', image: `morice-projects.png?v=${sourceVersion}`, title: 'From a request to real files.', copy: 'Choose a folder, describe a change, review the proposal and save the files. Keep updates, checks and the existing browser preview together.' },
-  { name: 'Spatial', icon: 'globe', image: `morice-spatial.png?v=${sourceVersion}`, title: 'Real places. Deterministic answers.', copy: 'Explore Earth, resolve locations offline, and compare WGS84 surface and through-Earth distances.' },
+  { name: 'Spatial', icon: 'globe', image: `morice-spatial.png?v=${sourceVersion}`, title: 'Find your place in the world.', copy: 'Search cities, states and countries online, with offline fallback. Choose ambiguous places explicitly and compare WGS84 distances between verified coordinates.' },
   { name: 'Research', icon: 'research', image: `morice-research.png?v=${sourceVersion}`, title: 'A clearer path to an experiment.', copy: 'Describe a supported model or enter values in a form. Review the plan, run real computations, and inspect stored results.' },
-  { name: 'Media', icon: 'image', image: `morice-media.png?v=${sourceVersion}`, title: 'A local studio, with clear limits.', copy: 'Choose compatible local models, review the queue, and inspect verified artifacts. Generation depends on installed models and available resources.' },
+  { name: 'Media', icon: 'image', image: `morice-media.png?v=${sourceVersion}`, title: 'Start with an idea.', copy: 'Type a prompt and generate an image with a compatible installed model. References and masks are optional edit tools; model readiness and resource limits stay visible.' },
 ] as const
 
 // Every pictogram is authored for this site; no icon pack or icon font.
@@ -69,7 +69,7 @@ export default function App() {
       <section className="section" id="capabilities"><div className="section-head compact-head"><p className="eyebrow">TOOLS WITH A PURPOSE</p><h2>From a question<br />to something <em>you can use.</em></h2></div><div className="capability-grid">{[
         ['code', 'Build, test, review.', 'Projects keep plans, files, terminal output and verification together. Review proposed changes before applying them.'],
         ['research', 'Follow the evidence.', 'Research tracks provenance and distinguishes supplied data, computed results and unverified interpretations.'],
-        ['globe', 'Explore your world.', 'Offline city search and deterministic geography support real locations, bearings, paths and distance comparisons.'],
+        ['globe', 'Explore your world.', 'Online place search and offline city fallback support real locations, bearings, paths and deterministic distance comparisons.'],
         ['image', 'Make space for creativity.', 'Media Lab exposes installed model capabilities, actual queue states, resource limits and verified outputs.'],
         ['voice', 'Present when called.', 'Opt-in wake and voice use existing speech services. Camera capture stays explicit; model and device availability remain visible.'],
         ['devices', 'Connect with intent.', 'Pair explicitly, compare codes, scope trust and verify transfers. Shared Wi-Fi alone creates no trust.'],

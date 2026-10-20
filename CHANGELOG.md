@@ -4,6 +4,13 @@ All notable changes to MORICE are documented here.
 
 ## [Unreleased]
 
+## [0.9.4] — online places and prompt-only images
+
+- Look up cities, states, countries and other named places through Photon/OpenStreetMap, with bounded requests, a one-day cache and offline GeoNames fallback under existing network permissions.
+- Parse distance questions without treating “how far?” as part of a place name. Offer Gujarat, India alongside Gujrat, Pakistan and label representative-point distances clearly.
+- Keep snapshots responsive during network lookup and add an explicit Use selected place action for ambiguous results.
+- Make reference images and masks optional for prompt-only image generation. Check discovered models when Generate is pressed, show visible readiness errors and prevent duplicate preparation requests.
+
 ## [0.9.3] — simpler Projects and Experiments
 
 - Projects selects Builder mode automatically, resolves explicit Build/Ask intent before keyword shortcuts, and uses the bundled chat model when no custom model is selected.

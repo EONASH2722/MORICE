@@ -58,7 +58,7 @@ class MediaWorkspace(QWidget):
     def __init__(self, runtime, bridge, policy, parent=None):
         super().__init__(parent); self.runtime = runtime; self.bridge = bridge; self.policy = policy
         self.lab = runtime.media; self._refreshing = False; self._refresh_again = False; self._snapshot = {}; self.references = []; self.mask_path = ''
-        self.current_generation = ''; self.reference_metadata = None
+        self.current_generation = ''; self.reference_metadata = None; self._submitting = False
         root = QVBoxLayout(self); root.setContentsMargins(24, 20, 24, 20)
         title = QLabel('Media Lab'); title.setProperty('role', 'title'); root.addWidget(title)
         self.status = QLabel('Local models stay unloaded until an explicit request.'); self.status.setWordWrap(True); root.addWidget(self.status)
@@ -73,6 +73,14 @@ class MediaWorkspace(QWidget):
         self.intent = QComboBox()
         for label, value in (('Generate image', 'TEXT_TO_IMAGE'), ('Edit reference', 'IMAGE_TO_IMAGE'), ('Inpaint', 'INPAINT'), ('Outpaint', 'OUTPAINT'), ('Upscale', 'IMAGE_UPSCALE'), ('Text to video', 'TEXT_TO_VIDEO'), ('Image to video', 'IMAGE_TO_VIDEO')): self.intent.addItem(label, value)
         self.intent.currentIndexChanged.connect(self.availability); form.addRow('Workflow', self.intent)
+        self.model.currentIndexChanged.connect(self.availability); self.prompt.textChanged.connect(self.availability)
+        self.generation_hint = QLabel(); self.generation_hint.setWordWrap(True); form.addRow(self.generation_hint)
+        self.run = QPushButton('Generate'); self.run.setProperty('role', 'primary'); self.run.clicked.connect(self.submit); form.addRow(self.run)
+        find_models = QPushButton('Find local models'); find_models.clicked.connect(self.discover); form.addRow(find_models)
+        self.advanced_toggle = QPushButton('Advanced image / video settings'); self.advanced_toggle.setCheckable(True); form.addRow(self.advanced_toggle)
+        self.advanced_settings = QWidget(); form.addRow(self.advanced_settings); self.advanced_settings.hide()
+        self.advanced_toggle.toggled.connect(self.advanced_settings.setVisible)
+        main_form = form; form = QFormLayout(self.advanced_settings); form.setContentsMargins(0, 0, 0, 0); form.setRowWrapPolicy(QFormLayout.WrapAllRows)
         self.quality = QComboBox()
         for label, value in (('FAST', 'FAST'), ('BALANCED', 'BALANCED'), ('HIGH', 'QUALITY'), ('MAX that fits', 'MAXIMUM_THAT_FITS')): self.quality.addItem(label, value)
         self.quality.setCurrentIndex(1); form.addRow('Quality', self.quality)
@@ -83,10 +91,15 @@ class MediaWorkspace(QWidget):
         self.strength = QDoubleSpinBox(); self.strength.setRange(.01, 1); self.strength.setSingleStep(.05); self.strength.setValue(.5); form.addRow('Edit strength', self.strength)
         self.output_format = QComboBox(); self.output_format.addItems(['PNG', 'JPEG', 'WEBP']); form.addRow('Image format', self.output_format)
         self.frames = self.integer(form, 'Video frames', 1, 16, 8); self.fps = self.integer(form, 'Video FPS', 1, 60, 8)
-        reference = QPushButton('Choose reference image'); reference.clicked.connect(self.import_reference); form.addRow(reference)
-        mask = QPushButton('Choose mask'); mask.clicked.connect(self.import_mask); form.addRow(mask)
-        self.reference_label = QLabel('No supplied reference.'); self.reference_label.setWordWrap(True); form.addRow(self.reference_label)
-        self.run = QPushButton('Generate'); self.run.setProperty('role', 'primary'); self.run.clicked.connect(self.submit); form.addRow(self.run)
+        form = main_form
+        self.edit_options = QPushButton('Reference / edit options (optional)'); self.edit_options.setCheckable(True); form.addRow(self.edit_options)
+        self.reference_options = QWidget(); reference_form = QVBoxLayout(self.reference_options); reference_form.setContentsMargins(0, 0, 0, 0)
+        self.reference_button = QPushButton('Choose reference image (optional for creating images)'); self.reference_button.clicked.connect(self.import_reference); reference_form.addWidget(self.reference_button)
+        self.mask_button = QPushButton('Choose mask (inpainting only)'); self.mask_button.clicked.connect(self.import_mask); reference_form.addWidget(self.mask_button)
+        clear = QPushButton('Clear reference and mask'); clear.clicked.connect(self.clear_reference); reference_form.addWidget(clear)
+        form.addRow(self.reference_options); self.reference_options.hide()
+        self.edit_options.toggled.connect(self.reference_options.setVisible)
+        self.reference_label = QLabel('Create an image from your prompt. No reference image or mask is required.'); self.reference_label.setWordWrap(True); form.addRow(self.reference_label)
         self.viewer = ArtifactViewer(); self.viewer.setMinimumWidth(220); split.addWidget(self.viewer); split.setStretchFactor(1, 1); split.setSizes([420, 700])
         self.queue_page = QWidget(); self.tabs.addTab(self.queue_page, 'Queue'); queue_layout = QVBoxLayout(self.queue_page)
         self.queue = QListWidget(); queue_layout.addWidget(self.queue, 1); cancel = QPushButton('Cancel selected job'); cancel.clicked.connect(self.cancel); queue_layout.addWidget(cancel)
@@ -128,11 +141,17 @@ class MediaWorkspace(QWidget):
         except (ValueError, RuntimeError) as exc: self._refreshing = False; self.status.setText(str(exc))
 
     def apply_snapshot(self):
-        selected = self.model.currentData(); self.model.blockSignals(True); self.model.clear(); self.models.clear()
+        selected = getattr(self, '_preferred_model', '') or self.model.currentData(); self._preferred_model = ''
+        self.model.blockSignals(True); self.model.clear(); self.models.clear()
         for model in self._snapshot['models']:
             self.model.addItem(model['display_name'] + ' · ' + model['health'], model['model_id'])
             item = QListWidgetItem(model['display_name'] + '\n' + model['health'] + ' · ' + model['health_reason']); item.setData(Qt.UserRole, model['model_id']); self.models.addItem(item)
-        self.model.setCurrentIndex(max(0, self.model.findData(selected))); self.model.blockSignals(False)
+        index = self.model.findData(selected)
+        if index < 0:
+            compatible = [row for row in self._snapshot['models'] if row['enabled'] and self.intent.currentData() in row['capabilities']]
+            compatible.sort(key=lambda row: row['health'] not in {'AVAILABLE','UNBENCHMARKED','DEGRADED'})
+            index = self.model.findData(compatible[0]['model_id']) if compatible else 0
+        self.model.setCurrentIndex(index); self.model.blockSignals(False)
         for widget, values in ((self.queue, self._snapshot['queue']), (self.history, self._snapshot['history'])):
             selected_id = widget.currentItem().data(Qt.UserRole) if widget.currentItem() else None; widget.clear()
             for row in values:
@@ -144,26 +163,62 @@ class MediaWorkspace(QWidget):
         self.policy.set_load(self._snapshot['load_state']); self.availability()
 
     def availability(self, *_):
+        if not hasattr(self, 'run'): return
         selected = next((row for row in self._snapshot.get('models', []) if row['model_id'] == self.model.currentData()), None)
-        available = selected is not None and selected['enabled'] and self.intent.currentData() in selected['capabilities'] and selected['health'] in {'AVAILABLE', 'UNBENCHMARKED', 'DEGRADED'}
-        self.run.setEnabled(available)
-        self.run.setToolTip('' if available else 'Inspect a compatible local model. This workflow is unavailable without one.')
+        intent = self.intent.currentData(); edit = intent in {'IMAGE_TO_IMAGE','INPAINT','OUTPAINT','IMAGE_UPSCALE','IMAGE_TO_VIDEO'}
+        if edit: self.edit_options.setChecked(True)
+        self.mask_button.setVisible(intent == 'INPAINT')
+        if self._submitting: reason = 'Checking model files and submitting this request…'
+        elif not selected: reason = 'Choose Find local models. Generation needs installed model weights, not a reference image.' if intent == 'TEXT_TO_IMAGE' else 'This workflow is unavailable until a compatible model is installed and selected. Choose Find local models.'
+        elif not selected['enabled']: reason = 'This model is disabled. Enable a compatible model in Models / resources.'
+        elif intent not in selected['capabilities']: reason = 'Choose an image model supporting prompt-to-image.' if intent == 'TEXT_TO_IMAGE' else 'This model does not support this workflow. Select a compatible model.'
+        elif selected['health'] not in {'AVAILABLE','UNBENCHMARKED','DEGRADED','DISCOVERED'}: reason = selected.get('health_reason') or 'Inspect a compatible model in Models / resources.'
+        elif not self.prompt.toPlainText().strip(): reason = 'Describe an image and press Generate. No reference or mask is needed.' if intent == 'TEXT_TO_IMAGE' else 'Enter a prompt for this workflow.'
+        elif edit and not self.references: reason = 'This edit workflow needs an existing image. Choose Generate image to create from a prompt alone.'
+        elif intent == 'INPAINT' and not self.mask_path: reason = 'Choose a mask for inpainting, or Generate image to create without one.'
+        else: reason = ''
+        self.run.setEnabled(not reason); self.run.setToolTip(reason)
+        self.generation_hint.setText(reason or ('Ready: prompt only. Model files are checked before generation.' if intent == 'TEXT_TO_IMAGE' else 'Ready to submit this workflow.'))
+        self.reference_label.setVisible(edit)
+        if not edit: self.reference_label.setText('Prompt-only generation: reference image and mask are not used.')
 
     def submit(self):
+        if self._submitting: return
         try:
             common = dict(prompt=self.prompt.toPlainText().strip(), negative_prompt=self.negative.text(), model_id=self.model.currentData() or '',
                 intent=self.intent.currentData(), width=self.width_input.value(), height=self.height_input.value(), steps=self.steps.value() or None,
                 guidance=self.guidance.value(), seed=int(self.seed.text()), count=self.count.value(), quality=self.quality.currentData(),
-                reference_images=tuple(self.references), mask=self.mask_path, strength=self.strength.value())
+                reference_images=tuple(self.references) if self.intent.currentData() not in {'TEXT_TO_IMAGE','TEXT_TO_VIDEO'} else (),
+                mask=self.mask_path if self.intent.currentData() == 'INPAINT' else '', strength=self.strength.value())
             video = self.intent.currentData() in {'TEXT_TO_VIDEO', 'IMAGE_TO_VIDEO'}
             request = VideoRequest(**common, frames=self.frames.value(), fps=self.fps.value()) if video else ImageRequest(**common, output_format=self.output_format.currentText())
-            context = ExecutionContext(active_files=tuple(self.references + ([self.mask_path] if self.mask_path else [])))
+            context = ExecutionContext(active_files=tuple(request.reference_images) + ((request.mask,) if request.mask else ()))
         except (ValueError, TypeError) as exc: self.status.setText(str(exc)); return
         def submitted(value):
             self.current_generation = value; self.status.setText('Submitted to the existing media scheduler: ' + value[:12]); self.tabs.setCurrentIndex(1)
         # submit returns its future immediately; never wait for generation in a
         # general UI worker slot. MediaLab owns scheduling and resource waits.
-        self.action('media-submit-request', lambda: self.lab.submit(request, context)[0], submitted)
+        def prepare_and_submit():
+            model = self.lab.models.get(request.model_id) if request.model_id else self.lab.select_model(request)
+            if str(getattr(model.health, 'value', model.health)) == 'DISCOVERED':
+                model = self.lab.inspect_model(model.model_id)
+                if str(getattr(model.health, 'value', model.health)) not in {'AVAILABLE','UNBENCHMARKED','DEGRADED'}:
+                    raise ValueError(model.health_reason or 'Model inspection did not pass.')
+            return self.lab.submit(request, context)[0]
+        def finished(envelope):
+            self._submitting = False
+            if envelope['ok']: submitted(envelope['value'])
+            else: self.status.setText(envelope['error'])
+            self.refresh(); self.availability()
+        self._submitting = True; self.availability()
+        try: self.bridge.submit('media-submit-request', prepare_and_submit, finished)
+        except (ValueError, RuntimeError) as exc:
+            self._submitting = False; self.status.setText(str(exc)); self.availability()
+
+    def clear_reference(self):
+        self.references = []; self.mask_path = ''; self.reference_metadata = None
+        self.reference_label.setText('No reference selected. Generate image works from the prompt alone.')
+        self.intent.setCurrentIndex(self.intent.findData('TEXT_TO_IMAGE')); self.edit_options.setChecked(False); self.availability()
 
     def cancel(self):
         item = self.queue.currentItem()
@@ -179,7 +234,9 @@ class MediaWorkspace(QWidget):
         except PermissionError as exc: self.status.setText(str(exc)); return
         def ready(value):
             self.references = [str(Path(path).resolve())]; self.reference_metadata = value['metadata']; self.viewer.set_image(value)
+            if self.intent.currentData() == 'TEXT_TO_IMAGE': self.intent.setCurrentIndex(self.intent.findData('IMAGE_TO_IMAGE'))
             self.reference_label.setText(f"{Path(path).name} · {value['metadata']['width']} × {value['metadata']['height']}\nSupplied reference · SHA256 {value['metadata']['sha256'][:16]}")
+            self.availability()
         self.action('media-verify-reference', lambda: decoded_image(path), ready)
 
     def import_mask(self):
@@ -187,7 +244,9 @@ class MediaWorkspace(QWidget):
         if not path: return
         try: require_selected_file(self.runtime, 'file_read')
         except PermissionError as exc: self.status.setText(str(exc)); return
-        self.action('media-verify-mask', lambda: verify_image(path, allow_constant=True), lambda value: setattr(self, 'mask_path', value['path']))
+        def ready(value):
+            self.mask_path = value['path']; self.availability()
+        self.action('media-verify-mask', lambda: verify_image(path, allow_constant=True), ready)
 
     def open_history(self, item=None):
         if not isinstance(item, QListWidgetItem): item = self.history.currentItem()
@@ -210,7 +269,12 @@ class MediaWorkspace(QWidget):
         verified = value.success and value.verification is not None and value.verification.status == VerificationStatus.VERIFIED
         self.status.setText('Verified export completed.' if verified else '; '.join(error.message for error in value.errors) or 'Export was not authorized or verified.')
 
-    def discover(self): self.action('media-discover-models', self.lab.discover)
+    def discover(self):
+        def found(models):
+            eligible = [model for model in models if 'TEXT_TO_IMAGE' in model.capabilities]
+            if eligible: self._preferred_model = eligible[0].model_id
+            self.status.setText(f'Found {len(models)} model bundle(s). Select a compatible model; no reference image is required for Generate image.')
+        self.action('media-discover-models', self.lab.discover, found)
 
     def inspect(self):
         item = self.models.currentItem()

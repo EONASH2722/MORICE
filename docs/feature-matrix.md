@@ -2,6 +2,14 @@
 
 This matrix is the release boundary for MORICE `0.8.0`. It is intentionally narrower than MORICE's long-term roadmap.
 
+## Desktop 0.9.4 additions
+
+| Capability | Status | Boundary |
+| --- | --- | --- |
+| Online place search | Conditional | Photon/OpenStreetMap city/state/country and smaller named places; explicit network permission, bounded cached requests, offline city fallback. Provider coverage is not exhaustive. |
+| Spatial distances | Supported | WGS84 geodesic/chord calculations from resolved coordinates. Region/country points are representative; road routing and nearest-border distance remain unavailable. |
+| Prompt-only image generation | Conditional | Reference and mask are optional in Generate image. Compatible installed weights, backend dependencies and sufficient RAM/VRAM remain required. Edit and inpaint retain input requirements. |
+
 ## Current-source previews (not all present in older release downloads)
 
 | Capability | Status | Boundary |

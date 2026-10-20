@@ -1475,7 +1475,9 @@ class RuntimeServices:
                 raise RuntimeError('Runtime is shut down.')
             if self._spatial_service is None:
                 from .spatial.service import SpatialService
-                self._spatial_service = SpatialService(self.kernel, register=False)
+                from .spatial.online import OnlineGeocoder
+                self._spatial_service = SpatialService(self.kernel,
+                    online=OnlineGeocoder(self.directory/'spatial'/'online-places.json'), register=False)
             return self._spatial_service
 
     def _log_node_error(self, error: Exception, address: Any) -> None:

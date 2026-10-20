@@ -1,12 +1,12 @@
 {
-  "date": "2026-10-19",
-  "version": "0.9.3",
-  "source_sha256": "1fbbba93da7977c708d52b15e71b816e6fd99ca833d8902c1c8ec0e9290ba610",
-  "website_source_sha256": "22b32296a8c3a8ec5887d60c55f1da1f99b5719b955f954549e4d23814aec099",
+  "date": "2026-10-20",
+  "version": "0.9.4",
+  "source_sha256": "be2c6a392cdda49c27b322529b66cdae98988db88b235bc54e6e530c8ad3ac9c",
+  "website_source_sha256": "5bafecbd18a2cb69f5222d3d0ccc8ed0e12ec7811ebd04fd9d1f6d10c25d72f3",
   "website_fingerprint_method": "Sorted website/src and website/public files, POSIX relative path then bytes.",
   "qt_platform": "windows",
   "device_pixel_ratio": 1.25,
-  "scope": "Native owned application only, isolated demonstration data. Camera/microphone/providers remain off; graph, physics and geographic fixtures are actual computations. Stills do not certify frame pacing. Project files and experiment results are actual deterministic demonstration outputs.",
+  "scope": "Actual owned production Qt windows, isolated demonstration profiles. Live online geography; existing media model metadata without heavy inference. Project writes and experiment calculations are actual deterministic outputs. Stills do not certify frame pacing or physical devices.",
   "routes": [
     "home",
     "chats",
@@ -26,13 +26,13 @@
     "plugins",
     "settings"
   ],
-  "native_capture_script": "scripts/capture_current_ui.py and scripts/demo_workspace_flows.py",
-  "local_site_validation": "build/phase11-093-current-production-site-qa.json",
+  "native_capture_script": "scripts/capture_current_ui.py, scripts/demo_workspace_flows.py and scripts/validate_spatial_media.py",
+  "local_site_validation": "build/spatial-media-094-current-production-site-qa.json",
   "files": [
     {
       "path": "docs/screenshots/morice-home.png",
-      "sha256": "b2e429dfd9012a9ef621238bd572ca118253123978ceb0bd01d7a78b80d9feb6",
-      "bytes": 334813,
+      "sha256": "0279b2c204afc8d76436314e4a97ef9c25979559a860f09951d6703632395410",
+      "bytes": 336690,
       "route": "home",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -40,8 +40,8 @@
     },
     {
       "path": "website/public/morice-home.png",
-      "sha256": "b2e429dfd9012a9ef621238bd572ca118253123978ceb0bd01d7a78b80d9feb6",
-      "bytes": 334813,
+      "sha256": "0279b2c204afc8d76436314e4a97ef9c25979559a860f09951d6703632395410",
+      "bytes": 336690,
       "route": "home",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -49,26 +49,26 @@
     },
     {
       "path": "docs/screenshots/morice-spatial.png",
-      "sha256": "ac864f1d5598b2f4c0e51707643756367db3e17b709ce8e362511c797e6b61bd",
-      "bytes": 430901,
+      "sha256": "831492936ab15100bb98a348a75b2ac3342b167b8df3bdef57e799a4eb556ed6",
+      "bytes": 428450,
       "route": "spatial",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
-      "fixture": null
+      "fixture": "Actual online Mumbai and Gujarat representative-point calculation"
     },
     {
       "path": "website/public/morice-spatial.png",
-      "sha256": "ac864f1d5598b2f4c0e51707643756367db3e17b709ce8e362511c797e6b61bd",
-      "bytes": 430901,
+      "sha256": "831492936ab15100bb98a348a75b2ac3342b167b8df3bdef57e799a4eb556ed6",
+      "bytes": 428450,
       "route": "spatial",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
-      "fixture": null
+      "fixture": "Actual online Mumbai and Gujarat representative-point calculation"
     },
     {
       "path": "docs/screenshots/morice-research.png",
-      "sha256": "b7aa4040f95764eeb162e9ffad655189d68e27737c3c267cd1df4c2af60b1d6f",
-      "bytes": 184691,
+      "sha256": "09344680bc509b96eebb35a01a396d8ea82d9ef5f42ee67a218ec81327c41cb5",
+      "bytes": 185566,
       "route": "research",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -76,8 +76,8 @@
     },
     {
       "path": "website/public/morice-research.png",
-      "sha256": "b7aa4040f95764eeb162e9ffad655189d68e27737c3c267cd1df4c2af60b1d6f",
-      "bytes": 184691,
+      "sha256": "09344680bc509b96eebb35a01a396d8ea82d9ef5f42ee67a218ec81327c41cb5",
+      "bytes": 185566,
       "route": "research",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -85,35 +85,35 @@
     },
     {
       "path": "docs/screenshots/morice-media.png",
-      "sha256": "053d61e085b5e87a4c301e9f6ebd1da60f6dd03c577d2f08b766996b4bc73eb9",
-      "bytes": 259155,
+      "sha256": "6cf63fe3d12ff314fe2acfd102d60f3f650e8dc164b9f2f9d60110e46241865b",
+      "bytes": 274035,
       "route": "media",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
-      "fixture": null
+      "fixture": "Existing SD-Turbo metadata; enabled prompt-only submission, no new heavy inference"
     },
     {
       "path": "website/public/morice-media.png",
-      "sha256": "053d61e085b5e87a4c301e9f6ebd1da60f6dd03c577d2f08b766996b4bc73eb9",
-      "bytes": 259155,
+      "sha256": "6cf63fe3d12ff314fe2acfd102d60f3f650e8dc164b9f2f9d60110e46241865b",
+      "bytes": 274035,
       "route": "media",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
-      "fixture": null
+      "fixture": "Existing SD-Turbo metadata; enabled prompt-only submission, no new heavy inference"
     },
     {
       "path": "docs/screenshots/morice-projects.png",
-      "sha256": "1172c65e25a2e9d3ffb10d624f051912e1f86df3651610c8b4b6a963917ff4ce",
-      "bytes": 177515,
+      "sha256": "d8f4a2b7edbf3f2151aae2044548a80603d4c34da93817e7f1d2bfdd00efd498",
+      "bytes": 204655,
       "route": "projects",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
-      "fixture": "Real saved and verified addition source with main.py selected"
+      "fixture": "Actual saved and verified addition source"
     },
     {
       "path": "docs/screenshots/morice-settings.png",
-      "sha256": "4bcd26d2f339a610ea795cd4345753335f3653b5ebb5cc65c0ddb87b695cf728",
-      "bytes": 263114,
+      "sha256": "aeb60568bbc968dcafb005eac104e41f37a740d49e8c3e7a1984f620cd69fe62",
+      "bytes": 264678,
       "route": "settings",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -121,8 +121,8 @@
     },
     {
       "path": "docs/screenshots/morice-devices.png",
-      "sha256": "f78962e653a50732a140ebb019f046273eb687757f5aace2f72107073473b530",
-      "bytes": 162185,
+      "sha256": "32821db76e94facfdc60a32d57a0b237011a06d9aa4a58a6aa0adf0d1c4ac133",
+      "bytes": 161880,
       "route": "devices",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -130,8 +130,8 @@
     },
     {
       "path": "docs/screenshots/morice-activity.png",
-      "sha256": "376fbd9b4208c72e2b7672df6d33c480e75d0efffb4f1ebc2ac407876fcaefbe",
-      "bytes": 254888,
+      "sha256": "cb9d25e0c802ed5276182b0cd2ea30dc4f4f19ba3b391f55ba51868adab80496",
+      "bytes": 255641,
       "route": "activity",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -139,8 +139,8 @@
     },
     {
       "path": "docs/screenshots/morice-voice.png",
-      "sha256": "da857d3fed5054732cd338349f649815e85312c8dfbbd94a090e5bf5163b2d3c",
-      "bytes": 265318,
+      "sha256": "a45106c4d6ae80ad20b7fc94430f425476406632c34adc5556537028fcc6fe3e",
+      "bytes": 264772,
       "route": "voice",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -148,8 +148,8 @@
     },
     {
       "path": "docs/screenshots/morice-theme-glass.png",
-      "sha256": "2a58a9931c5c83567c757f43d22698bea79507bd3d95912780e8953bb0716231",
-      "bytes": 205740,
+      "sha256": "e95d029f5e26ca57b846517d4082c82298a965e362247aae4d4325dc90711b05",
+      "bytes": 278737,
       "route": "home",
       "preset": "GLASS",
       "capture_kind": "native_owned_qt_window",
@@ -157,8 +157,8 @@
     },
     {
       "path": "docs/screenshots/morice-theme-amethyst.png",
-      "sha256": "8e03de52b3d8ec1d9ab012fa18be85dc1f00126cd7ee7ce6a30c69c4594b54a0",
-      "bytes": 246090,
+      "sha256": "e37db52c5bf634266750ac62d934e445ab77cf5750eb3c9b0934fc5c49b0a61f",
+      "bytes": 314689,
       "route": "home",
       "preset": "AMETHYST",
       "capture_kind": "native_owned_qt_window",
@@ -166,8 +166,8 @@
     },
     {
       "path": "docs/screenshots/morice-theme-arctic.png",
-      "sha256": "2fa3e142fe4be3a7cb9eb88a728dca34527eade313f86096eb81ae3f8fa9a73e",
-      "bytes": 219866,
+      "sha256": "37fbcad38c14cdf954e00071d06f1bd6ea4aa0634766e4fac81b8ab6f030dfe0",
+      "bytes": 288449,
       "route": "home",
       "preset": "ARCTIC",
       "capture_kind": "native_owned_qt_window",
@@ -175,8 +175,8 @@
     },
     {
       "path": "docs/reviewer-images/morice-home.png",
-      "sha256": "98a839b3dadfa2336c13018488a6d9cb858c92cc6c7556f44cb8fe7313656b4c",
-      "bytes": 242293,
+      "sha256": "2be955cb2b09f13ded9402ee04260af9b3168ab323b38403ea1927dbe8e651c4",
+      "bytes": 301971,
       "route": "home",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -184,8 +184,8 @@
     },
     {
       "path": "docs/reviewer-images/morice-graph.png",
-      "sha256": "b396e0fea088d675c0193740a23286c4d000a0dd0bc31d30c975f5f255987639",
-      "bytes": 193467,
+      "sha256": "356a00532bc7913a0381445b1e3529558f575e0bfe9d4423df43e52c10fc9ed0",
+      "bytes": 255353,
       "route": "artifacts",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -193,8 +193,8 @@
     },
     {
       "path": "docs/reviewer-images/morice-simulation.png",
-      "sha256": "7404224e1e6143cca4e0d6751c73ce73d3acbc9d29b97e803e1a5cec0e04d6e8",
-      "bytes": 181445,
+      "sha256": "c1a92ccdc74f8dee911d79371a7c0c17b280e7ee27185171393d9f9e895242b7",
+      "bytes": 233512,
       "route": "artifacts",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -202,8 +202,8 @@
     },
     {
       "path": "docs/reviewer-images/morice-project.png",
-      "sha256": "b09ffccfa02a65328c8d876800c41d8b47bd9fc5e8c5707ab6f643345c4a1635",
-      "bytes": 180998,
+      "sha256": "4fff9a0d496f423f5f279a9357b414067aa2817528ce1364effd87f7a85e5c1e",
+      "bytes": 235698,
       "route": "settings",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -211,8 +211,8 @@
     },
     {
       "path": "docs/reviewer-images/morice-personalization.png",
-      "sha256": "6af385181ad33c1fc63b0b556aa6d5a9ef85ca9177586346d91c09af75cb009f",
-      "bytes": 180056,
+      "sha256": "625c0d8ec5e220606a70daa04fa18035007fb303e822e64cefca6a602e9d1e91",
+      "bytes": 228096,
       "route": "settings",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -220,8 +220,8 @@
     },
     {
       "path": "docs/screenshots/morice-project-review.png",
-      "sha256": "c3ba6a271f2176221555a905272bfcaa8810f944cb9e4255cf63ff2e66315d00",
-      "bytes": 190948,
+      "sha256": "2bf82c7163c1dfd867fd4f65e21bf38add180997e4daaf1a9b0617fe0c8564cc",
+      "bytes": 220533,
       "route": "projects",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -229,38 +229,26 @@
     },
     {
       "path": "docs/screenshots/morice-research-results.png",
-      "sha256": "777925b7f3c9894e1b432a803a1509ad2ebd079463bb1353923802c10eb08e54",
-      "bytes": 142471,
+      "sha256": "25b0c75910284f1ee6e389f520e97c41597d55180cd856dfd6522b439a09041c",
+      "bytes": 170787,
       "route": "research",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
       "fixture": "Actual five-run ideal density sweep"
     },
     {
-      "path": "docs/screenshots/website-hero-current.png",
-      "sha256": "80066b1e386f14434ed01325c28300a3fdf31196fe95f4a610e5e0c23d3c75c9",
-      "bytes": 220867,
-      "capture_kind": "owned_browser_local_production_site"
-    },
-    {
-      "path": "docs/screenshots/website-mobile-current.png",
-      "sha256": "6bfca65f09a9b7a1413e6182a2d812b3eb8be15c1fc5088a7626c36874239a80",
-      "bytes": 100563,
-      "capture_kind": "owned_browser_local_production_site"
-    },
-    {
       "path": "website/public/morice-projects.png",
-      "sha256": "1172c65e25a2e9d3ffb10d624f051912e1f86df3651610c8b4b6a963917ff4ce",
-      "bytes": 177515,
+      "sha256": "d8f4a2b7edbf3f2151aae2044548a80603d4c34da93817e7f1d2bfdd00efd498",
+      "bytes": 204655,
       "route": "projects",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
-      "fixture": "Actual saved addition source"
+      "fixture": "Actual saved and verified addition source"
     },
     {
       "path": "docs/screenshots/morice-project-review-compact.png",
-      "sha256": "88fb7badef81de68b7230758089e4e52ac189271ea2f25afc3a307e8c9a2fc10",
-      "bytes": 105748,
+      "sha256": "765407f3eebc8079a64585947e1bfc4fb07a394a3168e626bb98c8d15ecd55ad",
+      "bytes": 126466,
       "route": "projects",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
@@ -268,12 +256,42 @@
     },
     {
       "path": "docs/screenshots/morice-research-review-compact.png",
-      "sha256": "f1ad4c3c162dab60e5f6f5e00d2b288fe81402733631da53043934607910fdb1",
-      "bytes": 127496,
+      "sha256": "a236f79dc91497a7828ec34cd29007d254040e7ec69c732d29132295755f4b62",
+      "bytes": 159093,
       "route": "research",
       "preset": "MORICE",
       "capture_kind": "native_owned_qt_window",
-      "fixture": "Compact scrollable inputs and pinned Run experiment"
+      "fixture": "Compact reviewed computational inputs"
+    },
+    {
+      "path": "docs/screenshots/morice-spatial-choices.png",
+      "sha256": "cf5abd9579b2f09933cad454d519e10b7704f6ae1d21612a11e318edfd991891",
+      "bytes": 392365,
+      "route": "spatial",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": "Actual online Gujrat/Gujarat ambiguity"
+    },
+    {
+      "path": "docs/screenshots/morice-spatial-pakistan.png",
+      "sha256": "aacfeb64707af63f58d87dfb93707d62f84acc82218e0ccb23f4904fc3c1c809",
+      "bytes": 435762,
+      "route": "spatial",
+      "preset": "MORICE",
+      "capture_kind": "native_owned_qt_window",
+      "fixture": "Actual online Mumbai and Pakistan representative-point calculation"
+    },
+    {
+      "path": "docs/screenshots/website-hero-current.png",
+      "sha256": "96147eb4aa7fc0f8bab9c997b4647815e4f60c86c8e4daa4facc4b1d398c5b0b",
+      "bytes": 220772,
+      "capture_kind": "owned_browser_local_production_site"
+    },
+    {
+      "path": "docs/screenshots/website-mobile-current.png",
+      "sha256": "bfbec9d836c1b647058586a449efae410026be3be347c37e24cda83a4addcc44",
+      "bytes": 100780,
+      "capture_kind": "owned_browser_local_production_site"
     }
   ]
 }

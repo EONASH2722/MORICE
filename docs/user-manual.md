@@ -1,22 +1,24 @@
 # MORICE User Manual
 
-This guide describes the 0.9.3 desktop. For the shortest file-building and experiment walkthrough, use [Projects and Experiments](simple-workspaces.md).
+This guide describes the 0.9.4 desktop. For the shortest file-building and experiment walkthrough, use [Projects and Experiments](simple-workspaces.md).
+
+For online places, distance questions and image generation without references, use [Locations and prompt-only images](spatial-media-0.9.4.md).
 
 ## Install
 
 ### Earlier 0.8.0 installer
 
-No new 0.9.3 installer is included. Use the current portable ZIP or Python package below for this update.
+No new 0.9.4 installer is included. Use the current portable ZIP or Python package below for this update.
 
 Keep `MORICE-Setup-v0.8.0-Windows-x64.exe` and all numbered installer `.bin` slices from the same release together. Run the setup executable and launch MORICE from the installed shortcut.
 
 ### Portable
 
-Download `MORICE-Portable-v0.9.3-Windows-x64.zip` from the [0.9.3 release](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.3), verify its SHA-256 against the accompanying checksums, and extract it. Launch `MORICE.exe` from the extracted folder; keep `_internal` beside it. Large language and generative model weights are installed separately. Earlier multipart 0.8.0 packages require all their matching parts and their reassembly script.
+Download `MORICE-Portable-v0.9.4-Windows-x64.zip` from the [0.9.4 release](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.4), verify its SHA-256 against the accompanying checksums, and extract it. Launch `MORICE.exe` from the extracted folder; keep `_internal` beside it. Large language and generative model weights are installed separately. Earlier multipart 0.8.0 packages require all their matching parts and their reassembly script.
 
 ### Python package
 
-The wheel is a model-free advanced installation. Install the downloaded `morice_ai-0.9.3-py3-none-any.whl` with `python -m pip install <wheel-path>`, then run `morice`. Configure a local GGUF or Ollama model in the application. This release does not claim a public package-manager channel until publication is independently verified.
+The wheel is a model-free advanced installation. Install the downloaded `morice_ai-0.9.4-py3-none-any.whl` with `python -m pip install <wheel-path>`, then run `morice`. Configure a local GGUF or Ollama model in the application. This release does not claim a public package-manager channel until publication is independently verified.
 
 ### Android companion
 

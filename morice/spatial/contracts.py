@@ -45,6 +45,7 @@ class Location:
     country: str = ''
     region: str = ''
     population: int = 0
+    kind: str = 'city'
 
     def to_dict(self):
         return asdict(self)

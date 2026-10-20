@@ -2,6 +2,9 @@
 
 
 import os
+import hashlib
+from pathlib import Path
+from PyInstaller.config import CONF
 from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 project_dir = os.path.abspath(SPECPATH)
@@ -103,7 +106,15 @@ _host_icu_dlls = {'icuuc.dll', 'icudt78.dll'}
 a.binaries = type(a.binaries)(
     entry for entry in a.binaries if os.path.basename(entry[0]).casefold() not in _host_icu_dlls
 )
-pyz = PYZ(a.pure)
+# Bind the Python archive name to application contents. A source edit during a
+# previous build can otherwise leave a newer PYZ cache with older code objects.
+# The normal Analysis dependency checks and final frozen-source parity still
+# apply; a new content name forces PYZ to compile the current source.
+source_digest = hashlib.sha256()
+for source_path in sorted((Path(project_dir) / 'morice').rglob('*.py')):
+    source_digest.update(str(source_path.relative_to(project_dir)).encode())
+    source_digest.update(source_path.read_bytes())
+pyz = PYZ(a.pure, name=os.path.join(CONF['workpath'], 'PYZ-' + source_digest.hexdigest()[:16] + '.pyz'))
 
 exe = EXE(
     pyz,

@@ -755,11 +755,16 @@ def test_closing_secondary_window_restores_surviving_verified_browser_bridge(win
 def test_production_factory_opens_new_shell_over_existing_runtime(window,app):
     from morice.pyside_app import create_application_window
     previous_mode=window.runtime.spatial.context.mode
+    previous_online=window.runtime.spatial.online_enabled
     child=create_application_window(window.runtime)
     try:
         child.show();app.processEvents()
         assert isinstance(child,RenovatedWindow) and child.runtime.kernel is window.runtime.kernel
-        child.navigate('spatial');child.routes['spatial'].command('show Chennai and New York')
+        child.navigate('spatial')
+        # This factory/authority check uses deterministic installed coordinates.
+        # Online city/state ambiguity is covered in the online provider cases.
+        child.routes['spatial'].lookup.setCurrentIndex(child.routes['spatial'].lookup.findData(False))
+        child.routes['spatial'].command('show Chennai and New York')
         pump(app,lambda:not child.routes['spatial']._busy)
         assert child.runtime.spatial.context.mode==previous_mode
         child.routes['spatial'].command('as the crow flies')
@@ -767,6 +772,7 @@ def test_production_factory_opens_new_shell_over_existing_runtime(window,app):
         assert child.runtime.spatial.snapshot()['result']['metres']>13_000_000
         assert child.presentation_root.isVisible() and not child.compatibility_host.isVisible()
     finally:
+        window.runtime.spatial.online_enabled=previous_online
         child.close()
         assert not child.wake_signal_timer.isActive()
         assert window.wake_signal_timer.isActive()

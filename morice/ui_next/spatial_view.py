@@ -190,13 +190,18 @@ class SpatialView(QWidget):
         self.runtime = runtime; self.bridge = bridge; self._measurement = []; self._busy = False
         layout = QVBoxLayout(self); layout.setContentsMargins(24, 20, 24, 20)
         title = QLabel('Spatial Lab'); title.setProperty('role', 'title'); layout.addWidget(title)
-        description = QLabel('Real coordinates. Deterministic distances.'); description.setProperty('role', 'secondary'); layout.addWidget(description)
+        description = QLabel('Find cities, states and countries online. Measure verified WGS84 distances.'); description.setProperty('role', 'secondary'); layout.addWidget(description)
         controls = QHBoxLayout(); self.query = QLineEdit(); self.query.setPlaceholderText('Show Chennai and Los Angeles · How far? · In miles')
+        self.query.setPlaceholderText('Show Mumbai and Gujarat how far? · Mumbai to Karachi · Find Pakistan')
         self.query.setAccessibleName('Spatial location or follow-up command'); self.query.returnPressed.connect(self.send)
         self.run = QPushButton('Explore'); self.run.setProperty('role', 'primary'); self.run.clicked.connect(self.send)
         self.viewport = QComboBox(); self.viewport.addItems(['3D globe', '2D map']); self.viewport.currentIndexChanged.connect(self.change_view)
         controls.addWidget(self.query, 1); controls.addWidget(self.run); controls.addWidget(self.viewport); layout.addLayout(controls)
         options = FlowLayout()
+        self.lookup = QComboBox(); self.lookup.addItem('Internet + offline fallback', True); self.lookup.addItem('Offline cities', False)
+        self.lookup.setAccessibleName('Location lookup source')
+        self.lookup.currentIndexChanged.connect(lambda: setattr(self.runtime.spatial, 'online_enabled', self.lookup.currentData()))
+        options.addWidget(self.lookup)
         self.mode = QComboBox(); self.mode.addItem('Surface · WGS84', 'GEODESIC'); self.mode.addItem('Straight 3D · chord', 'CHORD'); self.mode.addItem('Routing provider unavailable', 'ROUTE')
         self.mode.activated.connect(lambda index: self.command({'GEODESIC': 'as the crow flies', 'CHORD': 'straight line distance', 'ROUTE': 'driving distance'}[self.mode.itemData(index)]))
         self.unit = QComboBox(); self.unit.addItems(['m', 'km', 'miles', 'nautical miles']); self.unit.activated.connect(lambda index: self.command('in ' + self.unit.itemText(index)))
@@ -213,9 +218,13 @@ class SpatialView(QWidget):
         self.status = QLabel('Choose two named locations, or click Earth to measure.'); self.status.setWordWrap(True); detail.addWidget(self.status)
         self.result = QLabel(''); self.result.setWordWrap(True); self.result.setProperty('role', 'title'); detail.addWidget(self.result)
         self.candidates = QListWidget(); self.candidates.itemActivated.connect(self.choose); detail.addWidget(self.candidates)
+        self.use_place = QPushButton('Use selected place'); self.use_place.setProperty('morice_icon', 'check')
+        self.use_place.clicked.connect(lambda: self.choose(self.candidates.currentItem()) if self.candidates.currentItem() else None)
+        self.candidates.currentItemChanged.connect(lambda current, previous: self.use_place.setEnabled(current is not None))
+        self.use_place.setEnabled(False); self.use_place.hide(); detail.addWidget(self.use_place)
         self.markers = QListWidget(); self.markers.setSelectionMode(QListWidget.ExtendedSelection); self.markers.itemActivated.connect(self.focus_marker); detail.addWidget(self.markers)
         self.cursor = QLabel(); detail.addWidget(self.cursor)
-        self.source = QLabel('City coordinates: GeoNames (CC BY 4.0). Land: Natural Earth public domain, 1:110m. Spherical display; WGS84 calculations.'); self.source.setWordWrap(True); self.source.setProperty('role', 'secondary'); detail.addWidget(self.source)
+        self.source = QLabel('Online places: Photon / OpenStreetMap contributors (ODbL). Offline cities: GeoNames (CC BY 4.0). Land: Natural Earth.'); self.source.setWordWrap(True); self.source.setProperty('role', 'secondary'); detail.addWidget(self.source)
         split.addWidget(panel); split.setStretchFactor(0, 1); layout.addWidget(split, 1)
         self.canvas.cursor_location.connect(self.cursor.setText); self.canvas.coordinate_selected.connect(self.measure_point); self.canvas.marker_selected.connect(self.focus_id)
         for name, label, initial in (('show_grid', 'Grid', True), ('show_land', 'Land', True), ('autorotate', 'Auto-rotate', False)):
@@ -229,15 +238,24 @@ class SpatialView(QWidget):
 
     def send(self):
         text = self.query.text().strip()
+        if text and not self.runtime.spatial.is_context_command(text):
+            import re
+            text = 'show ' + text if re.fullmatch(r'.+?\s+to\s+.+', text, re.I) else 'find place ' + re.sub(r'^(?:show|find|locate)\s+', '', text, flags=re.I)
         if text: self.command(text)
 
     def command(self, text):
         if self._busy: return
-        self._busy = True; self.run.setEnabled(False); self.status.setText('Resolving locations / calculating…')
-        self.bridge.submit('spatial-command', lambda: self.runtime.spatial.handle_text(text), self.completed)
+        self.set_busy(True); self.candidates.clear(); self.result.clear(); self.status.setText('Looking up places / calculating…')
+        try: self.bridge.submit('spatial-command', lambda: self.runtime.spatial.handle_text(text), self.completed)
+        except (RuntimeError, ValueError) as exc:
+            self.set_busy(False); self.status.setText(str(exc))
+
+    def set_busy(self, busy):
+        self._busy = busy
+        for control in (self.run, self.query, self.lookup, self.mode, self.unit, self.candidates): control.setEnabled(not busy)
 
     def completed(self, envelope):
-        self._busy = False; self.run.setEnabled(True)
+        self.set_busy(False)
         if not envelope['ok']:
             self.status.setText(envelope['error']); return
         value = envelope['value']
@@ -247,18 +265,26 @@ class SpatialView(QWidget):
 
     def set_context(self, context):
         self.canvas.set_context(context); self.candidates.clear(); self.markers.clear()
+        origins = {('Online Photon / OpenStreetMap' if v['source'].startswith('https://www.openstreetmap.org/') else 'Offline GeoNames' if v['source'].startswith('https://www.geonames.org/') else 'Supplied coordinates') for v in context.get('markers', [])}
+        prefix = 'Current coordinates: ' + ', '.join(sorted(origins)) + '. ' if origins else ''
+        self.source.setText(prefix + 'Online: OpenStreetMap contributors (ODbL), Photon. Offline: GeoNames (CC BY 4.0). Land: Natural Earth.')
         for pending in context.get('pending', []):
             for candidate in pending['candidates']:
-                item = QListWidgetItem(f"{pending['slot'].title()} · {candidate['label']} · {candidate['country']}/{candidate['region']}")
+                item = QListWidgetItem(f"{pending['slot'].title()} · {candidate['label']} · {candidate.get('kind', 'city')} · {candidate['country']}/{candidate['region']}")
                 item.setData(Qt.UserRole, (pending['slot'], candidate['identifier'])); self.candidates.addItem(item)
         self.candidates.setVisible(bool(context.get('pending')))
+        self.use_place.setVisible(bool(context.get('pending')))
+        if context.get('pending'): self.status.setText('Select the place and country you mean, then choose Use selected place.')
         for marker in context.get('markers', []):
-            coordinate = marker['coordinate']; item = QListWidgetItem(f"{marker['label']}\n{coordinate['latitude']:.4f}°, {coordinate['longitude']:.4f}°")
+            coordinate = marker['coordinate']; item = QListWidgetItem(f"{marker['label']} · {marker.get('kind', 'city')} · {marker.get('country', '')}\n{coordinate['latitude']:.4f}°, {coordinate['longitude']:.4f}°")
+            item.setToolTip(marker['source'])
             item.setData(Qt.UserRole, marker['identifier']); self.markers.addItem(item)
         result = context.get('result') or {}
         if 'distance' in result:
             self.result.setText(f"{result['distance']:,.2f} {result['unit']}\n{'Surface geodesic · WGS84' if result['mode']=='GEODESIC' else 'Straight 3D / chord · WGS84'}")
             self.result.setToolTip(result['earth_model'] + '\n' + result['altitude_note'])
+            if any(v.get('kind') in {'country','state','county','district'} for v in result.get('locations', [])):
+                self.result.setText(self.result.text() + '\nRepresentative points, not borders or road routes.')
         elif 'radius_metres' in result: self.result.setText(f"{result['radius_metres']/1000:,.2f} km geodesic radius")
         elif 'square_metres' in result: self.result.setText(f"{result['square_metres']/1e6:,.2f} km²\nGeodesic polygon · WGS84")
         else: self.result.clear()
@@ -268,7 +294,11 @@ class SpatialView(QWidget):
 
     def choose(self, item):
         slot, identifier = item.data(Qt.UserRole)
-        self.bridge.submit('spatial-candidate', lambda: self.runtime.spatial.choose_candidate(slot, identifier), lambda envelope: self.set_context(envelope['value']) if envelope['ok'] else self.status.setText(envelope['error']))
+        def done(envelope):
+            if not envelope['ok']: self.status.setText(envelope['error']); return
+            context = envelope['value']; self.set_context(context)
+            if not context.get('pending'): self.status.setText('Distance calculated using selected places.' if context.get('result') else 'Location selected.')
+        self.bridge.submit('spatial-candidate', lambda: self.runtime.spatial.choose_candidate(slot, identifier), done)
 
     def focus_id(self, identifier):
         def focus(envelope):

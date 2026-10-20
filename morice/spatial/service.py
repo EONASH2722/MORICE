@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
 import math
 import os
 import re
@@ -17,6 +18,7 @@ from .locations import LocalGazetteer
 
 CAPABILITIES = {
     'spatial.location.resolve': 'Resolve geographic location',
+    'spatial.location.search_online': 'Search online geographic places',
     'spatial.distance.calculate': 'Calculate deterministic geographic distance',
     'spatial.bearing.calculate': 'Calculate geographic bearing',
     'spatial.path.calculate': 'Calculate multi-point geographic path',
@@ -35,20 +37,25 @@ def register_spatial_capabilities(kernel, get_service):
         if kernel.registry.lookup(capability):
             continue
         computes = '.calculate' in capability
-        kernel.registry.register(CapabilityDescriptor(capability, title, category='spatial', inline=True,
+        online = capability == 'spatial.location.search_online'
+        kernel.registry.register(CapabilityDescriptor(capability, title, category='spatial', inline=not online,
+            required_permissions=('network',) if online else (),
             supported_resources=(ResourceClaim('CPU'),) if computes else (), supports_cancellation=True,
-            supports_verification=True, timeout=10),
+            supports_verification=True, timeout=22 if online else 10),
             lambda args, ctx, cap=capability: get_service().execute(cap, args, ctx),
             verifier=lambda result, expected, ctx, cap=capability: get_service().verify(cap, result, ctx))
 
 
 class SpatialService:
-    def __init__(self, kernel, *, gazetteer=None, register=True):
+    def __init__(self, kernel, *, gazetteer=None, online=None, register=True):
         self.kernel = kernel
         self.gazetteer = gazetteer or LocalGazetteer()
+        self.online = online
+        self.online_enabled = online is not None
         self.context = SpatialContext()
         self._measurement_next = 'origin'
         self._lock = threading.RLock()
+        self._command_lock = threading.RLock()
         if kernel.resources.descriptor('CPU') is None:
             kernel.resources.register(ResourceDescriptor('CPU', max(1, min(2, os.cpu_count() or 1))))
         if register:
@@ -67,6 +74,9 @@ class SpatialService:
             context.cancellation_token.raise_if_cancelled()
         if capability == 'spatial.location.resolve':
             value = self.gazetteer.resolve(args['query'], country=args.get('country', ''), region=args.get('region', ''))
+        elif capability == 'spatial.location.search_online':
+            if self.online is None: raise ValueError('Online geographic provider is not configured.')
+            value = self.online.resolve(args['query'], country=args.get('country', ''), region=args.get('region', ''), context=context)
         elif capability in {'spatial.distance.calculate', 'spatial.bearing.calculate'}:
             first, second = self.point(args['origin']), self.point(args['destination'])
             value = calculations.distance(first, second, mode=args.get('mode', 'GEODESIC'),
@@ -87,7 +97,7 @@ class SpatialService:
                     if len(self.context.markers) >= 128:
                         raise ValueError('Marker limit reached; remove a marker before adding more.')
                     if args.get('location_id'):
-                        location = self.gazetteer.get(args['location_id'])
+                        location = self.get_location(args['location_id'])
                     else:
                         label = str(args.get('label', 'Supplied coordinate')).strip()[:120]
                         location = Location('coordinate:' + uuid.uuid4().hex, label, self.point(args['coordinate']), 'USER_SUPPLIED')
@@ -119,9 +129,9 @@ class SpatialService:
             value = result.output
             if value.get('schema') != 1:
                 raise ValueError('Unknown spatial result schema.')
-            if capability == 'spatial.location.resolve':
+            if capability in {'spatial.location.resolve', 'spatial.location.search_online'}:
                 for candidate in value['candidates']:
-                    assert self.gazetteer.get(candidate['identifier']).to_dict() == candidate
+                    assert self.get_location(candidate['identifier']).to_dict() == candidate
             elif capability in {'spatial.distance.calculate', 'spatial.bearing.calculate'}:
                 first, second = self.point(value['origin']), self.point(value['destination'])
                 model = 'SPHERE' if value['earth_model'].startswith('Mean-radius') else 'WGS84'
@@ -163,25 +173,40 @@ class SpatialService:
             raise ValueError('; '.join(error.message + (': ' + error.detail if error.detail else '') for error in result.errors))
         return result
 
-    def _resolve_slot(self, query, slot):
+    def get_location(self, identifier):
+        if identifier.startswith('osm:') and self.online is not None:
+            return self.online.get(identifier)
+        return self.gazetteer.get(identifier)
+
+    def _resolve_slot(self, query, slot, *, pending=None, online=False):
         query = query.strip(' .?!\'"')
         fields = query.rsplit(',', 1)
         country = fields[-1].strip().upper() if len(fields) == 2 and len(fields[-1].strip()) == 2 else ''
         if country: query = fields[0].strip()
-        result = self._dispatch('spatial.location.resolve', {'query': query, 'country': country}).output
+        inputs = {'query': query, 'country': country}
+        warning = ''
+        if online and self.online is not None:
+            response = self.kernel.dispatch('spatial.location.search_online', inputs)
+            if response.success:
+                result = response.output
+            else:
+                warning = 'Online lookup unavailable; using the offline city dataset. '
+                result = self._dispatch('spatial.location.resolve', inputs).output
+        else:
+            result = self._dispatch('spatial.location.resolve', inputs).output
         if result['status'] == 'NOT_FOUND':
-            raise ValueError('Location not found in the installed city dataset: ' + query + '. Use an exact city name, country code, or supplied coordinates.')
+            raise ValueError(warning + 'No matching place found for ' + query + '. Check the spelling, add its country, or supply coordinates.')
         if result['status'] == 'AMBIGUOUS':
-            self.context.pending.append({'slot': slot, **result})
+            (self.context.pending if pending is None else pending).append({'slot': slot, **result})
             return None
-        return self.gazetteer.get(result['candidates'][0]['identifier'])
+        return self.get_location(result['candidates'][0]['identifier'])
 
     def choose_candidate(self, slot, identifier):
         with self._lock:
             pending = next((item for item in self.context.pending if item['slot'] == slot), None)
             if pending is None or identifier not in {candidate['identifier'] for candidate in pending['candidates']}:
                 raise ValueError('Choose a candidate from the actual unresolved location list.')
-            location = self.gazetteer.get(identifier)
+            location = self.get_location(identifier)
             setattr(self.context, slot, location)
             self._remember(location)
             self.context.pending.remove(pending)
@@ -189,13 +214,17 @@ class SpatialService:
                 self.calculate_current()
             return self.snapshot()
 
-    def set_pair(self, origin, destination):
+    def set_pair(self, origin, destination, *, online=False):
+        # Network I/O must not hold the state lock used by GUI snapshots.
+        pending = []
+        first = self._resolve_slot(origin, 'origin', pending=pending, online=online)
+        second = self._resolve_slot(destination, 'destination', pending=pending, online=online)
         with self._lock:
             previous = copy.deepcopy(self.context)
             try:
-                self.context.pending.clear(); self.context.result = None
-                self.context.origin = self._resolve_slot(origin, 'origin')
-                self.context.destination = self._resolve_slot(destination, 'destination')
+                self.context.pending = pending; self.context.result = None
+                self.context.origin = first
+                self.context.destination = second
                 for location in (self.context.origin, self.context.destination):
                     if location is not None: self._remember(location)
                 if not self.context.pending:
@@ -255,25 +284,37 @@ class SpatialService:
             self.context.result = result
             return self.snapshot()
 
+    @contextmanager
+    def _command_scope(self):
+        if not self._command_lock.acquire(blocking=False):
+            raise ValueError('Another Spatial request is already running. Retry when it finishes.')
+        try:
+            yield
+        finally:
+            self._command_lock.release()
+
     def handle_text(self, text):
         """Deterministic context commands. None means the existing chat router owns it."""
         clean = ' '.join(str(text).strip().split())
         lower = clean.casefold().rstrip('.?!')
-        with self._lock:
+        with self._command_scope():
             if lower in {'show earth', 'open spatial lab', 'show globe', 'open globe'}:
                 self._dispatch('spatial.globe.show', {})
                 return {'message': 'Opening Spatial Lab.', 'open_spatial': True, 'context': self.snapshot()}
             if lower in {'show map', 'open map', '2d map', 'show 2d map'}:
                 self._dispatch('spatial.map.show', {})
                 return {'message': 'Showing the 2D map with the current markers and path.', 'open_spatial': True, 'context': self.snapshot()}
-            pair = re.fullmatch(r'(?:show|compare|distance between) (.+?) (?:and|to) (.+)', clean, re.I)
+            pair = self.parse_pair(clean)
             if pair:
-                self.set_pair(pair[1], pair[2])
+                self.set_pair(pair[0], pair[1], online=self.online_enabled)
             elif (replacement := re.fullmatch(r'(?:what about|replace (?:it|the destination) with) (.+?)(?: instead)?[.?!]?', clean, re.I)):
                 if not self.context.origin:
                     raise ValueError('Choose an origin before replacing the destination.')
-                self.context.pending.clear(); self.context.result = None
-                self.context.destination = self._resolve_slot(replacement[1], 'destination')
+                pending = []
+                destination = self._resolve_slot(replacement[1], 'destination', pending=pending, online=self.online_enabled)
+                with self._lock:
+                    self.context.pending = pending; self.context.result = None
+                    self.context.destination = destination
                 if self.context.destination:
                     self._remember(self.context.destination)
                     self.calculate_current()
@@ -288,16 +329,37 @@ class SpatialService:
                 self.context.unit = 'nautical miles' if 'nautical' in lower else 'miles' if 'miles' in lower else 'm' if lower == 'in m' or lower.endswith(('metres', 'meters')) else 'km'
                 self.calculate_current()
             elif (circle := re.fullmatch(r'show (\d+(?:\.\d+)?)\s*(km|miles|m) around (.+)', clean, re.I)):
-                location = self._resolve_slot(circle[3], 'origin')
+                location = self._resolve_slot(circle[3], 'origin', online=self.online_enabled)
                 self.context.origin = location
                 if location:
                     self._remember(location)
                     self.context.result = self._dispatch('spatial.radius.calculate', {'center': location.coordinate.to_dict(), 'metres': float(circle[1]) * UNITS[circle[2].casefold()]}).output
+            elif (single := re.fullmatch(r'(?:show place|find place|locate) (.+)', clean, re.I)):
+                pending = []
+                location = self._resolve_slot(single[1], 'origin', pending=pending, online=self.online_enabled)
+                with self._lock:
+                    self.context.pending = pending; self.context.origin = location
+                    self.context.destination = None; self.context.result = None
+                    if location: self._remember(location)
             else:
                 return None
             value = self.context.result
-            message = 'Choose the matching geographic location.' if self.context.pending else f"{value['distance']:,.2f} {value['unit']} · {'Surface geodesic' if value['mode'] == 'GEODESIC' else 'Straight 3D / chord'}" if value and 'distance' in value else 'Geodesic radius computed.'
+            message = 'Choose the matching geographic location.' if self.context.pending else f"{value['distance']:,.2f} {value['unit']} · {'Surface geodesic' if value['mode'] == 'GEODESIC' else 'Straight 3D / chord'}" if value and 'distance' in value else 'Location shown.' if self.context.origin and value is None else 'Geodesic radius computed.'
             return {'message': message, 'open_spatial': True, 'context': self.snapshot()}
+
+    @staticmethod
+    def parse_pair(text):
+        clean = ' '.join(str(text).strip().split()).strip(' .?!\'"')
+        clean = re.sub(r'\s*[,;]?\s+how far(?:\s+(?:is it|apart|are they))?$', '', clean, flags=re.I)
+        patterns = (
+            r'(?:show|compare|distance between) (.+?) (?:and|to) (.+)',
+            r'(?:how far (?:is it )?(?:from|between)|what(?: is|\'s) (?:the )?distance (?:between|from)) (.+?) (?:and|to) (.+)',
+            r'from (.+?) to (.+)',
+        )
+        for pattern in patterns:
+            match = re.fullmatch(pattern, clean, re.I)
+            if match: return tuple(v.strip(' .?!\'"') for v in match.groups())
+        return None
 
     @staticmethod
     def is_context_command(text):
@@ -307,8 +369,9 @@ class SpatialService:
             'how far', "what's the distance as the crow flies", 'what is the distance as the crow flies', 'as the crow flies', 'what is the distance', 'show the path',
             'chord distance', 'straight line distance', 'driving distance', 'walking distance', 'cycling distance', 'route distance',
             'in miles', 'give it to me in miles', 'in km', 'in kilometres', 'in kilometers', 'in m', 'in metres', 'in meters', 'in nautical miles'}
-        return lower in commands or any(re.fullmatch(pattern, clean, re.I) is not None for pattern in (
+        return lower in commands or SpatialService.parse_pair(clean) is not None or any(re.fullmatch(pattern, clean, re.I) is not None for pattern in (
             r'(?:show|compare|distance between) (.+?) (?:and|to) (.+)',
+            r'(?:show place|find place) (.+)',
             r'(?:what about|replace (?:it|the destination) with) (.+?)(?: instead)?[.?!]?',
             r'show(?: the)? straight[- ]line distance(?: t(?:oo|o))?[.?!]?',
             r'show (\d+(?:\.\d+)?)\s*(km|miles|m) around (.+)'))

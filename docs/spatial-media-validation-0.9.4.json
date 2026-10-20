@@ -1,0 +1,388 @@
+{
+  "schema": "morice.spatial-media-validation.v1",
+  "version": "0.9.4",
+  "date": "2026-10-20",
+  "source_sha256": "be2c6a392cdda49c27b322529b66cdae98988db88b235bc54e6e530c8ad3ac9c",
+  "test_source_sha256": "8b1d4b1f208e0609126a9ca68b2587d1e06133e1f9337a03105d46d65f19ebd2",
+  "fingerprint_method": "Sorted morice/**/*.py or tests/**/*.py: Windows relative path bytes followed by file bytes, SHA-256.",
+  "python": {
+    "passed": 1165,
+    "subtests_passed": 62,
+    "seconds": 561.13
+  },
+  "local_suite_diagnostic": {
+    "qt_event_watchdog_dump": false,
+    "scope": "An earlier failed full run emitted a 120-second watchdog diagnostic during themed-dialog event draining and later continued. The final complete run emitted no such diagnostic; the earlier shared-process slowdown remains retained in local logs. Separate actual native-window checks passed."
+  },
+  "live_geography": {
+    "provider": "Photon / OpenStreetMap with GeoNames offline fallback",
+    "actual_network_requests": true,
+    "native_controls": true,
+    "mumbai_gujarat": {
+      "metres": 385355.8782128316,
+      "origin": {
+        "identifier": "geonames:1275339",
+        "label": "Mumbai",
+        "coordinate": {
+          "latitude": 19.07283,
+          "longitude": 72.88261,
+          "altitude": null,
+          "reference": "WGS84"
+        },
+        "source": "https://www.geonames.org/1275339",
+        "country": "IN",
+        "region": "16",
+        "population": 12691836,
+        "kind": "city"
+      },
+      "destination": {
+        "identifier": "osm:relation:1949080",
+        "label": "Gujarat",
+        "coordinate": {
+          "latitude": 22.3850051,
+          "longitude": 71.745261,
+          "altitude": null,
+          "reference": "WGS84"
+        },
+        "source": "https://www.openstreetmap.org/relation/1949080",
+        "country": "IN",
+        "region": "",
+        "population": 0,
+        "kind": "state"
+      }
+    },
+    "mumbai_pakistan": {
+      "metres": 1259711.9282464846,
+      "destination": {
+        "identifier": "osm:relation:307573",
+        "label": "Pakistan",
+        "coordinate": {
+          "latitude": 30.3308401,
+          "longitude": 71.247499,
+          "altitude": null,
+          "reference": "WGS84"
+        },
+        "source": "https://www.openstreetmap.org/relation/307573",
+        "country": "PK",
+        "region": "",
+        "population": 0,
+        "kind": "country"
+      }
+    },
+    "gujrat_explicit_choice": "Indian Gujarat state and Pakistani Gujrat settlements displayed; actual Use selected place button selected the Indian state.",
+    "offline_fallback_observed": true,
+    "provider_timeout_diagnostics": 1,
+    "measurement_scope": "Provider-supplied representative points; not road routes or nearest borders.",
+    "latency_check": "Actual standalone provider responses took about 3.62 seconds for gujrat and 7.81 seconds for Gujarat. The earlier three/six-second cutoffs were too low; the final ten-second socket timeout and 22-second capability deadline permit these healthy slower lookups."
+  },
+  "worldwide_live_places": {
+    "new york": {
+      "status": "AMBIGUOUS",
+      "candidates": [
+        {
+          "identifier": "osm:relation:175905",
+          "label": "New York",
+          "coordinate": {
+            "latitude": 40.7127281,
+            "longitude": -74.0060152,
+            "altitude": null,
+            "reference": "WGS84"
+          },
+          "source": "https://www.openstreetmap.org/relation/175905",
+          "country": "US",
+          "region": "New York",
+          "population": 0,
+          "kind": "city"
+        },
+        {
+          "identifier": "osm:relation:61320",
+          "label": "New York",
+          "coordinate": {
+            "latitude": 43.1561681,
+            "longitude": -75.8449946,
+            "altitude": null,
+            "reference": "WGS84"
+          },
+          "source": "https://www.openstreetmap.org/relation/61320",
+          "country": "US",
+          "region": "",
+          "population": 0,
+          "kind": "state"
+        }
+      ],
+      "source": "https://photon.komoot.io/api/",
+      "license": "OpenStreetMap contributors \u00b7 ODbL"
+    },
+    "sao paulo": {
+      "status": "AMBIGUOUS",
+      "candidates": [
+        {
+          "identifier": "osm:relation:298204",
+          "label": "S\u00e3o Paulo",
+          "coordinate": {
+            "latitude": -22.0702705,
+            "longitude": -48.43338750000001,
+            "altitude": null,
+            "reference": "WGS84"
+          },
+          "source": "https://www.openstreetmap.org/relation/298204",
+          "country": "BR",
+          "region": "",
+          "population": 0,
+          "kind": "state"
+        },
+        {
+          "identifier": "osm:relation:298285",
+          "label": "S\u00e3o Paulo",
+          "coordinate": {
+            "latitude": -23.5506507,
+            "longitude": -46.633382400000016,
+            "altitude": null,
+            "reference": "WGS84"
+          },
+          "source": "https://www.openstreetmap.org/relation/298285",
+          "country": "BR",
+          "region": "S\u00e3o Paulo",
+          "population": 0,
+          "kind": "municipality"
+        },
+        {
+          "identifier": "osm:node:5390979124",
+          "label": "S\u00e3o Paulo",
+          "coordinate": {
+            "latitude": -1.2043218,
+            "longitude": -47.15839439999999,
+            "altitude": null,
+            "reference": "WGS84"
+          },
+          "source": "https://www.openstreetmap.org/node/5390979124",
+          "country": "BR",
+          "region": "Par\u00e1",
+          "population": 0,
+          "kind": "suburb"
+        }
+      ],
+      "source": "https://photon.komoot.io/api/",
+      "license": "OpenStreetMap contributors \u00b7 ODbL"
+    },
+    "cape town": {
+      "status": "RESOLVED",
+      "candidates": [
+        {
+          "identifier": "osm:node:32675806",
+          "label": "Cape Town",
+          "coordinate": {
+            "latitude": -33.9288301,
+            "longitude": 18.417219700000004,
+            "altitude": null,
+            "reference": "WGS84"
+          },
+          "source": "https://www.openstreetmap.org/node/32675806",
+          "country": "ZA",
+          "region": "Western Cape",
+          "population": 0,
+          "kind": "city"
+        }
+      ],
+      "source": "https://photon.komoot.io/api/",
+      "license": "OpenStreetMap contributors \u00b7 ODbL"
+    },
+    "sydney": {
+      "status": "RESOLVED",
+      "candidates": [
+        {
+          "identifier": "osm:relation:5750005",
+          "label": "Sydney",
+          "coordinate": {
+            "latitude": -33.8698439,
+            "longitude": 151.2082848,
+            "altitude": null,
+            "reference": "WGS84"
+          },
+          "source": "https://www.openstreetmap.org/relation/5750005",
+          "country": "AU",
+          "region": "New South Wales",
+          "population": 0,
+          "kind": "city"
+        }
+      ],
+      "source": "https://photon.komoot.io/api/",
+      "license": "OpenStreetMap contributors \u00b7 ODbL"
+    }
+  },
+  "media": {
+    "workflow": "TEXT_TO_IMAGE",
+    "reference_required": false,
+    "mask_required": false,
+    "generate_enabled": true,
+    "readiness": "Ready: prompt only. Model files are checked before generation.",
+    "models": 1,
+    "scope": "Actual UI with existing local model metadata; no new real-weight inference.",
+    "real_model_generation": false,
+    "controlled_generation": "Actual existing media scheduler/subprocess writes and verifies an image with no reference or mask. Stale edit paths are not read in text-to-image. A discovered fixture model is inspected on demand. Native UI uses the already-installed SD-Turbo metadata without loading weights."
+  },
+  "regression_focus": [
+    "Exact screenshot questions parse without how far in the location name",
+    "Online city/state/country lookup and one-day persisted cache",
+    "Ambiguous Gujrat/Gujarat and same-name city/state explicit selection",
+    "Healthy slower-provider budget retains online choices instead of forcing offline city coordinates",
+    "Generic locate requests keep the existing chat/file route",
+    "Network denial never contacts provider and uses offline cities",
+    "Unknown place preserves previous context and reports the current query",
+    "Slow provider leaves GUI snapshot lock responsive",
+    "Concurrent Spatial commands and geocoder admission fail immediately; invalid coordinates are rejected",
+    "Prompt-only image creates a verified artifact through the existing process scheduler",
+    "Discovered model inspection, compatible initial model selection, repeat-click prevention and recovery",
+    "Existing native compact Media geometry and unavailable-workflow message"
+  ],
+  "project": {
+    "review_preserved": true,
+    "source_files_written": true,
+    "output": "5",
+    "session_status": "verified",
+    "same_kernel": true
+  },
+  "experiment": {
+    "status": "COMPLETED",
+    "actual_runs": 5,
+    "densities": [
+      2000.0,
+      1600.0,
+      1333.3333333333333,
+      1142.857142857143,
+      1000.0
+    ],
+    "same_kernel": true
+  },
+  "shutdown": {
+    "clean": true,
+    "failures": [],
+    "leases_remaining": 0,
+    "pending_workers": 0
+  },
+  "native_capture": {
+    "routes": [
+      "home",
+      "chats",
+      "projects",
+      "research",
+      "spatial",
+      "devices",
+      "media",
+      "automations",
+      "connectors",
+      "security",
+      "history",
+      "activity",
+      "tools",
+      "voice",
+      "artifacts",
+      "plugins",
+      "settings"
+    ],
+    "captures": 25,
+    "workflow_captures": 9,
+    "location_media_captures": 4,
+    "published_images": 30,
+    "qt_platform": "windows",
+    "device_pixel_ratio": 1.25,
+    "manifest": "screenshots/current-manifest.json",
+    "scope": "Actual owned Qt windows and controls, isolated profiles; not physical mouse, microphone, camera or device certification."
+  },
+  "wheel": {
+    "sha256": "37059bdcaa705932437426aa98ae73b483b788439b8b66cf09f814ede2ef59fa",
+    "equal_source_modules": 219,
+    "routes": 17,
+    "authored_icons": 65,
+    "owned_windows_job_reaped": true,
+    "main_runtime_clean_shutdown": true,
+    "separate_runtime_clean_shutdown": true,
+    "dependency_scope": "Two existing dependency environments, not a fresh dependency installation."
+  },
+  "frozen": {
+    "source_equal_modules": 217,
+    "omitted_cli_modules": [
+      "morice.__main__",
+      "morice.cli"
+    ],
+    "files": 3311,
+    "exe_sha256": "7c550557ab9b9dccb89703e347075ca429d5e0325d9bb91a4218bf4ef178a7e7",
+    "no_gguf_or_generative_weights": true,
+    "existing_vosk_retained": true,
+    "critical_failures": 0,
+    "canonical_and_root_installed_startup": "passed",
+    "existing_local_models_retained": 3
+  },
+  "local_website": {
+    "status": "CURRENT_PRODUCTION_SITE_QA_PASSED",
+    "releasePreview": "0.9.4",
+    "themes": {
+      "midnight": {
+        "animationChanged": true,
+        "animatedElements": 8
+      },
+      "glass": {
+        "animationChanged": true,
+        "animatedElements": 6
+      },
+      "ice": {
+        "animationChanged": true,
+        "animatedElements": 2
+      },
+      "solar": {
+        "animationChanged": true,
+        "animatedElements": 2
+      }
+    },
+    "desktop": {
+      "width": 1440,
+      "scroll": 1440
+    },
+    "mobile": {
+      "width": 390,
+      "scroll": 390,
+      "brokenImages": 0
+    },
+    "keyboardResearch": true,
+    "pauseResume": true,
+    "consoleErrors": [],
+    "consoleWarnings": [],
+    "captures": [
+      {
+        "name": "Core",
+        "sha256": "0279b2c204afc8d76436314e4a97ef9c25979559a860f09951d6703632395410",
+        "loaded": true
+      },
+      {
+        "name": "Projects",
+        "sha256": "d8f4a2b7edbf3f2151aae2044548a80603d4c34da93817e7f1d2bfdd00efd498",
+        "loaded": true
+      },
+      {
+        "name": "Spatial",
+        "sha256": "831492936ab15100bb98a348a75b2ac3342b167b8df3bdef57e799a4eb556ed6",
+        "loaded": true
+      },
+      {
+        "name": "Research",
+        "sha256": "09344680bc509b96eebb35a01a396d8ea82d9ef5f42ee67a218ec81327c41cb5",
+        "loaded": true
+      },
+      {
+        "name": "Media",
+        "sha256": "6cf63fe3d12ff314fe2acfd102d60f3f650e8dc164b9f2f9d60110e46241865b",
+        "loaded": true
+      }
+    ]
+  },
+  "retained_development_failures": "An early new test asserted the wrong Future result shape; it was corrected to assert ExecutionResult.success. Native compatibility testing caught an unavailable-video-workflow wording regression, corrected before the final app source. The first full run was stopped after a slow global Qt style change. Five new Media UI cases now retain every assertion in separate owned subprocesses. A later full run emitted a Qt watchdog diagnostic and completed with one failed factory test: it expected New York to be uniquely resolved by default. That factory/authority test now explicitly selects installed offline coordinates and restores the shared lookup setting; online ambiguity remains independently covered. A separate partial run was stopped to include the city/state fix. The final diagnostic field records the current completed run; no stopped or failed run is counted as a pass.",
+  "constraints": [
+    "Photon demo coverage and uptime are not guaranteed; named-place search does not download every address/POI/boundary. A configurable compatible HTTPS endpoint is available.",
+    "State/country distances use representative coordinates. Road routing and nearest-border distances remain unavailable.",
+    "At most one outgoing request per second, bounded response, ten-second socket inactivity timeout and a 22-second capability deadline; in-flight HTTP cancellation is cooperative. One short pacing wait can occupy a worker for at most about one second; simultaneous lookup admission does not queue.",
+    "New real SD-Turbo inference remains constrained by available RAM: about 2.8 GiB during initial checks and 4.27 GiB at the final resource check, versus roughly 5.7 GiB required. The user accepted documenting this limit. No new weights were downloaded.",
+    "Existing project proposal/model output budgets, supported computational model assumptions and physical device/compositor limitations remain as documented in earlier version reports."
+  ],
+  "authorities": "Extends CapabilityKernel, TaskGraph, WorkerManager, AgentCoordinator, SharedTaskState, existing resource leases, verification contracts, permission handling and process ownership. Deterministic math/local operations retain existing bypass paths.",
+  "publication": "Public Package-Contents binds archived and installed checks to the release commit. Exact-commit CI, Release validation and Pages plus live website QA gate publication."
+}

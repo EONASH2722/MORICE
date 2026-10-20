@@ -6,13 +6,15 @@
 
 <h1 align="center">MORICE</h1>
 
-## Current source: 0.9.3
+## Current source: 0.9.4
+
+The [0.9.4 location and image update](docs/release-notes-0.9.4.md) adds online city/state/country lookup, understands distance questions, and makes prompt-only image generation explicit. See [the new guide](docs/spatial-media-0.9.4.md).
 
 The [0.9.3 workspace update](docs/release-notes-0.9.3.md) makes Project navigation select the file-building workflow, keeps project updates and browser previews together, and adds a guided experiment form. See the [Projects and Experiments guide](docs/simple-workspaces.md) for creating files, reviewing changes, and running real computations.
 
 The renovated desktop uses a luminous Core, a visible message composer, authored vector icons and twelve distinct visual themes. Shapes turn, breathe, float and unfurl in continuous loops; particles follow closed paths without jumping between screen edges. LOW quality keeps inexpensive ambient motion, while Reduced Motion and hidden/minimized windows pause decoration. The original logo is unchanged and the Core contains no eyes or face.
 
-Current source extends the existing Capability Kernel, parallel agents, verified actions, Builder, Research, Device Mesh, Ambient/Security and Media systems. It adds offline geographic search and deterministic WGS84 Spatial tools while keeping shared permission, verification and resource-lease ownership.
+Current source extends the existing Capability Kernel, parallel agents, verified actions, Builder, Research, Device Mesh, Ambient/Security and Media systems. It adds online place lookup with offline fallback and deterministic WGS84 Spatial tools while keeping shared permission, verification and resource-lease ownership.
 
 ![Renovated MORICE Core](docs/screenshots/morice-home.png)
 
@@ -39,16 +41,16 @@ Choose **Theme** in the top bar to preview a theme or toggle **Animate the works
 | --- | --- |
 | Projects | Plan, build, test and review with existing Builder authority. |
 | Research | Inspect provenance, controlled computations and resumable experiments. |
-| Spatial | Resolve real cities offline; compare geodesic/chord distances, bearings and paths. |
-| Media | Inspect installed models, actual queue stages and verified outputs. |
+| Spatial | Find cities, states and countries online with offline fallback; compare geodesic/chord distances, bearings and paths. |
+| Media | Generate images from prompts with installed models; use optional references for edits and inspect verified outputs. |
 | Activity | Inspect real public task/events and cancel owned work. |
 | Settings | Search preferences, preview themes/profiles and configure explicit voice/wake access. |
 
 ![Deterministic Spatial workspace](docs/screenshots/morice-spatial.png)
 
-**Validation scope:** the [0.9.3 workspace validation](docs/workspace-validation-0.9.3.md) covers the current Project file-generation, review/save, experiment execution, compact layouts and matching package checks. The preserved [0.9.2 chat repair](docs/chat-routing-validation-0.9.2.md), [0.9.1 UI follow-up](docs/followup-audit-0.9.1.md) and [original release audit](docs/release-audit-report.md) record earlier checks at their own source fingerprints. Physical audio/devices, heavy inference memory and compositor frame pacing remain scoped; compatible providers and sufficient RAM/VRAM are required.
+**Validation scope:** [0.9.4 validation](docs/spatial-media-validation-0.9.4.md) covers online places, prompt-only image requests and matching package checks. The [0.9.3 workspace validation](docs/workspace-validation-0.9.3.md) records the earlier Project and Experiment update at its own source fingerprint. The preserved [0.9.2 chat repair](docs/chat-routing-validation-0.9.2.md), [0.9.1 UI follow-up](docs/followup-audit-0.9.1.md) and [original release audit](docs/release-audit-report.md) record earlier checks. Physical audio/devices, heavy inference memory and compositor frame pacing remain scoped; compatible providers and sufficient RAM/VRAM are required.
 
-**Downloads:** [Windows 0.9.3 desktop preview and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.3) include simpler Project and Research workflows, the renovated interface, and the earlier chat routing repair. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest stable release](https://github.com/EONASH2722/MORICE/releases/latest).
+**Downloads:** [Windows 0.9.4 desktop preview and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.4) include simpler Project and Research workflows, the renovated interface, and the earlier chat routing repair. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest stable release](https://github.com/EONASH2722/MORICE/releases/latest).
 
 ### Installation
 
@@ -60,7 +62,7 @@ python -m venv .venv
 
 Use Python 3.12+ for the desktop. Local media model dependencies may require a separate compatible runtime; the main app remains usable when those providers are unavailable. See [troubleshooting](docs/troubleshooting.md), [architecture](docs/architecture.md) and [the renovation report](docs/renovation-report.md).
 
-The [0.9.3 desktop preview](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.3) contains the renovated Windows app and matching Python packages. Install `morice_ai-0.9.3-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
+The [0.9.4 desktop preview](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.4) contains the renovated Windows app and matching Python packages. Install `morice_ai-0.9.4-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
 
 
 <p align="center">
@@ -280,7 +282,7 @@ Download the signed APK from the [MORICE Android Release](https://github.com/EON
 Advanced users can install the model-free wheel included with the release:
 
 ```powershell
-python -m pip install .\morice_ai-0.9.3-py3-none-any.whl
+python -m pip install .\morice_ai-0.9.4-py3-none-any.whl
 morice
 ```
 
