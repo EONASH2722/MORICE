@@ -10,11 +10,12 @@ import tempfile
 import zipfile
 
 ROOT=Path(__file__).resolve().parents[1]
-python=ROOT/'build/phase11-clean-venv/Scripts/python.exe'
 parser=argparse.ArgumentParser()
 parser.add_argument('--wheel',type=Path,required=True)
+parser.add_argument('--python',type=Path,default=ROOT/'build/phase11-clean-venv/Scripts/python.exe')
 parser.add_argument('--output',type=Path,default=ROOT/'build/phase11-clean-wheel-startup.json')
 arguments=parser.parse_args()
+python=arguments.python.resolve()
 wheel=arguments.wheel.resolve();output=arguments.output.resolve()
 assert output.is_relative_to(ROOT/'build'),'Keep owned evidence inside the workspace build directory.'
 installed=python.parents[1]/'Lib/site-packages'

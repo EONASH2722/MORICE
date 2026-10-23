@@ -23,7 +23,9 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Visualization",
 ]
 dependencies = [
-  "PySide6>=6.7",
+  # Match the native Qt version used by the validated Windows release. The
+  # 6.12 CI environment aborted during cyclic collection of native UI objects.
+  "PySide6==6.11.2",
   "psutil>=6,<8; platform_system == 'Windows'",
   "winrt-runtime==3.2.1; platform_system == 'Windows'",
   "winrt-Windows.Foundation==3.2.1; platform_system == 'Windows'",

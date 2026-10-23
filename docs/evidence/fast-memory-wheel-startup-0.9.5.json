@@ -1,35 +1,35 @@
 {
   "frozen": false,
-  "cwd": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-s5z5g7rm",
-  "startup_and_probe_ms": 49498.285999987274,
+  "cwd": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-3_k14k56",
+  "startup_and_probe_ms": 39164.55159999896,
   "window_created": true,
-  "ui_ticks": 76,
+  "ui_ticks": 99,
   "critical_failures": 0,
   "health": [
     {
       "name": "Runtime storage",
       "status": "healthy",
-      "detail": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-s5z5g7rm\\runtime"
+      "detail": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-3_k14k56\\runtime"
     },
     {
       "name": "Asset: morice_logo.ico",
       "status": "healthy",
-      "detail": "E:\\MORICE\\build\\phase11-clean-venv\\Lib\\site-packages\\morice\\assets\\morice_logo.ico"
+      "detail": "E:\\MORICE\\build\\fast-memory-095-pinned-venv\\Lib\\site-packages\\morice\\assets\\morice_logo.ico"
     },
     {
       "name": "Asset: morice-logo-rgb.png",
       "status": "healthy",
-      "detail": "E:\\MORICE\\build\\phase11-clean-venv\\Lib\\site-packages\\morice\\assets\\morice-logo-rgb.png"
+      "detail": "E:\\MORICE\\build\\fast-memory-095-pinned-venv\\Lib\\site-packages\\morice\\assets\\morice-logo-rgb.png"
     },
     {
       "name": "Asset: katex.min.js",
       "status": "healthy",
-      "detail": "E:\\MORICE\\build\\phase11-clean-venv\\Lib\\site-packages\\morice\\assets\\web\\katex.min.js"
+      "detail": "E:\\MORICE\\build\\fast-memory-095-pinned-venv\\Lib\\site-packages\\morice\\assets\\web\\katex.min.js"
     },
     {
       "name": "Dependency: PySide6",
       "status": "healthy",
-      "detail": "6.12.0; installed, initialized on demand"
+      "detail": "6.11.2; installed, initialized on demand"
     },
     {
       "name": "Dependency: numpy",
@@ -54,7 +54,7 @@
     {
       "name": "Settings configuration",
       "status": "healthy",
-      "detail": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-s5z5g7rm\\roaming\\MORICE\\settings.json"
+      "detail": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-3_k14k56\\roaming\\MORICE\\settings.json"
     },
     {
       "name": "AI model",
@@ -143,7 +143,7 @@
     }
   ],
   "roles": 9,
-  "runtime_directory": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-s5z5g7rm\\runtime",
+  "runtime_directory": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-3_k14k56\\runtime",
   "ui": "renovated",
   "production_window_factory": true,
   "window_class": "RenovatedWindow",
@@ -278,7 +278,7 @@
   ],
   "ambient_animation": {
     "phase_advanced": true,
-    "raster_count": 49,
+    "raster_count": 26,
     "reduced_motion": false
   },
   "spatial_result": {
@@ -1124,8 +1124,8 @@
   "leases_after": 0,
   "validation_clean_dependency_environment": true,
   "validation_outside_checkout": true,
-  "validation_python": "E:\\MORICE\\build\\phase11-clean-venv\\Scripts\\python.exe",
-  "validation_wheel_sha256": "21dbfa9814ca316708380a6aedca57e2001be012c8771aa2b46aa6e70f38dabc",
+  "validation_python": "E:\\MORICE\\build\\fast-memory-095-pinned-venv\\Scripts\\python.exe",
+  "validation_wheel_sha256": "124f25bf5d3139656601c0ab63eece0e45dcabfb87a0e333a801d024d98cf7af",
   "validation_installed_files_equal_wheel": 299,
   "validation_dependency_environment_scope": "Previously created isolated venv with no system-site-packages; current wheel is reinstalled into that dependency environment and byte-checked before launch."
 }

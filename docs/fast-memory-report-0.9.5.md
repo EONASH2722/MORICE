@@ -114,6 +114,8 @@ Final local validation record:
 | Website | Production build passed with the approved 0.9.5 download link. |
 | Windows packages | Model-free portable ZIP built/tested; Inno Setup compiler succeeded. Setup requires both its EXE and matching `-1.bin`. |
 
+The first GitHub full run aborted in native garbage collection after installing Qt 6.12. Its stack did not report a failed application assertion. The packaged application and successful local full suite use Qt 6.11.2. Python dependency metadata and requirements now pin **PySide6 6.11.2** so source/wheel installs use that tested native version. The Qt 6.12 abort is an observed compatibility limit, not a claim that a specific upstream defect has been proven. A fresh pinned-wheel startup and repeated GitHub regression gate the final release.
+
 Receipts are in [evidence](evidence/). Release-wide archive/content scans and the final checksum manifests accompany the [0.9.5 release](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.5). The installer was compiled from the verified candidate; installation into a real user profile is not claimed as an automated test. The source and documentation archives include this report.
 
 Source-control status at report generation: the implementation and controlled evidence are staged on `main`; commit, push, tag and release publication are explicitly authorized. Publication is gated on the local checks above and successful GitHub CI/package validation. The final release tag identifies the published commit. The approved website change publishes with this source update. The validated candidate is then promoted to the private local dist app, preserving its existing model files.
