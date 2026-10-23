@@ -2,6 +2,10 @@
 
 Implementation began 2026-10-22; release verification continued 2026-10-23. This report distinguishes shipped behavior, measured local fixtures and validation limits. The upgrade has no end-of-life designation.
 
+## Technical reply amendment (2026-10-24)
+
+The [technical reply report](technical-replies-0.9.5.md) describes corrected written-analysis routing, installed-default Research synthesis, complete current-prompt preservation, per-request generation budgets and completion timers. A conditional electromagnetic harvester adapter now uses the existing Kernel and independent phasor/energy verification to ground complete labelled inputs. This does not certify model-generated engineering recommendations or proposed hardware. Private reproduction prompts and generated responses are excluded from public source and documentation packages. The validation table later in this document describes the initial build; the current release manifest and amendment receipts identify replacement binaries.
+
 ## Duplicate-message amendment (2026-10-23)
 
 The reported duplicate was reproduced in the production Qt shell: a streamed reply displayed with the configured “Sir” address did not receive its raw saved message's ID. Paging forward consequently loaded the same saved answer again. Persistence now matches the presented form while preserving existing stable IDs and assigning each repeated answer its own turn identity. Partial stream rows cannot borrow an older answer's ID. Returning from older pages reuses an already rendered latest reply instead of appending it again. No retained transcript is deleted or deduplicated by text.

@@ -402,9 +402,9 @@ def _merge_continuation(existing: str, continuation: str) -> str:
     return existing + separator + continuation[overlap:]
 
 
-def _fit_messages_to_context(messages):
+def _fit_messages_to_context(messages, *, context_tokens=None, max_output_tokens=None):
     """Keep current instructions and prompt while dropping only oldest history."""
-    input_token_budget = max(512, DEFAULT_CTX - DEFAULT_MAX_TOKENS - 768)
+    input_token_budget = max(512, int(context_tokens or DEFAULT_CTX) - int(max_output_tokens or DEFAULT_MAX_TOKENS) - 768)
     character_budget = input_token_budget * 4
     clean = [
         {
@@ -419,32 +419,17 @@ def _fit_messages_to_context(messages):
     system_messages = [message for message in clean if message["role"] == "system"]
     conversation = [message for message in clean if message["role"] != "system"]
     latest = conversation[-1:] if conversation else []
-    system_budget=max(256,int(character_budget*.55))
+    latest_size = sum(len(message['content']) for message in latest)
+    base_size = len(system_messages[0]['content']) if system_messages else 0
+    if latest_size + base_size > character_budget:
+        raise ValueError('The current request exceeds the selected model context. Increase the context or split the request; no part of it was silently omitted.')
+    system_budget=max(base_size,min(max(256,int(character_budget*.55)),character_budget-latest_size))
     bounded=[]; remaining=system_budget
     for item in system_messages:
         if remaining<=0: break
         text=item['content'][:remaining]
         bounded.append({**item,'content':text});remaining-=len(text)
     system_messages=bounded
-    fixed_size = sum(len(message["content"]) for message in system_messages + latest)
-
-    if latest and fixed_size > character_budget:
-        available = max(0, character_budget - sum(
-            len(message["content"]) for message in system_messages
-        ))
-        content = latest[0]["content"]
-        if len(content) > available:
-            marker='\n[Prompt excerpt omitted to fit context.]\n'
-            head = max(0, (available-len(marker)) // 2)
-            tail = max(0, available-head-len(marker))
-            latest[0] = {
-                **latest[0],
-                "content": (
-                    content[:head]
-                    + marker
-                    + (content[-tail:] if tail else '')
-                ),
-            }
 
     selected = []
     used = sum(len(message["content"]) for message in system_messages + latest)
@@ -458,13 +443,13 @@ def _fit_messages_to_context(messages):
     return system_messages + selected + latest
 
 
-def _fit_backend_context(base_url,messages,max_output_tokens,*,telemetry=None):
+def _fit_backend_context(base_url,messages,max_output_tokens,*,telemetry=None,context_tokens=None):
     """Use the installed model tokenizer when the byte upper bound is too large.
 
     Tiny prompts avoid extra HTTP calls. Older backends without these endpoints
     fall back to a conservative UTF-8 byte budget rather than an unbounded guess.
     """
-    budget=max(256,DEFAULT_CTX-int(max_output_tokens)-128)
+    budget=max(256,int(context_tokens or DEFAULT_CTX)-int(max_output_tokens)-128)
     clean=[dict(m) for m in messages]
     def byte_count():return sum(len(m['content'].encode('utf-8'))+32 for m in clean)+64
     if byte_count()<=budget:return clean
@@ -484,12 +469,12 @@ def _fit_backend_context(base_url,messages,max_output_tokens,*,telemetry=None):
         if history_index is not None:
             clean.pop(history_index);continue
         # Preserve the base system instructions and the current user request.
-        index=max(range(1,len(clean)),key=lambda i:len(clean[i]['content'])) if len(clean)>1 else 0
-        if index==0:raise ValueError('Base system instructions exceed the selected model context.')
+        auxiliary=[i for i,m in enumerate(clean[:-1]) if i>0 and m['role']=='system']
+        if not auxiliary:
+            raise ValueError('The current request exceeds the selected model context. Increase the context or split the request; no part of it was silently omitted.')
+        index=max(auxiliary,key=lambda i:len(clean[i]['content']))
         content=clean[index]['content']; target=max(32,int(len(content)*min(.75,budget/max(1,count)*.85)))
-        if clean[index]['role']=='user':
-            marker='\n[Context excerpt omitted.]\n';head=max(0,(target-len(marker))//2)
-            clean[index]['content']=content[:head]+marker+content[-max(1,target-head-len(marker)):]
+        if len(content)<=32:clean.pop(index)
         else:clean[index]['content']=content[:target]
     raise ValueError('The request could not fit within the selected model context.')
 
@@ -807,6 +792,7 @@ def _try_ollama_messages_stream(
     temperature,
     top_p,
     cancel_event=None,
+    *, max_tokens=None, context_tokens=None,
 ):
     payload = {
         "model": model,
@@ -815,7 +801,8 @@ def _try_ollama_messages_stream(
         "options": {
             "temperature": temperature,
             "top_p": top_p,
-            "num_predict": DEFAULT_MAX_TOKENS,
+            "num_predict": int(max_tokens or DEFAULT_MAX_TOKENS),
+            "num_ctx": int(context_tokens or DEFAULT_CTX),
         },
     }
     emitted = False
@@ -875,6 +862,8 @@ def _conversation_messages(
     extra_system=None,
     precision_mode: bool = False,
     math_steps_mode: bool = False,
+    context_tokens=None,
+    max_output_tokens=None,
 ):
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     system_additions = [identity_instruction()]
@@ -893,7 +882,7 @@ def _conversation_messages(
         messages.append({"role": "system", "content": "\n\n".join(system_additions)})
     messages.extend(history)
     messages.append({"role": "user", "content": user_message})
-    return _fit_messages_to_context(messages)
+    return _fit_messages_to_context(messages,context_tokens=context_tokens,max_output_tokens=max_output_tokens)
 
 
 @_shared_model_resources
@@ -910,12 +899,15 @@ def stream_chat(
     *,
     cancel_event=None,
     max_tokens: int | None = None,
+    context_tokens: int | None = None,
     enable_reasoning: bool = False,
     telemetry=None,
 ):
     """Yield response text while a local GGUF or Ollama backend is generating."""
 
     explicit_model = bool((model or "").strip())
+    context_limit = max(1024, int(context_tokens or DEFAULT_CTX))
+    output_limit = max(32, min(context_limit-768,int(max_tokens or DEFAULT_MAX_TOKENS)))
     model = (model or DEFAULT_MODEL).strip()
     sampling = sampling_settings(precision_mode, _needs_precision(user_message))
     temperature, top_p = sampling.temperature, sampling.top_p
@@ -933,6 +925,8 @@ def stream_chat(
         extra_system=extra_system,
         precision_mode=precision_mode,
         math_steps_mode=math_steps_mode,
+        context_tokens=context_limit,
+        max_output_tokens=output_limit,
     )
     prompt_characters = sum(
         len(str(message.get("content") or "")) for message in messages
@@ -953,13 +947,7 @@ def stream_chat(
                 "stream": True,
                 "temperature": temperature,
                 "top_p": top_p,
-                "max_tokens": max(
-                    32,
-                    min(
-                        DEFAULT_MAX_TOKENS,
-                        int(max_tokens or DEFAULT_MAX_TOKENS),
-                    ),
-                ),
+                "max_tokens": output_limit,
                 # llama.cpp/Qwen can otherwise spend several seconds emitting
                 # hidden reasoning_content before the first visible token.
                 # Deep/project requests opt back in through the tier router.
@@ -974,12 +962,12 @@ def stream_chat(
                 _report_telemetry(telemetry, "model_prepare_started")
                 server_url = ensure_server(
                     resolved_path,
-                    DEFAULT_CTX,
+                    context_limit,
                     DEFAULT_GPU_LAYERS,
                     DEFAULT_THREADS,
                     DEFAULT_BATCH,
                 )
-                payload['messages']=_fit_backend_context(server_url,payload['messages'],payload['max_tokens'],telemetry=telemetry)
+                payload['messages']=_fit_backend_context(server_url,payload['messages'],payload['max_tokens'],telemetry=telemetry,context_tokens=context_limit)
                 _report_telemetry(
                     telemetry,
                     "model_ready",
@@ -1019,7 +1007,7 @@ def stream_chat(
             yield from local_stream_chat(
                 messages,
                 resolved_path,
-                DEFAULT_CTX,
+                context_limit,
                 DEFAULT_GPU_LAYERS,
                 DEFAULT_CHAT_FORMAT,
                 DEFAULT_THREADS,
@@ -1027,6 +1015,7 @@ def stream_chat(
                 temperature,
                 top_p,
                 cancel_event=cancel_event,
+                max_tokens=output_limit,
             )
         except Exception as exc:  # noqa: BLE001
             if cancel_event is None or not cancel_event.is_set():
@@ -1049,6 +1038,8 @@ def stream_chat(
                 temperature,
                 top_p,
                 cancel_event,
+                max_tokens=output_limit,
+                context_tokens=context_limit,
             )
             return
         except urllib.error.HTTPError as exc:

@@ -218,3 +218,79 @@ def test_informal_date_question_uses_the_clock_once(window,app,monkeypatch):
     pump(app,lambda:not window._loading_history)
     assert len(window._message_rows)==2
     stream.assert_not_called()
+
+
+def test_long_engineering_analysis_reaches_thinking_model_intact(window,app,tmp_path,monkeypatch):
+    prompt=('Independent engineering audit and optimization challenge\n\n'
+        'Audit a vibration harvester using a coupled mechanical and electromagnetic model. '
+        'Compare assumptions, experimental research and numerical simulation. '
+        'Do not generate code or a PDF. Give calculations, numerical results and recommendations.\n\n'
+        + '\n'.join(f'{i}. Evaluate spring suspension, mechanical damping, coil losses and efficiency under case {i}.' for i in range(90)))
+    model=tmp_path/'thinking.gguf';model.write_bytes(b'GGUF')
+    window.settings.update(model_path=str(model),model_name='')
+    calls=[]
+    def stream(history,text,**kwargs):
+        calls.append((history,text,kwargs));yield 'An analytical answer with assumptions and calculations.'
+    monkeypatch.setattr('morice.pyside_app.stream_chat',stream)
+    window.input.setText(prompt);window.on_send()
+    pump(app,lambda:bool(calls) and not window.is_busy)
+    assert calls[0][1]==prompt
+    assert calls[0][2]['gguf_path']==str(model) and calls[0][2]['enable_reasoning']
+    assert calls[0][2]['context_tokens']>=16384
+    assert calls[0][2]['max_tokens']>=6144
+    assert [m['role'] for m in window.history]==['user','assistant']
+    assert not window._research_project_id and not window.visualization_cards
+    assert 'analytical answer' in window.history[-1]['content']
+
+
+def test_completed_processing_does_not_accept_delayed_generation_updates(window,app):
+    window._show_thinking('Checking the request.')
+    token=window._thinking_token
+    bubble=window.thinking_bubble
+    window._on_message_ready('MORICE','Completed analysis.',False)
+    completed=bubble.detail_label.text()
+    window._thinking_delayed_update(token,'Qwen is still generating.')
+    window._on_thinking_update('Qwen is still generating.')
+    app.processEvents()
+    assert bubble.detail_label.text()==completed
+    assert '[active]' not in completed
+
+
+def test_research_uses_installed_default_model_without_custom_selection(window,app,tmp_path,monkeypatch):
+    from morice.research.providers import ResearchProvider
+    model=tmp_path/'installed-default.gguf';model.write_bytes(b'GGUF')
+    window.model_name=window.model_path=''
+    window.settings.update(model_name='',model_path='')
+    calls=[]
+    monkeypatch.setattr('morice.llm_client._resolve_gguf_path',lambda *args:str(model))
+    def provider(name,path):
+        calls.append((name,path))
+        return ResearchProvider('test-default',frozenset({'synthesis'}),lambda *args:'A substantive interpretation of the supplied assumptions.')
+    monkeypatch.setattr('morice.research.providers.selected_local_provider',provider)
+    window.input.setText('Research energy harvesting assumptions.');window.on_send()
+    pump(app,lambda:bool(calls) and not window.is_busy)
+    assert calls[0][1]==str(model)
+    assert [m['role'] for m in window.history]==['user','assistant']
+    assert 'substantive interpretation' in window.history[-1]['content']
+    assert window.thinking_bubble.property('completed')=='true'
+
+
+def test_engineering_calculation_and_interpretation_share_one_reply(window,app,monkeypatch):
+    from test_harvester_calculations import TABLE
+    window._session_enabled=True
+    window._render_chat_messages([])
+    calls=[]
+    def stream(history,text,**kwargs):
+        calls.append((text,kwargs));yield 'Review measured damping before selecting hardware.'
+    monkeypatch.setattr('morice.pyside_app.stream_chat',stream)
+    window.input.setText(TABLE);window.on_send()
+    pump(app,lambda:bool(calls) and not window.is_busy,timeout=20)
+    assert calls[0][0]==TABLE.strip()
+    assert 'Verified conditional calculation' in calls[0][1]['extra_system']
+    assert 'Mechanical input (mW)' in calls[0][1]['extra_system']
+    assert [m['role'] for m in window.history]==['user','assistant']
+    reply=window.history[-1]['content']
+    assert 'Calculated baseline' in reply and 'Review measured damping' in reply
+    window._load_history_page(earlier=False)
+    pump(app,lambda:not window._loading_history)
+    assert len(window._message_rows)==2,[(r.property('messageId'),r.findChild(ChatBubble).message[:120]) for r in window._message_rows]

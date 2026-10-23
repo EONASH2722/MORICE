@@ -84,3 +84,29 @@ def test_references_to_an_earlier_model_are_context_not_a_recall_command():
     prompt = ENGINEERING_PROMPT + '\nI asked an earlier model for advice. Show what was wrong with its response.'
     assert not wants_previous_user_message(prompt)
     assert wants_previous_user_message('what did i say in my previos mesage')
+
+
+@pytest.mark.parametrize('text',[
+    ENGINEERING_PROMPT,
+    'Explain scientific research on electromagnetic induction.',
+    'Compare these assumptions with experimental measurements.',
+    'Explain a simple everyday idea in two paragraphs.',
+    'Independent engineering audit\n\nAssess mechanical suspension and numerical simulation.'*10,
+])
+def test_written_analysis_is_not_an_empty_research_project_or_a_renderer(text):
+    from morice.research.service import research_intent
+    from morice.visualization import VisualizationManager
+    assert not research_intent(text)
+    manager=VisualizationManager()
+    try:assert manager.decide(text) is None
+    finally:manager.shutdown()
+
+
+@pytest.mark.parametrize('text',[
+    'Analyze this dataset', 'Research energy harvesting', 'Calculate: energy',
+    'List research projects', 'New research: a controlled experiment',
+    '```calculation\n{"expression":"2+2"}\n```',
+])
+def test_explicit_research_operations_remain_available(text):
+    from morice.research.service import research_intent
+    assert research_intent(text)

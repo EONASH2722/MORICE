@@ -67,6 +67,12 @@ class SimulationToolRegistry:
             {"amplitude": "m", "velocity_amplitude": "m/s", "mean_dissipated_power": "W"},
             "Linear steady-state sinusoidal forcing; positive viscous damping; no transient, nonlinear, electrical or structural-stress model.",
             "A=F/sqrt((k-m*(2*pi*f)^2)^2+(c*2*pi*f)^2)", oscillator))
+        from .harvester import electromagnetic_harvester,INPUT_UNITS,OUTPUT_UNITS
+        self.register(SimulationTool(
+            'electromagnetic_harvester',('mechanics','electromagnetism'),INPUT_UNITS,OUTPUT_UNITS,
+            'Linear single-degree-of-freedom base excitation, unloaded mechanical Q, constant coupling, negligible coil inductance, resistive load, ideal supplied converter efficiency. Peak amplitudes. No magnetic/FEM, impacts, converter startup or quiescent-current validation. Load=-1 optimizes a passive load subject to relative travel.',
+            'm*zdd+(cm+Ke^2/(Rc+Rl))*zd+k*z=-m*ydd; cm=m*w0/Qm; average load power=Ipeak^2*Rl/2',
+            electromagnetic_harvester))
         self.register(SimulationTool(
             "thermal_expansion", ("thermal", "materials"),
             {"length": "m", "alpha_a": "1/K", "alpha_b": "1/K", "temperature_change": "K"},

@@ -36,6 +36,22 @@ _CHAT_WORDS = {
 }
 
 
+def wants_written_analysis(text: str) -> bool:
+    """Keep an explanation/audit out of tools selected by incidental nouns."""
+    text = str(text or '').strip()
+    if not text:
+        return False
+    lead = text.splitlines()[0].lstrip('#* ').casefold()
+    if re.match(r'(?:please\s+)?(?:draw|plot|render|animate|visuali[sz]e|simulate|create|make|build|show|display|open|preview)\b', lead):
+        return False
+    if re.search(r'\b(?:with|using)\s+(?:an?\s+)?(?:interactive|diagram|graph|visualization|animation)\b', lead):
+        return False
+    if re.match(r'(?:please\s+)?(?:explain|discuss|audit|assess|evaluate|review|compare|critique|derive|calculate)\b', lead):
+        return True
+    return len(text) > 400 and bool(re.search(
+        r'\b(?:audit|assessment|analysis|evaluation|critique|technical review)\b', lead))
+
+
 def _words(text: str) -> list[str]:
     words = re.findall(r"[a-z0-9']+", str(text or "").lower())
     normalized: list[str] = []

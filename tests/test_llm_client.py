@@ -267,6 +267,34 @@ class LlmCompletionTests(unittest.TestCase):
         self.assertEqual(captured["reasoning_budget"], -1)
         self.assertTrue(captured["chat_template_kwargs"]["enable_thinking"])
 
+    def test_deep_stream_honors_context_and_output_budget(self):
+        captured={}
+        prompt='Independent technical assessment: '+('supplied engineering parameters; '*350)
+        def stream(_url,payload,_timeout,_cancel):
+            captured.update(payload);yield 'An answer.'
+        def tokenize(url,payload,_timeout):
+            if url.endswith('/apply-template'):
+                return {'prompt':''.join(m['content'] for m in payload['messages'])}
+            return {'tokens':range(len(payload['content'])//4)}
+        model=Path(self.id().replace('.','_')+'.gguf')
+        model.write_bytes(b'GGUF')
+        try:
+            with patch.object(llm_client,'ensure_server',return_value='http://local') as ensure, \
+                 patch.object(llm_client,'_post_json',side_effect=tokenize), \
+                 patch.object(llm_client,'_try_openai_chat_stream',side_effect=stream):
+                output=''.join(llm_client.stream_chat([],prompt,gguf_path=str(model),
+                    context_tokens=16384,max_tokens=4096,enable_reasoning=True))
+            self.assertEqual(output,'An answer.')
+            self.assertEqual(ensure.call_args.args[1],16384)
+            self.assertEqual(captured['max_tokens'],4096)
+            self.assertEqual(captured['messages'][-1]['content'],prompt)
+        finally:model.unlink(missing_ok=True)
+
+    def test_oversized_current_request_is_reported_instead_of_excerpted(self):
+        messages=[{'role':'system','content':'Core instruction.'},{'role':'user','content':'x'*10000}]
+        with self.assertRaisesRegex(ValueError,'no part of it was silently omitted'):
+            llm_client._fit_messages_to_context(messages,context_tokens=2048,max_output_tokens=512)
+
 
 if __name__ == "__main__":
     unittest.main()

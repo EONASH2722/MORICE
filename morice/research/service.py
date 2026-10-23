@@ -14,13 +14,18 @@ from .tools import ScientificTools
 
 
 def research_intent(text: str, attached=(), active=False):
-    if attached or "```research" in text or "```calculation" in text:
+    if attached or re.search(r'```(?:research|calculation|experiment)\b',text,re.I):
         return True
-    return bool(re.search(
-        r"\b(?:research|hypothesis|hypotheses|dataset|experiment|scientific|parameter sweep|"
-        r"analy[sz]e (?:these|this|the) (?:data|papers)|compare (?:these|the) papers|"
-        r"literature review|calculate|simulate|monte carlo)\b", text, re.I
-    ) or (active and re.search(r"\b(?:continue|resume|evidence|assumption|research status|export research|test this|sweep|optimize)\b", text, re.I)))
+    cleaned = str(text or '').strip()
+    # These are explicit operations on research projects/evidence, rather than
+    # words such as "scientific" appearing inside an ordinary question.
+    if re.match(r'^(?:please\s+)?(?:research\b|(?:new|open|resume|export) research\b|(?:list|show) research projects\b|research status\b|calculate\s*:|analy[sz]e (?:these|this|the) (?:datasets?|data|papers)\b|compare (?:these|the) papers\b|(?:run|start) (?:an? )?experiment\b|parameter sweep\b|monte carlo\b|simulate\b)',cleaned,re.I):
+        return True
+    from ..conversation import wants_written_analysis
+    if wants_written_analysis(cleaned):
+        return False
+    return bool(active and len(cleaned)<400 and re.search(
+        r'\b(?:continue|resume|evidence|assumption|research status|export research|test this|sweep|optimize)\b',cleaned,re.I))
 
 
 class ResearchService:

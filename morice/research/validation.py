@@ -6,6 +6,44 @@ import math
 
 
 def verify_model(tool_id, p, output):
+    if tool_id == 'electromagnetic_harvester':
+        # Independent force/velocity impedance and circuit phasors, rather
+        # than repeating the scalar displacement calculation in the adapter.
+        from .harvester import OUTPUT_UNITS
+        if set(output)!=set(OUTPUT_UNITS):return False,'Unexpected harvester output fields.'
+        w=math.tau*p['frequency'];w0=math.tau*p['resonant_frequency']
+        cm=p['mass']*w0/p['mechanical_q'];load=output['load_resistance']
+        if not math.isfinite(load) or load<0:return False,'Invalid passive load.'
+        if output['travel_limited'] not in (0,1):return False,'Invalid travel-limit flag.'
+        ce=p['coupling']**2/(p['coil_resistance']+load)
+        force=p['mass']*p['acceleration']
+        velocity=force/complex(cm+ce,p['mass']*w-p['mass']*w0*w0/w)
+        current=p['coupling']*velocity/(p['coil_resistance']+load)
+        power_in=.5*(force*velocity.conjugate()).real
+        mechanical=.5*cm*abs(velocity)**2;coil=.5*abs(current)**2*p['coil_resistance']
+        ac=.5*abs(current)**2*load;dc=p['efficiency']*ac
+        expected={'load_resistance':load,'mechanical_damping':cm,'electrical_damping':ce,
+            'loaded_q':p['mass']*w0/(cm+ce),'base_displacement':p['acceleration']/w**2,
+            'relative_displacement':abs(velocity)/w,'velocity_amplitude':abs(velocity),
+            'emf_peak':p['coupling']*abs(velocity),'load_voltage_peak':abs(current)*load,
+            'mechanical_input':power_in,'mechanical_loss':mechanical,'coil_loss':coil,
+            'ac_load_power':ac,'dc_potential':dc,'conversion_efficiency':dc/power_in if power_in else 0,
+            'travel_limited':output['travel_limited']}
+        valid=all(type(output[k]) in (int,float) and math.isfinite(output[k]) and math.isclose(output[k],v,rel_tol=1e-9,abs_tol=1e-14) for k,v in expected.items())
+        valid=valid and abs(velocity)/w<=p['displacement_limit']*(1+1e-9)
+        valid=valid and math.isclose(power_in,mechanical+coil+ac,rel_tol=1e-9,abs_tol=1e-14)
+        if p['load_resistance']>=0:valid=valid and math.isclose(load,p['load_resistance'])
+        if output['travel_limited']:valid=valid and math.isclose(abs(velocity)/w,p['displacement_limit'],rel_tol=1e-8)
+        if p['load_resistance']==-1 and force:
+            # Check local optimality using feasible neighbouring impedances.
+            # Passive-load power is unimodal; the feasible set ends at travel.
+            for neighbour in (max(0,load-max(1,load)*1e-4),load+max(1,load)*1e-4):
+                trial=force/complex(cm+p['coupling']**2/(p['coil_resistance']+neighbour),
+                    p['mass']*w-p['mass']*w0*w0/w)
+                if abs(trial)/w<=p['displacement_limit']*(1+1e-12):
+                    trial_power=.5*abs(p['coupling']*trial/(p['coil_resistance']+neighbour))**2*neighbour
+                    valid=valid and trial_power<=ac*(1+1e-10)+1e-15
+        return bool(valid),'Independent mechanical/electrical phasors, energy balance and relative travel checked; physical assumptions are unverified.'
     if tool_id == "linear_oscillator":
         w = math.tau*p["frequency"]
         a = abs(p["force"]/complex(p["stiffness"]-p["mass"]*w*w, p["damping"]*w))

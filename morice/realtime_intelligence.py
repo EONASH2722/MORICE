@@ -536,6 +536,7 @@ class TieredModelRouter:
         r"architecture|architectural|deadlock|race condition|repository audit|"
         r"audit (?:this|the) (?:repo|repository|codebase)|formal proof|"
         r"complex mathematics|derive|root cause|performance analysis|"
+        r"engineering audit|engineering analysis|technical assessment|design review|"
         r"security audit|large refactor|multiprocessing|distributed system|"
         r"research deeply|deep research|50[,\s]?000|"
         r"build (?:a |an )?(?:complete |full )?(?:application|app|backend)|"
@@ -659,6 +660,9 @@ class TieredModelRouter:
                 reason += f" Using configured {fallback_tier.value} model fallback."
 
         context_tokens, max_output_tokens = self._budgets[tier]
+        if tier == ModelTier.DEEP and len(clean)>6000 and self._budgets[tier]==(16384,4096):
+            max_output_tokens=6144
+            reason+=' Extended answer budget for a detailed specification.'
         return RouteDecision(
             tier=tier,
             model_id=model_id,

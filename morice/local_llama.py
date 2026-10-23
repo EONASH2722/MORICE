@@ -111,12 +111,14 @@ def stream_chat(
     top_p: float,
     *,
     cancel_event=None,
+    max_tokens=None,
 ):
     """Yield local model text as llama.cpp produces it."""
 
     llm = _get_llm(model_path, n_ctx, n_gpu_layers, chat_format, n_threads, n_batch)
     result = llm.create_chat_completion(
         messages=messages,
+        **({'max_tokens':int(max_tokens)} if max_tokens is not None else {}),
         temperature=temperature,
         top_p=top_p,
         stream=True,

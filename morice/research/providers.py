@@ -59,7 +59,8 @@ def selected_local_provider(model="", gguf_path=""):
         length = 0
         for chunk in stream_chat(history, objective, extra_system=instruction,
                                  model=model or None, gguf_path=gguf_path or None,
-                                 cancel_event=cancel):
+                                 cancel_event=cancel,enable_reasoning=True,
+                                 max_tokens=4096,context_tokens=16384):
             checkpoint(cancel)
             if isinstance(chunk, str):
                 if chunk.startswith("(MORICE)"):

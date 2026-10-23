@@ -4,6 +4,8 @@ Download the portable ZIP and extract it fully, or download **both** the Setup `
 
 Python installs pin PySide6 6.11.2 to match the tested Windows runtime. Qt 6.12 encountered a native cleanup abort in the initial CI environment.
 
+This existing publication also repairs technical audit replies: long written analyses reach the thinking model, Research can use the installed default model, complete current prompts are preserved, and completed processing logs ignore delayed generation updates. A unit-aware electromagnetic harvester tool supplies independently checked conditional baseline and detuning calculations for complete labelled inputs. Model interpretation and hardware performance remain unverified. See the [technical reply amendment](technical-replies-0.9.5.md).
+
 MORICE can now use separate fast reply and thinking models automatically. **Settings → Models** lets you change the fast GGUF file or installed Ollama tag without replacing the thinking selection. Installed Qwen3-4B-Instruct-2507 Q4_K_M is the preferred fast profile. Simple commands still use deterministic tools. Complex work uses the thinking profile; a failed fast backend can escalate before any answer is displayed.
 
 Retained chats now have indexed messages, stable IDs and sequence positions in the existing knowledge database. Search the entire current chat, retrieve its beginning or a decision timeline, and jump to original messages. Opening a chat loads a bounded recent window. Source edits, deletions and retention invalidate the corresponding searchable data.

@@ -6,6 +6,8 @@ All notable changes to MORICE are documented here.
 
 ## [0.9.5] — fast replies, dual memory and stable chat scrolling
 
+- Repair technical audit routing, installed-default Research synthesis, duplicate Research user turns and delayed processing updates after completion. Preserve complete current prompts and honor per-request context/output limits, including a longer answer budget for detailed Deep requests.
+- Add a bounded electromagnetic harvester adapter to the existing scientific tools and independently check circuit phasors, energy balance, passive-load optimization and travel. Complete labelled parameter tables can ground a chat reply with conditional calculations; magnetic geometry, hardware feasibility and converter startup remain unverified.
 - Repair duplicate assistant bubbles when a personalized streamed reply is loaded again by history scrolling, and when returning to the latest saved reply. Keep distinct turns even when their answer text is identical. Recognize informal clock questions such as “whats the date today”. The existing 0.9.5 publication is amended in place.
 - Add a separate fast reply GGUF/Ollama profile and automatic fast/thinking routing, preserving the existing thinking selection. Prefer installed Qwen3-4B-Instruct-2507 Q4_K_M for fast replies.
 - Serialize complete model generations and close evicted in-process models. Retain the existing Kernel resource leases, CUDA fit policy, cancellation and streaming voice path; retry a failed fast provider with the thinking profile before visible output.

@@ -597,6 +597,9 @@ class VisualizationManager:
         text = (prompt or "").strip()
         if not text:
             return None
+        from .conversation import wants_written_analysis
+        if wants_written_analysis(text):
+            return None
         plugin = self.registry.select(text)
         if plugin:
             reason = {

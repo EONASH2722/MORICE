@@ -12,6 +12,8 @@ The [0.9.5 fast replies and memory update](docs/release-notes-0.9.5.md) adds aut
 
 The existing 0.9.5 downloads are amended with a fix for duplicate assistant bubbles during history scrolling and returning to the latest reply. Informal date questions now use the system clock.
 
+The same publication also repairs long technical analysis: incidental science terms no longer open an empty Research project or a visual renderer, the installed thinking model remains available without a custom selection, and detailed prompts retain their full text and answer budget. A unit-aware electromagnetic harvester model supplies checked conditional calculations for complete labelled parameter tables. See the [technical reply amendment](docs/technical-replies-0.9.5.md) for its assumptions and limits.
+
 The [0.9.4 location and image update](docs/release-notes-0.9.4.md) adds online city/state/country lookup, understands distance questions, and makes prompt-only image generation explicit. See [the new guide](docs/spatial-media-0.9.4.md).
 
 The [0.9.3 workspace update](docs/release-notes-0.9.3.md) makes Project navigation select the file-building workflow, keeps project updates and browser previews together, and adds a guided experiment form. See the [Projects and Experiments guide](docs/simple-workspaces.md) for creating files, reviewing changes, and running real computations.

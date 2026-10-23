@@ -1947,6 +1947,7 @@ class ThinkingBubble(QFrame):
         super().__init__()
         self.setObjectName("ThinkingBubble")
         self._visible = True
+        self._finished = False
         self._stages: list[tuple[str, str]] = []
 
         layout = QVBoxLayout(self)
@@ -1986,6 +1987,8 @@ class ThinkingBubble(QFrame):
         self.toggle.setText("Hide processing" if self._visible else "Show processing")
 
     def set_detail(self, detail: str):
+        if self._finished:
+            return
         detail = (detail or "").strip()
         if not detail:
             return
@@ -2022,6 +2025,10 @@ class ThinkingBubble(QFrame):
         return "Finalizing"
 
     def finish(self):
+        if self._finished:
+            return
+        self._finished = True
+        self.setProperty('completed', 'true')
         self._stages.append(("Complete", "The result is ready below."))
         lines: list[str] = []
         for label, text in self._stages[-7:]:
@@ -14627,7 +14634,7 @@ class MoriceWindow(QWidget):
             12000,
             lambda: self._thinking_delayed_update(
                 token,
-                "Qwen is still generating. Local CPU replies can take a bit.",
+                "Still generating the answer. Longer requests can take more time.",
             ),
         )
         QTimer.singleShot(
@@ -14806,6 +14813,7 @@ class MoriceWindow(QWidget):
     def _on_message_ready(self, author: str, message: str, is_user: bool = False):
         completed_bubble = self.thinking_bubble
         if completed_bubble is not None:
+            self._thinking_token += 1
             completed_bubble.finish()
         self.append_message(author, message, is_user=is_user, force_scroll=True)
         self._finish_response_delivery(
@@ -14863,6 +14871,8 @@ class MoriceWindow(QWidget):
         QTimer.singleShot(120, self._send_queued_message_if_ready)
 
     def _on_thinking_update(self, detail: str):
+        if self.thinking_bubble and self.thinking_bubble.property('completed') == 'true':
+            return
         if self.thinking_bubble:
             self.thinking_bubble.set_detail(detail)
         if self.chat_mode == "voice" and hasattr(self, "live_action_workspace"):
@@ -15977,6 +15987,18 @@ class MoriceWindow(QWidget):
                     extra_system+='\n\n'+memory_text
                 self._last_memory_sources=memory_sources
                 realtime_request.trace.annotate(memorySourceCount=len(memory_sources))
+                calculated_prefix=''
+                if not project_build_request:
+                    from .research.harvester import chat_harvester_calculations,parse_harvester_table
+                    from .kernel import CancellationToken,ExecutionContext
+                    harvester_inputs=parse_harvester_table(user_input)
+                    if harvester_inputs is not None:
+                        calculated_prefix=chat_harvester_calculations(user_input,self.runtime.research,
+                            ExecutionContext(conversation_id=self._chat_id,
+                                cancellation_token=CancellationToken(parent=realtime_request.cancellation)),parsed=harvester_inputs) or ''
+                    if calculated_prefix:
+                        extra_system+='\n\nVerified conditional calculation from the existing scientific tool:\n'+calculated_prefix
+                        extra_system+='\nThe app displays this calculated baseline before your explanation. Use its equations, units and numerical results consistently; do not replace them with guessed power limits or confuse base displacement with relative motion. Physical feasibility is unverified. Focus on implications, design alternatives, measurements and the requested verdict. Cite external experiments only when actual source context supports them.'
                 if live_vision_result is not None:
                     extra_system += "\n\n" + live_vision_result.context_text()
                 if self.chat_mode == "project" or (
@@ -16041,9 +16063,9 @@ class MoriceWindow(QWidget):
 
                 self._emit_background(
                     "thinking_update",
-                    "Asking Qwen for project files."
+                    "Asking the selected model for project files."
                     if project_build_request
-                    else "Asking Qwen to compose the final answer."
+                    else "Asking the selected model to compose the final answer."
                 )
                 model_user_input = user_input
                 if project_build_request:
@@ -16159,6 +16181,11 @@ class MoriceWindow(QWidget):
                 reply_parts: list[str] = []
                 visible_model_text_started = False
                 try:
+                    if calculated_prefix:
+                        prefix=calculated_prefix+'\n\nEngineering interpretation (model-generated; hardware performance remains unverified)\n\n'
+                        reply_parts.append(prefix)
+                        submit_voice_chunks(self.runtime.realtime.accept_delta(realtime_request.epoch,prefix))
+                        self._emit_background('assistant_stream_delta',realtime_request.request_id,prefix)
                     with self.runtime.profiler.measure("completion", "model"):
                         for delta in self.runtime.agent.model_router.stream_reply(
                             reply_selection,
@@ -16177,6 +16204,7 @@ class MoriceWindow(QWidget):
                                 if project_build_request
                                 else realtime_request.route.max_output_tokens
                             ),
+                            context_tokens=realtime_request.route.context_tokens,
                             enable_reasoning=(
                                 reply_selection['role']=='thinking' and (project_build_request
                                 or realtime_request.route.tier is ModelTier.DEEP)
@@ -16674,7 +16702,9 @@ class MoriceWindow(QWidget):
         new_project = bool(re.search(r"\bnew research\b", user_input, re.I))
         if new_project:
             project_id = None
-        model, gguf = self.model_name, self.model_path
+        research_settings={**self.settings,'model_name':self.model_name,'model_path':self.model_path}
+        selection=self.runtime.agent.model_router.select_reply(research_settings,'deep')
+        model, gguf = selection['name'], selection['path']
         chat_id = self._chat_id
 
         def research_worker():
@@ -16693,13 +16723,14 @@ class MoriceWindow(QWidget):
                         chat_id=chat_id, new_project=new_project,
                         cancel=realtime_request.cancellation.event,
                         progress=lambda text: self._emit_background("thinking_update", text),
-                        synthesize=bool(model or gguf) and "```calculation" not in user_input and "```research" not in user_input,
+                        synthesize="```calculation" not in user_input and "```research" not in user_input,
                     )
                     self._research_project_id = result["project_id"]
                     message = service.reply(result)
                 if realtime_request.cancellation.cancelled:
                     raise InterruptedError("Research cancelled")
-                self.history.extend([{"role": "user", "content": user_input}, {"role": "assistant", "content": message}])
+                self._ensure_history_user(user_input)
+                self.history.append({"role": "assistant", "content": message})
                 self.runtime.realtime.complete_generation(realtime_request.epoch)
                 self.runtime.realtime.finish_speech(realtime_request.epoch)
                 self._emit_background("message_ready", MORICE_NAME, message, False)
