@@ -117,6 +117,9 @@ class CapabilityRoutingTests(unittest.TestCase):
             )
         )
         self.assertIsNotNone(current_datetime_response("What is the current time?"))
+        for question in ("whats the date today", "what’s the time", "whats the year"):
+            with self.subTest(question=question):
+                self.assertIn("Today is ", current_datetime_response(question))
 
     def test_dangerous_procedural_request_always_gets_a_visible_safe_answer(self):
         response = harmful_request_response(

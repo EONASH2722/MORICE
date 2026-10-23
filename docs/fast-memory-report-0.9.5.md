@@ -2,6 +2,12 @@
 
 Implementation began 2026-10-22; release verification continued 2026-10-23. This report distinguishes shipped behavior, measured local fixtures and validation limits. The upgrade has no end-of-life designation.
 
+## Duplicate-message amendment (2026-10-23)
+
+The reported duplicate was reproduced in the production Qt shell: a streamed reply displayed with the configured “Sir” address did not receive its raw saved message's ID. Paging forward consequently loaded the same saved answer again. Persistence now matches the presented form while preserving existing stable IDs and assigning each repeated answer its own turn identity. Partial stream rows cannot borrow an older answer's ID. Returning from older pages reuses an already rendered latest reply instead of appending it again. No retained transcript is deleted or deduplicated by text.
+
+Regression coverage exercises streaming, forward pagination, identical replies across separate turns, persisted transcript identity, returning from older pages, and the screenshot's informal date question. The date spelling now reaches the deterministic local clock helper. Focused verification passed 22 tests and 3 subtests. The final full regression and frozen/package checks gate replacement of the existing 0.9.5 release assets and local dist application; no new release or version is created. The original validation table below describes the initial 0.9.5 build; amendment receipts identify its replacement.
+
 ## Architecture and prerequisite repairs (brief items 1–4)
 
 The [pre-change audit](fast-memory-architecture-0.9.5.md) records the existing owners. RuntimeServices still owns AgentOrchestrator, ModelRouter, ContextManager, the Capability Kernel, background tasks, resource leases, DesktopIntegrationLayer and voice. Existing verified actions, agents, Builder, Research, Device Mesh, media and spatial tools retain their execution boundaries. No second agent runtime or model scheduler was introduced.

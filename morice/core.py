@@ -352,7 +352,7 @@ def wants_current_datetime(text: str) -> bool:
     ):
         return True
     patterns = {
-        r"\bwhat(?:'s| is)?\s+(?:the\s+)?(?:date|day|time|year)\b",
+        r"\bwhat(?:['’]?s| is)?\s+(?:the\s+)?(?:date|day|time|year)\b",
         r"\btell me\s+(?:the\s+)?(?:date|day|time|year)\b",
         r"\bshow me\s+(?:the\s+)?(?:date|day|time|year)\b",
         r"\b(?:today|todays|today's)\s+(?:date|day|time)\b",

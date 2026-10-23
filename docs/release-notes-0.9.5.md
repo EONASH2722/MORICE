@@ -12,6 +12,8 @@ Retained chats now have indexed messages, stable IDs and sequence positions in t
 
 Chat scrolling preserves the reading position while loading older pages. Streamed replies stop forcing the viewport to the bottom. New output can finish while you read earlier messages and remains available when you return.
 
+The existing 0.9.5 release also includes the duplicate-message repair: personalized streamed replies retain their saved message IDs, so scrolling cannot load the same answer as another bubble. Returning to the latest saved reply reuses its row. Identical answers in separate turns remain separate. Informal questions such as “whats the date today” use the local system clock.
+
 The existing Kernel, agents, verified actions, Builder, Research, Device Mesh, media, spatial tools and voice pipeline remain the execution authorities. Local generations share one model lifecycle and the existing resource leases. Model weights are installed separately from release packages.
 
 Measured on an RTX 3050 6 GB laptop: warm fast replies reached their first visible token in approximately 76–96 ms in short controlled samples. Cold load and model switching still cost several seconds. Controlled 100,000-message indexed retrieval stayed below 1 ms p95 in the recorded run. These are local fixtures, not a guarantee for arbitrary prompts, storage or hardware.

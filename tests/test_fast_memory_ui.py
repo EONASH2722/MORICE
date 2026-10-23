@@ -148,3 +148,73 @@ def test_disabled_chat_memory_blocks_natural_recall_shortcuts(window,app,monkeyp
     window.input.setText('What was my first message?');window.on_send();app.processEvents()
     assert 'Current-chat memory is off' in window.history[-1]['content']
     lookup.assert_not_called()
+
+
+def test_streamed_reply_is_not_loaded_again_when_scrolling_down(window,app,monkeypatch):
+    window._session_enabled=True
+    window._render_chat_messages([])
+    window.user_title='Sir'
+    reply='A single reply with a second paragraph.\n\nThis must remain in the same message.'
+    stream=Mock(side_effect=lambda *args,**kwargs:iter([reply]))
+    monkeypatch.setattr('morice.pyside_app.stream_chat',stream)
+    window.input.setText('Explain a simple everyday idea in one sentence.');window.on_send()
+    pump(app,lambda:len(window.history)==2 and not window.is_busy)
+    stream.assert_called_once()
+    assert window.history[-1]['content']==reply
+    assert len(window.history)==2
+    assert len(window._message_rows)==2,[row.findChild(ChatBubble).message for row in window._message_rows]
+    window._load_history_page(earlier=False)
+    pump(app,lambda:not window._loading_history)
+    assert len(window._message_rows)==2
+    assert all(row.property('messageId') for row in window._message_rows)
+    assert len({row.property('messageId') for row in window._message_rows})==2
+    # Identical text in a later turn is still a separate message with its own ID.
+    window.input.setText('Explain a simple everyday idea in one sentence.');window.on_send()
+    pump(app,lambda:len(window.history)==4 and not window.is_busy)
+    assert stream.call_count==2
+    window._load_history_page(earlier=False)
+    pump(app,lambda:not window._loading_history)
+    assert len(window._message_rows)==4
+    assert len({row.property('messageId') for row in window._message_rows})==4
+    assert len(window._get_chat_history().open(window._chat_id)['messages'])==4
+    # An identical older turn outside the visible window cannot supply the ID
+    # for a new question/answer pair, either.
+    window._render_chat_messages(window.history[-2:])
+    window.input.setText('Explain a simple everyday idea in one sentence.');window.on_send()
+    pump(app,lambda:len(window.history)==6 and not window.is_busy)
+    assert stream.call_count==3
+    window._load_history_page(earlier=False)
+    pump(app,lambda:not window._loading_history)
+    assert [row.property('messageId') for row in window._message_rows]==[m['message_id'] for m in window.history[-4:]]
+    assert len(window._get_chat_history().open(window._chat_id)['messages'])==6
+
+
+def test_returning_to_latest_does_not_append_the_saved_reply_twice(window,app):
+    window._session_enabled=True
+    window.history=[{'role':'assistant','content':f'Earlier answer {n}'} for n in range(130)]
+    window._persist_chat_history()
+    window._render_chat_messages(window.history[-100:])
+    window._load_earlier_messages()
+    pump(app,lambda:not window._loading_history)
+    assert window._newer_messages
+    window.user_title='Sir'
+    reply=window._address('The latest answer appears once.')
+    window._remember_conversation_turn('A new question.',reply)
+    window.append_message('MORICE',reply,force_scroll=True)
+    window._persist_chat_history()
+    assert sum(row.findChild(ChatBubble).message==reply for row in window._message_rows)==1
+    assert len({row.property('messageId') for row in window._message_rows})==len(window._message_rows)
+
+
+def test_informal_date_question_uses_the_clock_once(window,app,monkeypatch):
+    window._session_enabled=True
+    window._render_chat_messages([])
+    stream=Mock(side_effect=AssertionError('Clock commands must not invoke a model'))
+    monkeypatch.setattr('morice.pyside_app.stream_chat',stream)
+    window.input.setText('whats the date today');window.on_send()
+    pump(app,lambda:len(window.history)==2)
+    assert 'Today is ' in window.history[-1]['content']
+    window._load_history_page(earlier=False)
+    pump(app,lambda:not window._loading_history)
+    assert len(window._message_rows)==2
+    stream.assert_not_called()

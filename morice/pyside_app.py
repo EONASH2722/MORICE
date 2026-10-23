@@ -14275,10 +14275,9 @@ class MoriceWindow(QWidget):
         row = QFrame()
         row.setObjectName("MessageRow")
         row.setProperty("chatMessage", "true")
-        for stored in reversed(self.history):
-            if stored.get('content')==message and (stored.get('role')=='user')==is_user:
-                row.setProperty('messageId',stored.get('message_id',''))
-                row.setProperty('sequence',stored.get('sequence',0)); break
+        # New rows receive their saved identity during persistence. Text alone
+        # cannot identify a turn: different turns can contain identical text.
+        # History rendering/pagination assigns its known IDs explicitly.
         row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -14409,6 +14408,16 @@ class MoriceWindow(QWidget):
         if force_scroll:
             if self._newer_messages:
                 self._render_chat_messages(self.history[-MAX_VISIBLE_CHAT_WIDGETS:])
+                # The worker/direct reply may already be in history. Catching
+                # up rendered that turn, so reuse its row rather than append it.
+                latest = self.history[-1] if self.history else {}
+                content = latest.get('content', '')
+                if (self._message_rows and (latest.get('role') == 'user') == is_user
+                        and message in (content, content if is_user else self._address(content))):
+                    self._message_rows[-1].findChild(ChatBubble).set_message(message)
+                    self.follow_latest = True
+                    self._schedule_latest_scroll(force=True)
+                    return
             self.follow_latest = True
 
         self._create_message_row(author, message, is_user)
@@ -16539,15 +16548,28 @@ class MoriceWindow(QWidget):
         try:
             self._get_chat_history().save(self._chat_id, self.history, self._research_project_id,merge=True)
             self._history_latest_sequence=max((m.get('sequence',0) for m in self.history),default=0)
+            by_id={m['message_id']:m for m in self.history if m.get('message_id')}
+            assigned={row.property('messageId') for row in self._message_rows
+                      if row.property('messageId') in by_id}
             pending={}
             for message in self.history:
-                pending.setdefault((message['role'],message['content']),[]).append(message)
-            for row in self._message_rows:
+                if message.get('message_id') in assigned:
+                    continue
+                content=message['content'] if message['role']=='user' else self._address(message['content'])
+                pending.setdefault((message['role'],content),[]).append(message)
+            # Unbound live rows are the newest turns; older equal text outside
+            # the visible window must never take their identity.
+            for row in reversed(self._message_rows):
                 bubble=row.findChild(ChatBubble)
                 if bubble:
-                    matches=pending.get(('user' if bubble.is_user else 'assistant',bubble.message),[])
+                    stored=by_id.get(row.property('messageId'))
+                    if stored is not None:
+                        row.setProperty('sequence',stored['sequence'])
+                        continue
+                    content=bubble.message if bubble.is_user else self._address(bubble.message)
+                    matches=pending.get(('user' if bubble.is_user else 'assistant',content),[])
                     if matches:
-                        message=matches.pop(0);row.setProperty('messageId',message.get('message_id',''));row.setProperty('sequence',message.get('sequence',0))
+                        message=matches.pop();row.setProperty('messageId',message.get('message_id',''));row.setProperty('sequence',message.get('sequence',0))
             if len(self.history)>512:
                 self.history[:]=self.history[-256:]
                 self.user_messages[:]=self.user_messages[-160:]

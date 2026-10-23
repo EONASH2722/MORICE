@@ -6,6 +6,7 @@ All notable changes to MORICE are documented here.
 
 ## [0.9.5] — fast replies, dual memory and stable chat scrolling
 
+- Repair duplicate assistant bubbles when a personalized streamed reply is loaded again by history scrolling, and when returning to the latest saved reply. Keep distinct turns even when their answer text is identical. Recognize informal clock questions such as “whats the date today”. The existing 0.9.5 publication is amended in place.
 - Add a separate fast reply GGUF/Ollama profile and automatic fast/thinking routing, preserving the existing thinking selection. Prefer installed Qwen3-4B-Instruct-2507 Q4_K_M for fast replies.
 - Serialize complete model generations and close evicted in-process models. Retain the existing Kernel resource leases, CUDA fit policy, cancellation and streaming voice path; retry a failed fast provider with the thinking profile before visible output.
 - Add stable message IDs, sequence positions, transactional message rows and FTS5 retrieval to the existing knowledge database. Migrate old archives lazily and preserve chat names, retention and project links.

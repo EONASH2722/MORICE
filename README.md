@@ -10,6 +10,8 @@
 
 The [0.9.5 fast replies and memory update](docs/release-notes-0.9.5.md) adds automatic fast/thinking model routing, a separate **Fast Reply Model** setting, indexed recall across the entire retained current chat, and optional approved personal preferences. Chat scrolling loads earlier messages without losing the reading position or snapping to each streamed token. See the [setup and privacy guide](docs/fast-memory-guide.md) and [implementation and validation report](docs/fast-memory-report-0.9.5.md).
 
+The existing 0.9.5 downloads are amended with a fix for duplicate assistant bubbles during history scrolling and returning to the latest reply. Informal date questions now use the system clock.
+
 The [0.9.4 location and image update](docs/release-notes-0.9.4.md) adds online city/state/country lookup, understands distance questions, and makes prompt-only image generation explicit. See [the new guide](docs/spatial-media-0.9.4.md).
 
 The [0.9.3 workspace update](docs/release-notes-0.9.3.md) makes Project navigation select the file-building workflow, keeps project updates and browser previews together, and adds a guided experiment form. See the [Projects and Experiments guide](docs/simple-workspaces.md) for creating files, reviewing changes, and running real computations.
