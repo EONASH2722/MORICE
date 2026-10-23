@@ -36,6 +36,23 @@ def run(output):
             row['controls'][name]={'visible':widget.isVisible(),'inside_window':window.rect().contains(bounds),'inside_screen':window.screen().availableGeometry().contains(screen_bounds)}
         geometry.append(row)
     from .ui_next.theme_scenes import SCENES
+    # Exercise the new production imports, same-database migration and controls
+    # from the isolated frozen profile without downloading/loading model weights.
+    memory_rows=[{'role':'user','content':'Use the name Project Orion.'},
+        *[{'role':'assistant','content':f'History fixture {i}'} for i in range(1000)]]
+    runtime.chat_history.save('packaging-memory',memory_rows,merge=True)
+    source=runtime.chat_history.search_messages('packaging-memory','Orion',limit=1)[0]
+    assert source['sequence']==1
+    assert len(runtime.chat_history.open('packaging-memory',recent=100)['messages'])==100
+    runtime.desktop.memory.set_personal_enabled(True)
+    preference=runtime.desktop.memory.save_preference('For coding tasks prefer detailed steps.')
+    assert runtime.desktop.memory.preferences_for('implement a file manager')[0].memory_id==preference.memory_id
+    runtime.desktop.memory.delete(preference.memory_id);runtime.desktop.memory.set_personal_enabled(False)
+    assert not runtime.desktop.memory.preferences_for('implement an app')
+    controls=window.routes['settings']
+    assert 'Memory' in controls.categories and controls.fast_model_settings.automatic.isChecked()
+    memory_probe={'earliest_message':source['sequence']==1,'bounded_reopen':True,'preference_persist_forget':True,
+        'memory_controls':True,'fast_model_controls':True,'weights_loaded':False}
     scenes=[]
     for preset in SCENES:
         window.theme_engine.update(preset=preset,persist=False)
@@ -50,6 +67,7 @@ def run(output):
         "health":[{"name":v.name,"status":v.status,"detail":v.detail} for v in runtime.health_report.checks],
         "roles":len(runtime.agents.roles.all()),"runtime_directory":str(runtime.directory)}
     result['ui']='renovated';result['production_window_factory']=True;result['window_class']=type(window).__name__
+    result['fast_memory']=memory_probe
     result['composer_geometry']=geometry;result['theme_scenes']=scenes
     result['ambient_animation']={'phase_advanced':window.material_backdrop._phase!=initial_phase,'raster_count':window.material_backdrop.render_count,'reduced_motion':window.theme_engine.profile.reduced_motion}
     if spatial is not None:result['spatial_result']=spatial

@@ -45,12 +45,12 @@ class AgentOrchestrator:
         self._lock = threading.RLock()
         self.parallel_runtime = None
 
-    def plan_workflow(self, request: str, *, project_root: str = ""):
+    def plan_workflow(self, request: str, *, project_root: str = "", conversation_id: str = ""):
         """Unsupported or simple requests retain the existing direct path."""
         if self.parallel_runtime is None:
             return None
         from .kernel import ExecutionContext
-        return self.parallel_runtime.plan(request, ExecutionContext(project_id=project_root))
+        return self.parallel_runtime.plan(request, ExecutionContext(project_id=project_root, conversation_id=conversation_id))
 
     def prepare_request(
         self,
@@ -63,6 +63,7 @@ class AgentOrchestrator:
         capabilities: Iterable[str] = (),
         persistent_context: str = "",
         context_tokens: int = 16_384,
+        conversation_id: str = "",
     ) -> AgentRequestContext:
         if not (request or "").strip():
             raise ValueError("Agent request cannot be empty.")
@@ -143,6 +144,7 @@ class AgentOrchestrator:
             model_route=route_value,
             renderer=renderer,
             created_at=_utc_now(),
+            conversation_id=conversation_id,
         )
         with self._lock:
             self._requests[context.request_id] = context
@@ -285,7 +287,8 @@ class AgentOrchestrator:
         prompt_tokens: int = 0,
         generated_tokens: int = 0,
         error: str = "",
-        gpu_layers: int = 0,
+        gpu_layers: int | None = None,
+        model_id: str = "",
     ) -> None:
         with self._lock:
             context = self._requests.get(request_id)
@@ -293,7 +296,7 @@ class AgentOrchestrator:
             return
         route = context.model_route
         self.model_router.record(
-            str(route.get("preferred", "unknown")),
+            model_id or str(route.get("preferred", "unknown")),
             success=success,
             latency_ms=latency_ms,
             prompt_tokens=prompt_tokens,

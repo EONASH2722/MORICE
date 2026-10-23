@@ -20,6 +20,10 @@ _LLM_CACHE = {}
 
 
 def clear_cache() -> None:
+    for llm in tuple(_LLM_CACHE.values()):
+        close = getattr(llm, 'close', None)
+        if callable(close):
+            close()
     _LLM_CACHE.clear()
 
 
@@ -39,6 +43,10 @@ def _get_llm(
     key = (model_path, n_ctx, n_gpu_layers, chat_format, n_threads, n_batch)
     if key in _LLM_CACHE:
         return _LLM_CACHE[key]
+
+    # The shared llm_client generation lock fences users of this single instance.
+    # Evict and close the old backend before allocating the next model.
+    clear_cache()
 
     try:
         llm = Llama(

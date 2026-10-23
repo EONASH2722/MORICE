@@ -1,0 +1,14 @@
+{
+  "task": "Regression",
+  "run": "fast-memory-095-release",
+  "status": "COMPLETED",
+  "helper_pid": 26032,
+  "source_sha256": "0f9edd40663a8a52d721a0f22c1132c5684b6e6bc730685f9882fa44ffa8c04c",
+  "started_utc": "2026-10-22T19:06:39.3607161Z",
+  "log": "E:\\MORICE\\build\\fast-memory-095-release-Regression.log",
+  "workspace": "E:\\MORICE",
+  "public_actions_taken": false,
+  "test_source_sha256": "5e52ebb1b7257d2f6d14b9ee884b90c39b0b9aff1b64e385feb6c469ddf33646",
+  "exit_code": 0,
+  "finished_utc": "2026-10-22T19:16:23.9519245Z"
+}

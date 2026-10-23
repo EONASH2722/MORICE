@@ -8,6 +8,7 @@ __pycache__/
 env/
 
 # Builds
+output/
 build/
 dist/
 build-vnext/

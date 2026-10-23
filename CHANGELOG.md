@@ -4,6 +4,16 @@ All notable changes to MORICE are documented here.
 
 ## [Unreleased]
 
+## [0.9.5] — fast replies, dual memory and stable chat scrolling
+
+- Add a separate fast reply GGUF/Ollama profile and automatic fast/thinking routing, preserving the existing thinking selection. Prefer installed Qwen3-4B-Instruct-2507 Q4_K_M for fast replies.
+- Serialize complete model generations and close evicted in-process models. Retain the existing Kernel resource leases, CUDA fit policy, cancellation and streaming voice path; retry a failed fast provider with the thinking profile before visible output.
+- Add stable message IDs, sequence positions, transactional message rows and FTS5 retrieval to the existing knowledge database. Migrate old archives lazily and preserve chat names, retention and project links.
+- Add original/latest/timeline queries, bounded message windows, source navigation and an index rebuild. Edits, deletion and retention update the index; model context uses a bounded selection rather than the complete chat.
+- Extend the existing MemoryManager with opt-in approved preferences, scoped correction/deletion/export, expiry, secret filtering and Windows DPAPI storage. Unapproved legacy records and untrusted documents cannot become personal preferences automatically.
+- Keep the reading anchor while paging old messages and defer background stream rendering when reading earlier messages. Remove the per-token forced jump to the bottom.
+- Repair natural calculator questions, a callback after workspace destruction, oversized auxiliary context and nonnumeric automatic GPU-layer diagnostics. Add real-model, history scaling, privacy, lifecycle, native UI and packaging checks.
+
 ## [0.9.4] — online places and prompt-only images
 
 - Look up cities, states, countries and other named places through Photon/OpenStreetMap, with bounded requests, a one-day cache and offline GeoNames fallback under existing network permissions.

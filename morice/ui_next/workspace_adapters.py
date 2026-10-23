@@ -362,6 +362,8 @@ class HistoryWorkspace(ChatHistoryDialog):
         super().__init__(window._get_chat_history(), reopen, window)
         self.setWindowFlags(Qt.Widget); self.layout().setContentsMargins(24, 20, 24, 20)
         heading = QLabel('History'); heading.setProperty('role', 'title'); self.layout().insertWidget(0, heading)
+        search_current=QPushButton('Search all messages in this chat…')
+        search_current.clicked.connect(window._open_chat_search); self.layout().insertWidget(1,search_current)
 
     def open_selected(self):
         # Embedded navigation must not accept/hide its persistent workspace.
@@ -473,7 +475,8 @@ class ProjectsWorkspace(QWidget):
         QTimer.singleShot(0, self.ensure_primary_visible)
 
     def ensure_primary_visible(self):
-        if not self.isVisible(): return
+        from shiboken6 import isValid
+        if not isValid(self) or not self.isVisible(): return
         window = self.owner
         if window.project_workspace_stack.currentIndex() == 0 and not window.changes_available:
             self.scroll.verticalScrollBar().setValue(0); return

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineE
 
 from .appearance_view import AppearanceView
 from .profiles_view import ProfilesView
+from .memory_view import FastModelSettings, MemorySettings
 
 
 class SettingsWorkspace(QWidget):
@@ -27,8 +28,12 @@ class SettingsWorkspace(QWidget):
             ('Preferred name', 'name_input'), ('Form of address', 'title_input'), ('Preview', 'title_preview'),
             ('Wake phrase', 'wake_input'), ('Emoji amount', 'emoji_select'), ('Maturity', 'maturity_select'),
             ('Precision mode', 'precision_btn'), ('Save', 'save_style_btn'), ('Clear', 'clear_style_btn'), ('Status', 'style_status')))
-        self.add_form('Models', (('Ollama model', 'model_name_input'), ('Local GGUF', 'model_path_input'),
+        self.fast_model_settings=FastModelSettings(window)
+        self.add_form('Models', (('Reply model routing', self.fast_model_settings), ('Thinking Ollama model', 'model_name_input'), ('Thinking local GGUF', 'model_path_input'),
             ('Select model', 'change_model_btn'), ('Clear local file', 'clear_model_btn'), ('Hardware', 'gpu_status_input'), ('Detect GPU', 'detect_gpu_btn')))
+        self.memory_settings=MemorySettings(window)
+        memory_scroll=QScrollArea(); memory_scroll.setWidgetResizable(True); memory_scroll.setWidget(self.memory_settings)
+        self.add_category('Memory',memory_scroll)
         provider = QComboBox(); provider.addItem('ElevenLabs', 'elevenlabs'); provider.addItem('Windows local speech', 'local')
         provider.setCurrentIndex(max(0, provider.findData(window.settings.get('tts_provider', 'elevenlabs')))); window.tts_provider_select = provider
         self.add_form('Voice', (('Reply speech enabled', 'tts_enabled_check'), ('Provider', provider),
@@ -126,6 +131,7 @@ class SettingsWorkspace(QWidget):
                 visible |= any(query in key.replace('_', ' ') or query in field.accessibleName().casefold() for key, field in self.categories[name].fields.items())
                 self.categories[name].filter('' if matches_category else query)
             if name == 'Wake': visible |= any(query in key.replace('_', ' ') for key in self.wake_fields)
+            if name == 'Memory': visible |= any(word in query for word in ('preference','privacy','history','forget','export','retention'))
             self.list.item(index).setHidden(not visible)
         visible_rows = [index for index in range(self.list.count()) if not self.list.item(index).isHidden()]
         if not visible_rows:

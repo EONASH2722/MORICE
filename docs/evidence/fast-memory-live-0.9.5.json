@@ -1,0 +1,67 @@
+{
+  "scope": "Actual inference plus controlled local history/preferences; no physical microphone or paid TTS request.",
+  "speech_chunking": {
+    "first_speakable_ms": 377.41210003150627,
+    "generation_ms": 2269.523900002241,
+    "ready_before_generation_complete": true,
+    "deltas": 110,
+    "physical_audio": "not validated in this probe"
+  },
+  "token_budget": {
+    "messages_after": 2,
+    "telemetry": [
+      [
+        "context_budget_checked",
+        {
+          "atNs": 486859168234600,
+          "inputTokens": 21,
+          "exact": true,
+          "budgetTokens": 7808
+        }
+      ]
+    ]
+  },
+  "cases": [
+    {
+      "case": "first_message",
+      "output": "Project Orion",
+      "passed": true,
+      "source_sequences": [
+        1,
+        2
+      ],
+      "prompt_context_chars": 558,
+      "duration_ms": 12302.34360002214
+    },
+    {
+      "case": "latest_correction",
+      "output": "Blue",
+      "passed": true,
+      "source_sequences": [
+        1,
+        2,
+        10001,
+        10002
+      ],
+      "prompt_context_chars": 906,
+      "duration_ms": 162.70860005170107
+    },
+    {
+      "case": "missing_fact",
+      "output": "I don't have access to prior conversation history or memory of what you said earlier. Therefore, I cannot verify or recall any statement about \"nonexistentbeacon.\" The request cannot be fulfilled due to lack of verifiable context.",
+      "passed": true,
+      "source_sequences": [],
+      "prompt_context_chars": 132,
+      "duration_ms": 976.1030000518076
+    },
+    {
+      "case": "current_override",
+      "output": "A file manager can be implemented by creating a user interface that allows browsing, selecting, organizing, and managing files and directories through a combination of event-driven programming, file system APIs, and a responsive layout.",
+      "passed": true,
+      "source_sequences": [],
+      "prompt_context_chars": 284,
+      "duration_ms": 906.2039999989793
+    }
+  ],
+  "passed": true
+}

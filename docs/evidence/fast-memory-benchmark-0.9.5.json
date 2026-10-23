@@ -1,0 +1,140 @@
+{
+  "kind": "controlled local fixtures",
+  "history": [
+    {
+      "messages": 1000,
+      "index_ms": 33.91529998043552,
+      "append_ms": 9.203900001011789,
+      "startup_ms": 175.7789999828674,
+      "bounded_reopen_ms": 12.028699973598123,
+      "search_p50_ms": 0.6101000180933625,
+      "search_p95_ms": 0.6642999942414463,
+      "top1_accuracy": 1.0,
+      "scope_leak_failures": 0,
+      "first_message_found": true,
+      "database_bytes": 421888,
+      "bytes_per_message": 421.888,
+      "rebuild_ms": 11.992700048722327
+    },
+    {
+      "messages": 10000,
+      "index_ms": 429.108600015752,
+      "append_ms": 8.74429999385029,
+      "startup_ms": 173.38709998875856,
+      "bounded_reopen_ms": 11.89879997400567,
+      "search_p50_ms": 0.6098499870859087,
+      "search_p95_ms": 0.7123000104911625,
+      "top1_accuracy": 1.0,
+      "scope_leak_failures": 0,
+      "first_message_found": true,
+      "database_bytes": 2908160,
+      "bytes_per_message": 290.816,
+      "rebuild_ms": 27.445000014267862
+    },
+    {
+      "messages": 100000,
+      "index_ms": 4897.006600047462,
+      "append_ms": 9.862400009296834,
+      "startup_ms": 171.89769999822602,
+      "bounded_reopen_ms": 12.932199984788895,
+      "search_p50_ms": 0.6644999957643449,
+      "search_p95_ms": 0.7608000305481255,
+      "top1_accuracy": 1.0,
+      "scope_leak_failures": 0,
+      "first_message_found": true,
+      "database_bytes": 28852224,
+      "bytes_per_message": 288.52224,
+      "rebuild_ms": 219.40210001775995
+    }
+  ],
+  "inference": {
+    "backend": "E:\\MORICE_DATA\\llama-cuda\\llama-server.exe",
+    "gpu_before": "NVIDIA GeForce RTX 3050 6GB Laptop GPU, 6144 MiB, 0 MiB",
+    "gpu_layers_setting": "auto",
+    "scenarios": [
+      {
+        "scenario": "fast_cold",
+        "model_file": "E:\\MORICE_DATA\\models\\llm\\Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "ttft_ms": 6398.898099956568,
+        "duration_ms": 7199.370699992869,
+        "usage": {
+          "completion_tokens": 42,
+          "prompt_tokens": 844,
+          "total_tokens": 886,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "tokens_per_second_total": 5.833843227442309,
+        "output": "Gravity is the force that pulls objects toward each other, like how the Earth pulls everything toward its center. It's what makes things fall down when you drop them and keeps planets in orbit around the sun.",
+        "backend_error": false,
+        "gpu_after": "NVIDIA GeForce RTX 3050 6GB Laptop GPU, 6144 MiB, 3641 MiB",
+        "prepare_ms": 4924.2726
+      },
+      {
+        "scenario": "fast_warm",
+        "model_file": "E:\\MORICE_DATA\\models\\llm\\Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "ttft_ms": 75.89389994973317,
+        "duration_ms": 213.82789994822815,
+        "usage": {
+          "completion_tokens": 8,
+          "prompt_tokens": 848,
+          "total_tokens": 856,
+          "prompt_tokens_details": {
+            "cached_tokens": 831
+          }
+        },
+        "tokens_per_second_total": 37.41326553708358,
+        "output": "The capital of France is Paris.",
+        "backend_error": false,
+        "gpu_after": "NVIDIA GeForce RTX 3050 6GB Laptop GPU, 6144 MiB, 3641 MiB",
+        "prepare_ms": 19.3671
+      },
+      {
+        "scenario": "thinking_after_switch",
+        "model_file": "E:\\MORICE\\Parable-Qwen3-4B-Claude-Fable-5-GGUF-Q5_K_M.gguf",
+        "ttft_ms": 10128.285999991931,
+        "duration_ms": 11524.160999979358,
+        "usage": {
+          "completion_tokens": 70,
+          "prompt_tokens": 853,
+          "total_tokens": 923,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "tokens_per_second_total": 6.0741949023556145,
+        "output": "For a single writer, a queue is more efficient than a lock because:\n- **Queue**: Processes requests sequentially without contention, ensuring each writer gets a turn without blocking others.\n- **Lock**: Can cause contention and delays as multiple writers might wait for the lock, even though only one is allowed to write at a time.",
+        "backend_error": false,
+        "gpu_after": "NVIDIA GeForce RTX 3050 6GB Laptop GPU, 6144 MiB, 4015 MiB",
+        "prepare_ms": 9465.7384
+      },
+      {
+        "scenario": "fast_after_switch",
+        "model_file": "E:\\MORICE_DATA\\models\\llm\\Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "ttft_ms": 5799.352600006387,
+        "duration_ms": 5846.013200003654,
+        "usage": {
+          "completion_tokens": 3,
+          "prompt_tokens": 842,
+          "total_tokens": 845,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          }
+        },
+        "tokens_per_second_total": 0.5131702405321502,
+        "output": "Ready.",
+        "backend_error": false,
+        "gpu_after": "NVIDIA GeForce RTX 3050 6GB Laptop GPU, 6144 MiB, 3641 MiB",
+        "prepare_ms": 5306.9604
+      }
+    ],
+    "cancellation": {
+      "first_chunk_received": true,
+      "additional_chunks": 0,
+      "duration_ms": 50.29899999499321
+    },
+    "unload_ms": 436.6471000248566,
+    "gpu_after_unload": "NVIDIA GeForce RTX 3050 6GB Laptop GPU, 6144 MiB, 0 MiB"
+  }
+}

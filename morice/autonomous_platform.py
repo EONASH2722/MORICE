@@ -1189,6 +1189,7 @@ class UnifiedPlatformOrchestrator:
         capabilities: Iterable[str] = (),
         persistent_context: str = "",
         context_tokens: int = 16_384,
+        conversation_id: str = "",
     ) -> tuple[AgentRequestContext, PlatformRun]:
         project_id = (
             hashlib.sha256(
@@ -1197,7 +1198,9 @@ class UnifiedPlatformOrchestrator:
             if project_root and Path(project_root).is_dir()
             else ""
         )
-        relevant = self.knowledge.search(request, project_id=project_id, limit=8)
+        relevant = [item for item in self.knowledge.search(request, project_id=project_id, limit=8)
+                    if (not item.project_id or item.project_id==project_id)
+                    and (item.kind!='conversation' or (conversation_id and item.metadata.get('chat_id')==conversation_id))]
         knowledge_context = "\n".join(
             f"[{item.kind}] {item.title}: {item.content[:1_200]}"
             for item in relevant
@@ -1216,6 +1219,7 @@ class UnifiedPlatformOrchestrator:
             capabilities=capabilities,
             persistent_context=combined_context,
             context_tokens=context_tokens,
+            conversation_id=conversation_id,
         )
         run = self.multi_agent.create_run(context, project_root=project_root)
         self._log(

@@ -304,6 +304,21 @@ def test_large_context_minimized_with_provenance(runtime):
     assert any(s["provenance"] == "UPSTREAM_TASK" and not s["trusted"] for s in packet.sources)
 
 
+def test_chat_memory_packet_requires_matching_conversation_and_stays_bounded(runtime):
+    _, coordinator = runtime
+    task = node(1)
+    graph = TaskGraph((task,))
+    metadata = {"chat_memory": {"chat_id": "a", "text": "Orion evidence. " * 10000}}
+    denied = build_packet(graph, task, coordinator.roles.resolve("fixture"),
+        ExecutionContext(conversation_id="b", metadata=metadata), coordinator.state, 12000)
+    assert not any(s["provenance"] == "CURRENT_CHAT_MEMORY" for s in denied.sources)
+    allowed = build_packet(graph, task, coordinator.roles.resolve("fixture"),
+        ExecutionContext(conversation_id="a", metadata=metadata), coordinator.state, 12000)
+    source = next(s for s in allowed.sources if s["provenance"] == "CURRENT_CHAT_MEMORY")
+    assert not source["trusted"] and source["chat_id"] == "a" and len(source["text"]) <= 2000
+    assert len(json.dumps(allowed.__dict__).encode()) <= 12000
+
+
 def test_model_fallback_actual_provider_and_budget(runtime):
     k, a = runtime
     backend = Mock(return_value=ModelReply("result", "available", 100, 2))

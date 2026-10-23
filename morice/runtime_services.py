@@ -1139,6 +1139,7 @@ class RuntimeServices:
         self.agent = AgentOrchestrator(base / "agent", logger=self.logs.log)
         self.autonomous_builder = AutonomousBuilder(base / "builder")
         settings = load_settings()
+        self._chat_memory_history = None
         self.default_music_provider = str(
             settings.get("default_music_provider", "Amazon Music")
         ).strip() or "Amazon Music"
@@ -1146,6 +1147,9 @@ class RuntimeServices:
             base / "desktop",
             default_music_provider=self.default_music_provider,
         )
+        personal_enabled=normalize_boolean_setting(settings.get('personal_memory_enabled','false'))
+        if self.desktop.memory.personal_enabled != personal_enabled:
+            self.desktop.memory.set_personal_enabled(personal_enabled)
         core_root = (
             Path(project_root).resolve()
             if project_root
@@ -1404,6 +1408,19 @@ class RuntimeServices:
         from .spatial.service import register_spatial_capabilities
         register_spatial_capabilities(self.kernel, lambda: self._spatial_service or self.spatial)
         self._lock = threading.RLock()
+
+        from .research.history import register_history_capabilities
+        register_history_capabilities(self.kernel,lambda:self.chat_history,
+            enabled=lambda:normalize_boolean_setting(load_settings().get('chat_memory_enabled','true'),default=True))
+
+    @property
+    def chat_history(self):
+        with self._lock:
+            if self._chat_memory_history is None:
+                from .research.history import ChatHistory
+                self._chat_memory_history=ChatHistory(self.platform_services.orchestrator.knowledge.path)
+                self._chat_memory_history.source_invalidated=self.desktop.memory.invalidate_preference_source
+            return self._chat_memory_history
 
     @property
     def device_mesh(self):

@@ -537,7 +537,10 @@ class TieredModelRouter:
         r"audit (?:this|the) (?:repo|repository|codebase)|formal proof|"
         r"complex mathematics|derive|root cause|performance analysis|"
         r"security audit|large refactor|multiprocessing|distributed system|"
-        r"research deeply|deep research|50[,\s]?000"
+        r"research deeply|deep research|50[,\s]?000|"
+        r"build (?:a |an )?(?:complete |full )?(?:application|app|backend)|"
+        r"complicated technical|multi.step|difficult debugging|"
+        r"research and compare|analy[sz]e (?:the )?full history"
         r")\b",
         re.IGNORECASE,
     )

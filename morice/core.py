@@ -573,14 +573,21 @@ def _safe_eval(node):
 
 
 def compute_math(text: str) -> str | None:
-    match = re.search(r"([-+*/()%0-9.\s]+)", text)
+    clean=str(text).strip().replace('×','*').replace('÷','/').replace('−','-')
+    match = re.fullmatch(r"(?:(?:what(?:\s+is|'s)|calculate|compute|evaluate|solve)\s+)?([0-9.\s+\-*/()%]+?)[?=.!\s]*",clean,re.I)
     if not match:
         return None
     expr = match.group(1).strip()
-    if not re.fullmatch(r"[0-9.\s+\-*/()%]+", expr):
+    if len(expr)>160 or not re.fullmatch(r"[0-9.\s+\-*/()%]+", expr):
         return None
     try:
-        value = _safe_eval(ast.parse(expr, mode="eval"))
+        tree=ast.parse(expr, mode="eval")
+        if len(list(ast.walk(tree)))>64: return None
+        for node in ast.walk(tree):
+            if isinstance(node,ast.BinOp) and isinstance(node.op,ast.Pow):
+                exponent=_safe_eval(node.right)
+                if abs(exponent)>1000: return None
+        value = _safe_eval(tree)
     except Exception:
         return None
     if isinstance(value, float) and value.is_integer():

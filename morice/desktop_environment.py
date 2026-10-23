@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import csv
+import base64
+import copy
 import ctypes
 import difflib
 import hashlib
@@ -2512,6 +2514,16 @@ class MemoryRecord:
     pinned: bool = False
     archived: bool = False
     temporary: bool = False
+    category: str = ""
+    consent_state: str = "legacy"
+    preference_context: str = "general"
+    normalized_preference: str = ""
+    source_chat_id: str = ""
+    source_message_ids: list[str] = field(default_factory=list)
+    explicit: bool = False
+    expires_at: float = 0.0
+    last_used_at: str = ""
+    superseded: bool = False
 
 
 class MemoryManager:
@@ -2528,17 +2540,35 @@ class MemoryManager:
     def __init__(self, directory: Path):
         self.path = directory / "memory.json"
         self.enabled = True
+        self.personal_enabled = False
+        self._vault = None
+        self._locked_records = []
+        self._forgotten_sources = []
         self._lock = threading.RLock()
         data = _read_json(self.path, {})
+        if not isinstance(data,dict): data={}
         self.enabled = bool(data.get("enabled", True))
+        self.personal_enabled = bool(data.get("personal_enabled", False))
+        self._forgotten_sources = list(data.get("forgotten_sources", []))[-MAX_MEMORY_RECORDS:] if isinstance(data.get('forgotten_sources',[]),list) else []
         self._records: list[MemoryRecord] = []
         for value in data.get("records", [])[-MAX_MEMORY_RECORDS:]:
             if not isinstance(value, dict):
                 continue
+            if "protected_preference" in value:
+                try:
+                    value = json.loads(self._memory_vault().unprotect(base64.b64decode(value["protected_preference"], validate=True)))
+                except (OSError, ValueError, RuntimeError):
+                    self._locked_records.append(value)
+                    continue
+                if not isinstance(value,dict): continue
             scope = value.get("scope")
             content = _clean_text(value.get("content"), 64_000)
             if scope not in self.SCOPES or not content:
                 continue
+            try:
+                expiry=float(value.get('expires_at',0.0))
+                if not math.isfinite(expiry): expiry=0.0
+            except (ValueError,TypeError): expiry=0.0
             self._records.append(
                 MemoryRecord(
                     _clean_text(value.get("memory_id"), 64) or uuid.uuid4().hex,
@@ -2555,6 +2585,16 @@ class MemoryManager:
                     bool(value.get("pinned", False)),
                     bool(value.get("archived", False)),
                     bool(value.get("temporary", False)),
+                    str(value.get("category", "")),
+                    str(value.get("consent_state", "legacy")),
+                    str(value.get("preference_context", "general")),
+                    str(value.get("normalized_preference", "")),
+                    str(value.get("source_chat_id", "")),
+                    list(value.get("source_message_ids", []))[:20],
+                    bool(value.get("explicit", False)),
+                    expiry,
+                    str(value.get("last_used_at", "")),
+                    bool(value.get("superseded", False)),
                 )
             )
 
@@ -2612,6 +2652,10 @@ class MemoryManager:
         for record in records:
             if record.archived or (allowed and record.scope not in allowed):
                 continue
+            if record.category and record.scope == "project" and record.project_id != project_id:
+                continue
+            if record.category and (not self.personal_enabled or record.consent_state != "approved" or record.superseded):
+                continue
             content_tokens = set(_tokenize(record.content + " " + " ".join(record.tags)))
             overlap = len(tokens.intersection(content_tokens))
             score = overlap * 10.0
@@ -2664,14 +2708,136 @@ class MemoryManager:
 
     def delete(self, memory_id: str) -> bool:
         with self._lock:
+            record = next((r for r in self._records if r.memory_id == memory_id), None)
+            snapshot = (copy.deepcopy(self._records), list(self._forgotten_sources))
+            if record and record.category:
+                self._forgotten_sources.extend(record.source_message_ids)
+                self._forgotten_sources = self._forgotten_sources[-MAX_MEMORY_RECORDS:]
             original = len(self._records)
             self._records = [
                 record for record in self._records if record.memory_id != memory_id
             ]
             changed = len(self._records) != original
             if changed:
-                self._save()
+                try:
+                    self._save()
+                except Exception:
+                    self._records, self._forgotten_sources = snapshot
+                    raise
             return changed
+
+    def _memory_vault(self):
+        if self._vault is None:
+            from .platform_services import SecureVault
+            self._vault = SecureVault(self.path.parent / "secure-memory")
+        return self._vault
+
+    def _stored_record(self, record):
+        value = asdict(record)
+        if record.category:
+            protected = self._memory_vault().protect(json.dumps(value,ensure_ascii=False).encode('utf-8'))
+            return {"protected_preference": base64.b64encode(protected).decode('ascii')}
+        return value
+
+    def set_personal_enabled(self, enabled):
+        with self._lock:
+            old=self.personal_enabled
+            self.personal_enabled=bool(enabled)
+            try: self._save()
+            except Exception:
+                self.personal_enabled=old
+                raise
+
+    def save_preference(self, content, *, category='response_style', scope='user', project_id='',
+                        chat_id='', message_ids=(), source_type='user', approved=True,
+                        explicit=True, expires_at=0.0, memory_id=''):
+        from .memory_policy import CATEGORIES, validate_preference, preference_key, preference_context
+        if not self.enabled or not self.personal_enabled:
+            raise RuntimeError('Enable Personal Memory before saving a preference.')
+        clean=validate_preference(content,source_type=source_type)
+        if category not in CATEGORIES or scope not in {'user','project','conversation'}:
+            raise ValueError('Choose an implemented preference category and scope.')
+        if scope=='project' and not project_id: raise ValueError('Project memory requires a project identity.')
+        if scope=='conversation' and not chat_id: raise ValueError('Chat memory requires a chat identity.')
+        sources=[str(v) for v in message_ids][:20]
+        context=preference_context(clean); key=preference_key(clean,context)
+        namespace=project_id if scope=='project' else (chat_id if scope=='conversation' else '')
+        now=_utc_now()
+        with self._lock:
+            if any(v in self._forgotten_sources for v in sources):
+                raise ValueError('This source was forgotten. Save a new explicit statement to remember it again.')
+            snapshot=copy.deepcopy(self._records)
+            try:
+                target=next((r for r in self._records if r.memory_id==memory_id and r.category),None) if memory_id else None
+                if memory_id and target is None: raise KeyError(memory_id)
+                if target is None:
+                    target=next((r for r in reversed(self._records) if r.category and not r.superseded and not r.archived and r.scope==scope and r.project_id==namespace and r.normalized_preference==key and r.consent_state==('approved' if approved else 'proposed')),None)
+                if target is None:
+                    target=MemoryRecord(uuid.uuid4().hex,scope,clean,now,now)
+                    self._records.append(target)
+                target.content=clean; target.scope=scope; target.project_id=namespace; target.updated_at=now
+                target.category=category; target.consent_state='approved' if approved else 'proposed'
+                target.normalized_preference=key; target.preference_context=context
+                target.source_chat_id=chat_id; target.source_message_ids=sources
+                target.explicit=bool(explicit); target.expires_at=max(0.0,float(expires_at)); target.archived=False; target.superseded=False
+                if approved:
+                    for other in self._records:
+                        if other is not target and other.category and other.scope==scope and other.project_id==namespace and other.normalized_preference==key:
+                            other.superseded=True
+                self._enforce_bounds(); self._save()
+                return target
+            except Exception:
+                self._records=snapshot
+                raise
+
+    def preferences_for(self, query, *, chat_id='', project_id='', enabled=True, limit=8):
+        from .memory_policy import preference_relevant
+        if not enabled or not self.enabled or not self.personal_enabled: return []
+        with self._lock:
+            records=[r for r in self._records if r.category and not r.archived and not r.superseded
+                and r.consent_state=='approved' and (not r.expires_at or r.expires_at>time.time())
+                and (r.scope=='user' or (r.scope=='project' and project_id and r.project_id==project_id)
+                     or (r.scope=='conversation' and chat_id and r.project_id==chat_id))
+                and preference_relevant(r,query)]
+            records.sort(key=lambda r:(r.scope=='conversation',r.scope=='project',r.updated_at),reverse=True)
+            return [copy.deepcopy(r) for r in records[:max(1,min(20,int(limit)))]]
+
+    def list_preferences(self, query='', *, include_inactive=True):
+        with self._lock:
+            return [copy.deepcopy(r) for r in reversed(self._records) if r.category
+                and (include_inactive or (not r.archived and not r.superseded and r.consent_state=='approved'))
+                and (not query or query.casefold() in r.content.casefold())]
+
+    def clear_preferences(self):
+        with self._lock:
+            snapshot=(copy.deepcopy(self._records),list(self._forgotten_sources),list(self._locked_records))
+            self._forgotten_sources=list(dict.fromkeys([*self._forgotten_sources,*(s for r in self._records if r.category for s in r.source_message_ids)]))[-MAX_MEMORY_RECORDS:]
+            self._records=[r for r in self._records if not r.category]; self._locked_records=[]
+            try: self._save()
+            except Exception:
+                self._records,self._forgotten_sources,self._locked_records=snapshot
+                raise
+
+    def invalidate_preference_source(self,chat_id,message_id):
+        with self._lock:
+            snapshot=copy.deepcopy(self._records)
+            for record in self._records:
+                if record.category and record.source_chat_id==chat_id and message_id in record.source_message_ids:
+                    record.superseded=True
+            try: self._save()
+            except Exception:
+                self._records=snapshot
+                raise
+
+    def export_preferences(self, path):
+        from .memory_policy import validate_preference
+        records=[]
+        for record in self.list_preferences(include_inactive=False):
+            validate_preference(record.content)
+            records.append(asdict(record))
+        target=_safe_path(path)
+        _atomic_json_write(target,{'version':1,'exportedAt':_utc_now(),'records':records})
+        return target
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = bool(enabled)
@@ -2719,7 +2885,7 @@ class MemoryManager:
         retained = [record for record in self._records if record.pinned]
         unpinned = [record for record in self._records if not record.pinned]
         room = max(0, MAX_MEMORY_RECORDS - len(retained))
-        self._records = (retained + unpinned[-room:])[-MAX_MEMORY_RECORDS:]
+        self._records = (retained + (unpinned[-room:] if room else []))[-MAX_MEMORY_RECORDS:]
 
     def _save(self) -> None:
         with self._lock:
@@ -2728,11 +2894,13 @@ class MemoryManager:
                 {
                     "version": DESKTOP_STATE_VERSION,
                     "enabled": self.enabled,
+                    "personal_enabled": self.personal_enabled,
+                    "forgotten_sources": self._forgotten_sources,
                     "records": [
-                        asdict(record)
+                        self._stored_record(record)
                         for record in self._records
                         if not record.temporary
-                    ],
+                    ] + self._locked_records,
                 },
             )
 

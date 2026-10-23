@@ -1689,6 +1689,11 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
                 ancestor = self.parentWidget()
                 while ancestor is not None and not isinstance(ancestor, QScrollArea): ancestor = ancestor.parentWidget()
                 if ancestor is not None:
+                    owner=ancestor.window()
+                    if hasattr(owner,'_user_scroll_guard_until'):
+                        owner._user_scroll_guard_until=time.monotonic()+0.75
+                        owner._history_scroll_epoch+=1
+                        if (pixels.y() or angle.y())>0: owner.follow_latest=False
                     delta = pixels.y() or angle.y()/120 * QApplication.wheelScrollLines() * self.fontMetrics().height()
                     bar = ancestor.verticalScrollBar(); bar.setValue(bar.value()-round(delta))
                     event.accept(); return True
@@ -6756,6 +6761,10 @@ class MoriceWindow(QWidget):
         scroll_bar.rangeChanged.connect(self._on_scroll_range_change)
         self._message_rows: list[QFrame] = []
         self._archived_messages: list[tuple[str, str, bool]] = []
+        self._newer_messages = []
+        self._history_scroll_epoch = 0
+        self._loading_history = False
+        self._history_latest_sequence = 0
         self.chat_archive_notice = QFrame()
         self.chat_archive_notice.setObjectName("ChatArchiveNotice")
         archive_layout = QHBoxLayout(self.chat_archive_notice)
@@ -8742,7 +8751,8 @@ class MoriceWindow(QWidget):
             _enable_acrylic(hwnd)
         except Exception:
             pass
-        model_path = self.model_path or os.getenv("MORICE_GGUF_PATH", "")
+        warm_profile=self.runtime.agent.model_router.select_reply(self.settings,'general')
+        model_path = warm_profile['path']
         headless = os.getenv("QT_QPA_PLATFORM", "").strip().casefold() in {
             "offscreen",
             "minimal",
@@ -8931,7 +8941,8 @@ class MoriceWindow(QWidget):
             if capability.available
         )
         selected_model = (
-            self.model_name
+            (self.runtime.realtime.active_request.route.model_id if self.runtime.realtime.active_request else '')
+            or self.model_name
             or (os.path.basename(self.model_path) if self.model_path else "")
         )
         available_models = tuple(
@@ -8952,7 +8963,7 @@ class MoriceWindow(QWidget):
         try:
             context, platform_run = self.runtime.platform_services.orchestrator.prepare(
                 request,
-                history=self.history,
+                history=self.history[:-1] if self.history and self.history[-1].get('role')=='user' and self.history[-1].get('content')==request else self.history,
                 project_root=(
                     self.project_folder
                     if include_project
@@ -8967,6 +8978,7 @@ class MoriceWindow(QWidget):
                     *(definition.tool_id for definition in self.runtime.agent.tools.registry.definitions()),
                 ),
                 persistent_context=persistent_context,
+                conversation_id=self._chat_id,
             )
         except Exception as exc:  # noqa: BLE001
             self.runtime.logs.log(
@@ -10875,6 +10887,8 @@ class MoriceWindow(QWidget):
                 widget.deleteLater()
         self._message_rows.clear()
         self._archived_messages.clear()
+        self._newer_messages.clear()
+        self._history_latest_sequence = 0
         self._refresh_archive_notice()
         self.history.clear()
         self.user_messages.clear()
@@ -11502,14 +11516,19 @@ class MoriceWindow(QWidget):
 
     def _handle_parallel_workflow(self, user_input: str) -> bool:
         try:
-            graph = self.runtime.agent.plan_workflow(user_input, project_root=self.project_folder or "")
+            graph = self.runtime.agent.plan_workflow(user_input, project_root=self.project_folder or "", conversation_id=self._chat_id)
         except (ValueError, OSError) as exc:
             self._append_direct_reply(user_input, f"I could not create a valid workflow: {exc}", address=False)
             return True
         if graph is None or not self.runtime.agents.useful(graph):
             return False
         from .kernel import ExecutionContext
-        future = self.runtime.agents.submit(graph, ExecutionContext(project_id=self.project_folder or ""))
+        from .memory_policy import memory_context
+        memory_text, _ = memory_context(self._get_chat_history(),self.runtime.desktop.memory,
+            self._chat_id,user_input,project_id=self._research_project_id or self.project_folder or "",settings=self.settings,
+            before_sequence=self.history[-1].get('sequence') if self.history else None,max_chars=4000)
+        future = self.runtime.agents.submit(graph, ExecutionContext(project_id=self.project_folder or "",
+            conversation_id=self._chat_id,metadata={'chat_memory':{'chat_id':self._chat_id,'text':memory_text[:4000]}}))
         self._agent_workflow_id = graph.graph_id
         self._set_busy(True)
         self._show_thinking("Preparing tasks.")
@@ -13988,7 +14007,7 @@ class MoriceWindow(QWidget):
         card = VisualizationGenerationCard(renderer_label)
         self.visualization_cards[request.job_id] = card
         self._insert_chat_widget(card)
-        self.history.append({"role": "user", "content": user_input})
+        self._ensure_history_user(user_input)
 
         def progress(stage: str, detail: str, percent: int):
             self._emit_background(
@@ -14256,6 +14275,10 @@ class MoriceWindow(QWidget):
         row = QFrame()
         row.setObjectName("MessageRow")
         row.setProperty("chatMessage", "true")
+        for stored in reversed(self.history):
+            if stored.get('content')==message and (stored.get('role')=='user')==is_user:
+                row.setProperty('messageId',stored.get('message_id',''))
+                row.setProperty('sequence',stored.get('sequence',0)); break
         row.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -14302,40 +14325,77 @@ class MoriceWindow(QWidget):
 
     def _virtualize_chat_widgets(self) -> None:
         while len(self._message_rows) > MAX_VISIBLE_CHAT_WIDGETS:
-            row = self._message_rows.pop(0)
+            earlier=self.follow_latest
+            row = self._message_rows.pop(0 if earlier else -1)
             bubble = row.findChild(ChatBubble)
-            if bubble is not None:
-                self._archived_messages.append(
-                    (bubble.author, bubble.message, bubble.is_user)
-                )
+            if bubble is not None and bubble is getattr(self,'_stream_bubble',None):
+                self._stream_bubble=None; self._stream_deferred=True
+            elif bubble is not None:
+                record=(bubble.author,bubble.message,bubble.is_user,row.property('messageId'),row.property('sequence'))
+                if earlier: self._archived_messages.append(record)
+                else: self._newer_messages.insert(0,record)
             self.chat_list_layout.removeWidget(row)
             row.deleteLater()
         self._refresh_archive_notice()
 
     def _refresh_archive_notice(self) -> None:
+        # Old source rows remain in SQLite; UI fallback strings stay bounded.
+        if len(self._archived_messages)>500: del self._archived_messages[:-500]
+        if len(self._newer_messages)>500: del self._newer_messages[500:]
         count = len(self._archived_messages)
         self.chat_archive_notice.setVisible(count > 0)
         self.chat_archive_label.setText(
-            f"{count} earlier message{'s' if count != 1 else ''} are virtualized."
+            f"{count} earlier message{'s' if count != 1 else ''}. Scroll up or load earlier."
             if count
             else ""
         )
 
     def _load_earlier_messages(self) -> None:
-        if not self._archived_messages:
-            return
-        batch = self._archived_messages[-20:]
-        del self._archived_messages[-len(batch) :]
-        for offset, (author, message, is_user) in enumerate(batch):
-            self._create_message_row(
-                author,
-                message,
-                is_user,
-                insert_index=1 + offset,
-                animate=self._motion_enabled,
-                row_list_index=offset,
-            )
-        self._refresh_archive_notice()
+        self._load_history_page(earlier=True)
+
+    def _load_history_page(self, *, earlier):
+        if self._loading_history or not self._message_rows: return
+        queue=self._archived_messages if earlier else self._newer_messages
+        batch=queue[-20:] if earlier else queue[:20]
+        if not batch and self._session_enabled:
+            sequences=[int(r.property('sequence') or 0) for r in self._message_rows if r.property('sequence')]
+            if sequences:
+                boundary=min(sequences) if earlier else max(sequences)
+                rows=self._get_chat_history().fetch_range(self._chat_id,max(1,boundary-20) if earlier else boundary+1,boundary-1 if earlier else boundary+20,limit=20)
+                batch=[((resolve_user_address(self._identity_profile()) or 'You') if r['role']=='user' else MORICE_NAME,r['content'],r['role']=='user',r['message_id'],r['sequence']) for r in rows]
+        if not batch: return
+        if queue:
+            if earlier: del queue[-len(batch):]
+            else: del queue[:len(batch)]
+        bar=self.scroll.verticalScrollBar()
+        anchor=next((r for r in self._message_rows if r.geometry().bottom()>=bar.value()),self._message_rows[0])
+        offset=anchor.mapTo(self.scroll.viewport(),QPoint(0,0)).y()
+        self.follow_latest=False; self._loading_history=True
+        self._user_scroll_guard_until=time.monotonic()+0.75
+        epoch=self._history_scroll_epoch
+        for index,record in enumerate(batch):
+            row=self._create_message_row(*record[:3],insert_index=1+index if earlier else None,
+                animate=False,row_list_index=index if earlier else None)
+            if len(record)>3 and record[3]:
+                row.setProperty('messageId',record[3]); row.setProperty('sequence',record[4])
+        while len(self._message_rows)>MAX_VISIBLE_CHAT_WIDGETS:
+            row=self._message_rows.pop(-1 if earlier else 0); bubble=row.findChild(ChatBubble)
+            if bubble and bubble is getattr(self,'_stream_bubble',None):
+                self._stream_bubble=None; self._stream_deferred=True
+            elif bubble:
+                record=(bubble.author,bubble.message,bubble.is_user,row.property('messageId'),row.property('sequence'))
+                if earlier: self._newer_messages.insert(0,record)
+                else: self._archived_messages.append(record)
+            self.chat_list_layout.removeWidget(row); row.deleteLater()
+        self.chat_list_layout.activate(); self._refresh_archive_notice()
+        def restore_anchor():
+            from shiboken6 import isValid
+            if not isValid(self) or not isValid(anchor) or epoch!=self._history_scroll_epoch: return
+            self._auto_scrolling=True
+            try: bar.setValue(bar.value()+anchor.mapTo(self.scroll.viewport(),QPoint(0,0)).y()-offset)
+            finally: self._auto_scrolling=False
+        for delay in (0,60,180): QTimer.singleShot(delay,restore_anchor)
+        QTimer.singleShot(200,lambda:setattr(self,'_loading_history',False))
 
     def append_message(self, author: str, message: str, is_user: bool = False, force_scroll: bool | None = None):
         if self.chat_mode == "voice" and hasattr(self, "live_action_workspace"):
@@ -14347,6 +14407,8 @@ class MoriceWindow(QWidget):
         if force_scroll is None:
             force_scroll = is_user or should_follow
         if force_scroll:
+            if self._newer_messages:
+                self._render_chat_messages(self.history[-MAX_VISIBLE_CHAT_WIDGETS:])
             self.follow_latest = True
 
         self._create_message_row(author, message, is_user)
@@ -14357,7 +14419,7 @@ class MoriceWindow(QWidget):
         user_text = str(user_input or "").strip()
         reply_text = str(assistant_reply or "").strip()
         if user_text:
-            self.history.append({"role": "user", "content": user_text})
+            self._ensure_history_user(user_text)
         if reply_text:
             self.history.append({"role": "assistant", "content": reply_text})
         # Rendering and model context are bounded separately. Do not truncate
@@ -14593,6 +14655,7 @@ class MoriceWindow(QWidget):
             self._stream_request_id = request_id
             self._stream_text = ""
             self._stream_bubble = None
+            self._stream_deferred = False
         self._stream_text += clean_delta
         visible = self._address(self._stream_text)
         if self.chat_mode == "voice" and hasattr(self, "live_action_workspace"):
@@ -14613,6 +14676,10 @@ class MoriceWindow(QWidget):
                 metadata={"surface": "live-action"},
             )
             return
+        if self._stream_bubble is None and not self.follow_latest:
+            self._stream_deferred=True
+            self._remove_thinking()
+            return
         if self._stream_bubble is None:
             # The first model token replaces the work-state bubble immediately;
             # this is the actual time-to-first-visible-response milestone.
@@ -14632,7 +14699,7 @@ class MoriceWindow(QWidget):
             "ui_delta_displayed",
             metadata={"surface": "chat"},
         )
-        self._schedule_latest_scroll(force=True)
+        self._schedule_latest_scroll()
 
     def _on_assistant_stream_finished(
         self,
@@ -14640,6 +14707,14 @@ class MoriceWindow(QWidget):
         message: str,
     ) -> None:
         final_message = str(message or "").strip()
+        if request_id==self._stream_request_id and getattr(self,'_stream_deferred',False):
+            self._stream_request_id='';self._stream_text='';self._stream_bubble=None;self._stream_deferred=False
+            self.append_message(MORICE_NAME,final_message,force_scroll=False)
+            active_request=self.runtime.realtime.active_request
+            if active_request and active_request.request_id==request_id and not self._streamed_voice_reply_pending:
+                self.runtime.realtime.finish_speech(active_request.epoch)
+            self._finish_response_delivery(MORICE_NAME,final_message,False,already_visible=True)
+            return
         if (
             self.chat_mode == "voice"
             and request_id == self._stream_request_id
@@ -14701,6 +14776,10 @@ class MoriceWindow(QWidget):
             and not active_request.cancellation.cancelled
         )
         if request_id == self._stream_request_id:
+            if not superseded and self._stream_text.strip() and self.history and self.history[-1].get('role')=='user':
+                partial=self._address(self._stream_text).rstrip()+'\n\n[Stopped]'
+                self.history.append({'role':'assistant','content':partial})
+                self._persist_chat_history()
             if self._stream_bubble is not None and self._stream_text.strip():
                 self._stream_bubble.set_message(
                     self._address(self._stream_text).rstrip() + "\n\n[Stopped]"
@@ -14761,6 +14840,17 @@ class MoriceWindow(QWidget):
         self._complete_agent_ui(response_present=bool(message))
         self._save_workspace_session()
         self._set_busy(False)
+        sources=getattr(self,'_last_memory_sources',[])
+        if sources and self._message_rows:
+            bubble=self._message_rows[-1].findChild(ChatBubble)
+            if bubble and not bubble.is_user and bubble.message==message:
+                buttons=QHBoxLayout()
+                for source in sources[:3]:
+                    button=QPushButton('Original message '+str(source['sequence']))
+                    button.setObjectName('MessageAction')
+                    button.clicked.connect(lambda _=False,identifier=source['message_id']:self._jump_to_message(identifier))
+                    buttons.addWidget(button)
+                bubble.layout().addLayout(buttons)
         QTimer.singleShot(120, self._send_queued_message_if_ready)
 
     def _on_thinking_update(self, detail: str):
@@ -15133,11 +15223,14 @@ class MoriceWindow(QWidget):
             return
 
         old_max = max(0, self._last_scroll_max)
-        if maximum != old_max and value >= old_max - 48:
-            self.follow_latest = True
-            return
-
-        self.follow_latest = value >= maximum - 48
+        last_visible=max((int(r.property('sequence') or 0) for r in self._message_rows),default=0)
+        later=bool(self._newer_messages or last_visible and last_visible<self._history_latest_sequence)
+        self.follow_latest = value >= maximum - 48 and not later
+        if not self._loading_history and time.monotonic()<self._user_scroll_guard_until:
+            if value<=120 and (self._archived_messages or self._message_rows and int(self._message_rows[0].property('sequence') or 0)>1):
+                QTimer.singleShot(0,self._load_earlier_messages)
+            elif value>=maximum-120 and later:
+                QTimer.singleShot(0,lambda:self._load_history_page(earlier=False))
 
     def _on_scroll_range_change(self, _minimum: int, maximum: int):
         bar = self.scroll.verticalScrollBar()
@@ -15145,7 +15238,7 @@ class MoriceWindow(QWidget):
         if time.monotonic() < self._user_scroll_guard_until:
             self._last_scroll_max = maximum
             return
-        was_following = self.follow_latest or bar.value() >= old_max - 48
+        was_following = self.follow_latest and not self._newer_messages
         self._last_scroll_max = maximum
         if was_following:
             self.follow_latest = True
@@ -15186,6 +15279,8 @@ class MoriceWindow(QWidget):
         if event.type() == QEvent.Wheel:
             if hasattr(self, "scroll") and (source is self.scroll.viewport() or source is self.chat_list):
                 self._user_scroll_guard_until = time.monotonic() + 0.75
+                self._history_scroll_epoch+=1
+                if event.angleDelta().y()>0: self.follow_latest=False
                 QTimer.singleShot(0, self._sync_scroll_follow_state)
             return False
         if hasattr(self, "input_frame") and source in self._composer_widgets():
@@ -15197,7 +15292,7 @@ class MoriceWindow(QWidget):
         return super().eventFilter(source, event)
 
     def _sync_scroll_follow_state(self):
-        self.follow_latest = self._is_at_bottom()
+        self.follow_latest = self._is_at_bottom() and not self._newer_messages
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -15359,9 +15454,11 @@ class MoriceWindow(QWidget):
             initial_marks[LatencyStage.STT_FINAL] = request_started_ns + int(
                 transcript.duration_ms * 1_000_000
             )
+        reply_selection=self.runtime.agent.model_router.select_reply(self.settings,self.runtime.realtime.router.route(user_input).tier)
+        thinking_selection=self.runtime.agent.model_router.reply_models(self.settings)['thinking']
         realtime_request = self.runtime.realtime.begin_request(
             user_input,
-            override_model=self.model_path or self.model_name,
+            override_model=reply_selection['path'] or reply_selection['name'],
             started_ns=request_started_ns,
             initial_marks=initial_marks,
             metadata={
@@ -15412,6 +15509,10 @@ class MoriceWindow(QWidget):
                 },
             )
         self.user_messages.append(user_input)
+        self._last_memory_sources=[]
+        self.history.append({'role':'user','content':user_input})
+        self._persist_chat_history()
+        realtime_request.trace.annotate(replyProfile=reply_selection['role'],modelFallback=reply_selection['fallback'],residency=reply_selection['residency'])
         self.workspace_state.add_recent_chat(user_input)
         submission_metadata = {
             "mode": self.chat_mode,
@@ -15484,6 +15585,9 @@ class MoriceWindow(QWidget):
         harmful_reply = harmful_request_response(user_input, resolve_user_address(self._identity_profile()))
         if harmful_reply:
             self._append_direct_reply(user_input, harmful_reply, address=False)
+            return
+
+        if self._handle_memory_request(user_input):
             return
 
         # Resolve explicit project work before keyword shortcuts, research and science.
@@ -15563,8 +15667,16 @@ class MoriceWindow(QWidget):
                 self._append_direct_reply(user_input, datetime_reply)
                 return
 
+            if self.settings.get('chat_memory_enabled','true')!='true' and (
+                wants_first_message(user_input) or wants_previous_user_message(user_input)
+                or wants_memory_list(user_input) or wants_memory_search(user_input)):
+                self._append_direct_reply(user_input,'Current-chat memory is off. Enable it in Settings → Memory to recall earlier messages.')
+                return
+
             if wants_first_message(user_input) and self.first_user_message:
-                self._append_direct_reply(user_input, self.first_user_message)
+                current_sequence=self.history[-1].get('sequence') if self.history else None
+                found=self._get_chat_history().search_messages(self._chat_id,mode='first_message',role='user',limit=1,before_sequence=current_sequence)
+                self._append_direct_reply(user_input,found[0]['content'] if found else 'I could not verify an earlier first message in this chat.')
                 return
 
             prior_user_messages = self.user_messages[:-1]
@@ -15587,13 +15699,9 @@ class MoriceWindow(QWidget):
                 return
 
             if wants_memory_search(user_input):
-                terms = extract_memory_terms(user_input)
-                matches = []
-                for msg in reversed(prior_user_messages):
-                    if all(term in msg.lower() for term in terms):
-                        matches.append(msg)
-                    if len(matches) >= 3:
-                        break
+                found=self._get_chat_history().search_messages(self._chat_id,' '.join(extract_memory_terms(user_input)),role='user',limit=3,
+                    before_sequence=self.history[-1].get('sequence') if self.history else None)
+                matches=[r['content'] for r in found]
                 if matches:
                     self._append_direct_reply(user_input, " | ".join(matches))
                 else:
@@ -15777,9 +15885,7 @@ class MoriceWindow(QWidget):
                         project_result = {"message":"Project remains partial. " + (issues[0]["evidence"] if issues else "A valid source proposal and runnable checks are required."),
                             "summary":"Project planning needs a configured model or supported scaffold.","diff_html":""}
                     visible_reply = project_result["message"]
-                    self.history.append(
-                        {"role": "user", "content": user_input}
-                    )
+                    self._ensure_history_user(user_input)
                     self.history.append(
                         {"role": "assistant", "content": visible_reply}
                     )
@@ -15837,7 +15943,7 @@ class MoriceWindow(QWidget):
                         )
 
                 model_history = select_recent_history(
-                    self.history,
+                    self.history[:-1] if self.history and self.history[-1].get('role')=='user' and self.history[-1].get('content')==user_input else self.history,
                     max_messages=24 if project_build_request else 16,
                     max_chars=24_000 if project_build_request else 12_000,
                 )
@@ -15854,6 +15960,14 @@ class MoriceWindow(QWidget):
                 )
                 if reference_instruction:
                     extra_system += "\n\n" + reference_instruction
+                from .memory_policy import memory_context
+                memory_text,memory_sources=memory_context(self._get_chat_history(),self.runtime.desktop.memory,
+                    self._chat_id,user_input,project_id=self._research_project_id or (self.project_folder if project_build_request else ''),
+                    settings=self.settings,before_sequence=self.history[-1].get('sequence') if self.history else None)
+                if memory_text:
+                    extra_system+='\n\n'+memory_text
+                self._last_memory_sources=memory_sources
+                realtime_request.trace.annotate(memorySourceCount=len(memory_sources))
                 if live_vision_result is not None:
                     extra_system += "\n\n" + live_vision_result.context_text()
                 if self.chat_mode == "project" or (
@@ -15900,10 +16014,6 @@ class MoriceWindow(QWidget):
                         "If they don't apply, ignore them.\n\n"
                         f"{context}"
                     )
-                if self.first_user_message:
-                    extra_system = (extra_system + "\n\n" if extra_system else "") + (
-                        f"Conversation memory: The user's first message was: {self.first_user_message}"
-                    )
                 if web_context:
                     extra_system = (extra_system + "\n\n" if extra_system else "") + (
                         "Web results (may be incomplete):\n" + web_context
@@ -15943,9 +16053,18 @@ class MoriceWindow(QWidget):
                 )
                 realtime_request.trace.annotate(modelUsed=True)
 
+                actual_model_id=reply_selection['path'] or reply_selection['name']
+                backend_failed=False
+                model_usage_values={}
                 def model_telemetry(event: str, payload: dict) -> None:
+                    nonlocal actual_model_id,backend_failed
                     data = dict(payload or {})
                     at_ns = int(data.pop("atNs", time.perf_counter_ns()))
+                    if event=='model_error': backend_failed=True
+                    elif event=='model_escalation':
+                        actual_model_id=thinking_selection.get('path') or thinking_selection.get('name','')
+                        backend_failed=False
+                        realtime_request.trace.annotate(actualModelId=actual_model_id,escalated=True)
                     if event == "prompt_assembled":
                         realtime_request.trace.set_counter(
                             "promptCharacters", int(data.get("characters") or 0)
@@ -15960,6 +16079,7 @@ class MoriceWindow(QWidget):
                     elif event == "model_usage":
                         usage = data.get("usage")
                         if isinstance(usage, dict):
+                            model_usage_values.update(usage)
                             for source, target in (
                                 ("prompt_tokens", "promptTokens"),
                                 ("completion_tokens", "completionTokens"),
@@ -16031,16 +16151,17 @@ class MoriceWindow(QWidget):
                 visible_model_text_started = False
                 try:
                     with self.runtime.profiler.measure("completion", "model"):
-                        for delta in stream_chat(
+                        for delta in self.runtime.agent.model_router.stream_reply(
+                            reply_selection,
                             model_history,
                             model_user_input,
+                            thinking=thinking_selection,
+                            stream_function=stream_chat,
                             extra_system=extra_system,
-                            model=self.model_name or None,
                             timeout=180,
                             precision_mode=self.precision_mode,
                             math_steps_mode=self.math_steps_mode
                             or wants_steps_detail(user_input),
-                            gguf_path=self.model_path,
                             cancel_event=realtime_request.cancellation.event,
                             max_tokens=(
                                 4_096
@@ -16048,8 +16169,8 @@ class MoriceWindow(QWidget):
                                 else realtime_request.route.max_output_tokens
                             ),
                             enable_reasoning=(
-                                project_build_request
-                                or realtime_request.route.tier is ModelTier.DEEP
+                                reply_selection['role']=='thinking' and (project_build_request
+                                or realtime_request.route.tier is ModelTier.DEEP)
                             ),
                             telemetry=model_telemetry,
                         ):
@@ -16160,7 +16281,7 @@ class MoriceWindow(QWidget):
                     )
 
                 reply = "".join(reply_parts)
-                model_returned_text = bool(str(reply or "").strip())
+                model_returned_text = bool(str(reply or "").strip()) and not backend_failed and not str(reply).startswith(('(MORICE)','(No response)'))
                 reply = ensure_visible_response(reply)
                 completion_ms = (time.perf_counter() - completion_started) * 1000
                 estimated_tps = self.runtime.profiler.record_model_completion(
@@ -16184,9 +16305,10 @@ class MoriceWindow(QWidget):
                         agent_request_id,
                         success=model_returned_text,
                         latency_ms=completion_ms,
-                        prompt_tokens=max(1, len(model_user_input) // 4),
-                        generated_tokens=max(1, len(reply) // 4),
-                        gpu_layers=int(os.getenv("MORICE_GPU_LAYERS", "0") or 0),
+                        prompt_tokens=int(model_usage_values.get('prompt_tokens') or max(1, len(model_user_input) // 4)),
+                        generated_tokens=int(model_usage_values.get('completion_tokens') or max(1, len(reply) // 4)),
+                        gpu_layers=int(os.environ['MORICE_GPU_LAYERS']) if os.getenv('MORICE_GPU_LAYERS','').isdigit() else None,
+                        model_id=actual_model_id,
                         error="" if model_returned_text else "The selected model returned an empty completion.",
                     )
                 visible_reply = reply
@@ -16303,26 +16425,10 @@ class MoriceWindow(QWidget):
                     self.runtime.realtime.finish_speech(
                         realtime_request.epoch
                     )
-                self.history.append({"role": "user", "content": user_input})
+                self._ensure_history_user(user_input)
                 self.history.append({"role": "assistant", "content": visible_reply})
-                try:
-                    self.runtime.platform_services.orchestrator.remember_interaction(
-                        user_input,
-                        visible_reply,
-                        project_root=(
-                            self.project_folder
-                            if self._project_capable_mode()
-                            and os.path.isdir(self.project_folder)
-                            else ""
-                        ),
-                        metadata={
-                            "mode": self.chat_mode,
-                            "requestId": agent_request_id,
-                            "runId": self._active_platform_run_id,
-                        },
-                    )
-                except (OSError, RuntimeError, TypeError, ValueError):
-                    pass
+                # ChatHistory owns transcript persistence. Only explicitly
+                # approved preferences enter the existing personal-memory store.
                 if project_build_request:
                     self._emit_background(
                         "message_ready",
@@ -16366,23 +16472,86 @@ class MoriceWindow(QWidget):
 
         self._start_background_task("chat-reply", worker)
 
+    def _ensure_history_user(self, text):
+        if not self.history or self.history[-1].get('role')!='user' or self.history[-1].get('content')!=text:
+            self.history.append({'role':'user','content':text})
+
+    def _handle_memory_request(self, text):
+        from .memory_policy import preference_key,preference_context
+        memory=self.runtime.desktop.memory
+        correction=re.fullmatch(r'\s*actually[, ]+(I (?:prefer|don.t want) .{1,1200})\s*',text,re.I)
+        if correction and self.settings.get('personal_memory_enabled','false')=='true' and self.settings.get('memory_allow_explicit','true')=='true' and not self._get_chat_history().is_private(self._chat_id):
+            content=correction.group(1)
+            key=preference_key(content,preference_context(content))
+            if any(r.normalized_preference==key and not r.superseded for r in memory.list_preferences()):
+                record=memory.save_preference(content,chat_id=self._chat_id,message_ids=[self.history[-1]['message_id']] if self.history and self.history[-1].get('message_id') else [])
+                self._last_saved_preference_id=record.memory_id
+                self._append_direct_reply(text,'Updated your preference: '+record.content); return True
+        feedback=re.fullmatch(r'\s*(make it shorter|give (?:the )?code directly|give more examples|be less formal)[.! ]*',text,re.I)
+        if feedback and self.settings.get('personal_memory_enabled','false')=='true' and self.settings.get('memory_allow_suggestions','false')=='true' and not self._get_chat_history().is_private(self._chat_id):
+            evidence=[m for m in self.history[-100:] if m.get('role')=='user' and m.get('content','').strip().rstrip('.!').casefold()==feedback.group(1).casefold()]
+            if len(evidence)>=3:
+                try: memory.save_preference(feedback.group(1),chat_id=self._chat_id,message_ids=[m['message_id'] for m in evidence if m.get('message_id')],approved=False,explicit=False)
+                except (ValueError,RuntimeError,OSError): pass
+        remember=re.fullmatch(r'\s*(?:please\s+)?(?:remember(?!\s+when\b)(?:\s+that)?|save (?:this )?preference)\s*[:,-]?\s+(.{1,1500})\s*',text,re.I)
+        forget=re.fullmatch(r'\s*(?:please\s+)?(?:forget|remove (?:the |this )?memory)\s+(?:that\s+)?(.{1,1500})\s*',text,re.I)
+        if not remember and not forget: return False
+        if remember:
+            if self._get_chat_history().is_private(self._chat_id):
+                reply='This chat uses session retention. Personal preferences are not saved from private chats.'
+            elif self.settings.get('personal_memory_enabled','false')!='true' or self.settings.get('memory_allow_explicit','true')!='true':
+                reply='Personal Memory is off. Enable it in Settings → Memory to save an approved preference across chats.'
+            else:
+                try:
+                    self._persist_chat_history()
+                    message=self.history[-1] if self.history else {}
+                    record=memory.save_preference(remember.group(1),chat_id=self._chat_id,message_ids=[message['message_id']] if message.get('message_id') else [])
+                    self._last_saved_preference_id=record.memory_id
+                    reply='Saved your preference: '+record.content
+                except Exception as exc: reply='Preference was not saved: '+str(exc)
+        else:
+            needle=forget.group(1).strip().rstrip('.').casefold()
+            records=memory.list_preferences(needle)
+            if not records and needle not in {'it','that','that preference','this preference','preference'}:
+                key=preference_key(needle,preference_context(needle))
+                records=[r for r in memory.list_preferences() if r.normalized_preference==key and not r.superseded]
+            if needle in {'it','that','that preference','this preference','preference'}:
+                last=getattr(self,'_last_saved_preference_id','')
+                records=[r for r in memory.list_preferences() if r.memory_id==last]
+            if len(records)==1:
+                memory.delete(records[0].memory_id); reply='Forgot that preference. It will no longer be applied.'
+            elif not records: reply='I could not identify a saved preference to forget. You can inspect records in Settings → Memory.'
+            else: reply='Several preferences match. Select the exact record to forget in Settings → Memory.'
+        self._append_direct_reply(text,reply)
+        return True
+
     def _get_chat_history(self):
         if self._chat_history_store is None:
-            from .research.history import ChatHistory
-            self._chat_history_store = ChatHistory(
-                self.runtime.platform_services.orchestrator.knowledge.path
-            )
+            self._chat_history_store = self.runtime.chat_history
         return self._chat_history_store
 
     def _persist_chat_history(self):
         if not self._session_enabled or not self.history or self._history_deleted_id == self._chat_id:
             return
-        key = (self._chat_id, len(self.history), self.history[-1].get("content"), self._research_project_id)
+        key = (self._chat_id, tuple((m.get('message_id'),m.get('role'),m.get('content')) for m in self.history), self._research_project_id)
         if key == self._history_saved_key:
             return
         try:
-            self._get_chat_history().save(self._chat_id, self.history, self._research_project_id)
-            self._history_saved_key = key
+            self._get_chat_history().save(self._chat_id, self.history, self._research_project_id,merge=True)
+            self._history_latest_sequence=max((m.get('sequence',0) for m in self.history),default=0)
+            pending={}
+            for message in self.history:
+                pending.setdefault((message['role'],message['content']),[]).append(message)
+            for row in self._message_rows:
+                bubble=row.findChild(ChatBubble)
+                if bubble:
+                    matches=pending.get(('user' if bubble.is_user else 'assistant',bubble.message),[])
+                    if matches:
+                        message=matches.pop(0);row.setProperty('messageId',message.get('message_id',''));row.setProperty('sequence',message.get('sequence',0))
+            if len(self.history)>512:
+                self.history[:]=self.history[-256:]
+                self.user_messages[:]=self.user_messages[-160:]
+            self._history_saved_key = (self._chat_id, tuple((m.get('message_id'),m.get('role'),m.get('content')) for m in self.history), self._research_project_id)
         except Exception as exc:
             self.runtime.logs.log("ERROR", f"Chat history save failed: {exc}", category="history")
 
@@ -16402,19 +16571,50 @@ class MoriceWindow(QWidget):
             raise RuntimeError("Finish or cancel the current response first.")
         if chat_id == self._chat_id:
             return  # Already open; do not end a session-retention conversation.
-        restored = self._get_chat_history().open(chat_id)
+        restored = self._get_chat_history().open(chat_id,recent=160)
         self._start_new_chat()
         self._chat_id = restored["id"]
         self._research_project_id = restored["project_id"]
         self.history = restored["messages"]
+        self._history_latest_sequence=max((m.get('sequence',0) for m in self.history),default=0)
         self.user_messages = [m["content"] for m in self.history if m["role"] == "user"]
-        self.first_user_message = self.user_messages[0] if self.user_messages else ""
+        first=self._get_chat_history().search_messages(chat_id,mode='first_message',role='user',limit=1)
+        self.first_user_message=first[0]['content'] if first else ''
         self.awake = True
         for message in self.history[-160:]:
             self.append_message((resolve_user_address(self._identity_profile()) or "You") if message["role"] == "user" else MORICE_NAME,
                                 message["content"], is_user=message["role"] == "user")
         self._history_saved_key = None
         self._save_workspace_session()
+
+    def _open_chat_search(self):
+        if self.is_busy:
+            self._show_notification('Finish or cancel the response before navigating history.','error'); return
+        from .ui_next.memory_view import ChatSearchDialog
+        self._persist_chat_history(); ChatSearchDialog(self).exec()
+
+    def _render_chat_messages(self,messages):
+        for row in tuple(self._message_rows):
+            self.chat_list_layout.removeWidget(row); row.deleteLater()
+        self._message_rows.clear(); self._archived_messages.clear(); self._newer_messages.clear(); self._refresh_archive_notice()
+        for message in messages[-MAX_VISIBLE_CHAT_WIDGETS:]:
+            author=(resolve_user_address(self._identity_profile()) or 'You') if message['role']=='user' else MORICE_NAME
+            row=self._create_message_row(author,message['content'],message['role']=='user',animate=False)
+            row.setProperty('messageId',message.get('message_id',''))
+            row.setProperty('sequence',message.get('sequence',0))
+        self.follow_latest=False
+        if hasattr(self,'navigate'): self.navigate('chats')
+
+    def _jump_to_message(self,message_id):
+        if self.is_busy: return
+        messages=self._get_chat_history().fetch_window(self._chat_id,message_id,radius=5)
+        if not messages:
+            self._show_notification('The source message is no longer retained.','error'); return
+        self._render_chat_messages(messages)
+        row=next((r for r in self._message_rows if r.property('messageId')==message_id),None)
+        if row is not None:
+            row.setToolTip('Original retained message')
+            QTimer.singleShot(0,lambda:self.scroll.ensureWidgetVisible(row))
 
     def _get_research_service(self):
         if self._research_service is None:

@@ -77,6 +77,10 @@ def wants_previous_user_message(text: str) -> bool:
         return False
     if not references_prior_context(text):
         return False
+    # A question about a topic from earlier requires indexed retrieval, rather
+    # than replacing the answer with the immediately preceding user turn.
+    if not (word_set & {'previous','last'} and word_set & {'message','reply','response'}):
+        return False
     asks_recall = bool(
         word_set.intersection({"what", "repeat", "remind", "quote", "show", "tell"})
     )
@@ -182,6 +186,7 @@ def saved_settings_instruction(
     lines = [
         "Current saved app settings are authoritative for this reply and override conflicting "
         "preferences found in older conversation messages.",
+        "Current explicit user instructions for response length, tone and format override saved response preferences.",
         identity_instruction(user_title=user_title),
         emoji_instruction.strip(),
         maturity_instruction.strip(),

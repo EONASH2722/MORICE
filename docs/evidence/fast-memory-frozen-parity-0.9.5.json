@@ -1,0 +1,25 @@
+{
+  "status": "FROZEN_ARCHIVE_PARITY_PASSED",
+  "production_window_factory": "morice.pyside_app.create_application_window",
+  "directory": "E:\\MORICE\\build\\fast-memory-095-release-candidate\\MORICE",
+  "files": 3311,
+  "bytes": 950927875,
+  "exe_sha256": "966447864ea5660f58d505c3c8713bea2bb48a3f0db7a15687e15eb22975345c",
+  "source_sha256": "0f9edd40663a8a52d721a0f22c1132c5684b6e6bc730685f9882fa44ffa8c04c",
+  "source_equal_modules": 219,
+  "omitted_cli_modules": [
+    "morice.__main__",
+    "morice.cli"
+  ],
+  "asset_equal_files": [
+    "morice\\assets\\spatial\\ATTRIBUTION.txt",
+    "morice\\assets\\spatial\\cities.sqlite3",
+    "morice\\assets\\spatial\\earth-land.json",
+    "morice\\assets\\spatial\\GEONAMES-README.txt",
+    "morice\\assets\\morice-logo-rgb.png",
+    "morice\\assets\\morice_logo.ico"
+  ],
+  "generative_media_or_gguf_weights_embedded": false,
+  "existing_vosk_model_intentionally_embedded": true,
+  "scope": "Embedded executable bytecode/public asset parity and exclusion scan; startup is a separate check."
+}

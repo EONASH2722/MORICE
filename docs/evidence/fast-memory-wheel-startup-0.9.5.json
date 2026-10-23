@@ -1,0 +1,1131 @@
+{
+  "frozen": false,
+  "cwd": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-s5z5g7rm",
+  "startup_and_probe_ms": 49498.285999987274,
+  "window_created": true,
+  "ui_ticks": 76,
+  "critical_failures": 0,
+  "health": [
+    {
+      "name": "Runtime storage",
+      "status": "healthy",
+      "detail": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-s5z5g7rm\\runtime"
+    },
+    {
+      "name": "Asset: morice_logo.ico",
+      "status": "healthy",
+      "detail": "E:\\MORICE\\build\\phase11-clean-venv\\Lib\\site-packages\\morice\\assets\\morice_logo.ico"
+    },
+    {
+      "name": "Asset: morice-logo-rgb.png",
+      "status": "healthy",
+      "detail": "E:\\MORICE\\build\\phase11-clean-venv\\Lib\\site-packages\\morice\\assets\\morice-logo-rgb.png"
+    },
+    {
+      "name": "Asset: katex.min.js",
+      "status": "healthy",
+      "detail": "E:\\MORICE\\build\\phase11-clean-venv\\Lib\\site-packages\\morice\\assets\\web\\katex.min.js"
+    },
+    {
+      "name": "Dependency: PySide6",
+      "status": "healthy",
+      "detail": "6.12.0; installed, initialized on demand"
+    },
+    {
+      "name": "Dependency: numpy",
+      "status": "healthy",
+      "detail": "2.5.4; installed, initialized on demand"
+    },
+    {
+      "name": "Dependency: Pillow",
+      "status": "healthy",
+      "detail": "13.0.0; installed, initialized on demand"
+    },
+    {
+      "name": "Dependency: sounddevice",
+      "status": "healthy",
+      "detail": "0.5.6; installed, initialized on demand"
+    },
+    {
+      "name": "Dependency: vosk",
+      "status": "healthy",
+      "detail": "0.3.45; installed, initialized on demand"
+    },
+    {
+      "name": "Settings configuration",
+      "status": "healthy",
+      "detail": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-s5z5g7rm\\roaming\\MORICE\\settings.json"
+    },
+    {
+      "name": "AI model",
+      "status": "degraded",
+      "detail": "No GGUF is available. Model-backed chat will be unavailable."
+    },
+    {
+      "name": "Renderer registry",
+      "status": "healthy",
+      "detail": "9 available, 2 unavailable"
+    },
+    {
+      "name": "Tool registry",
+      "status": "healthy",
+      "detail": "25 desktop tools registered"
+    },
+    {
+      "name": "GPU profile",
+      "status": "degraded",
+      "detail": "GPU detection is pending or no compatible GPU was reported."
+    },
+    {
+      "name": "Capability Kernel",
+      "status": "healthy",
+      "detail": "Shared execution, permission, resource and verification authorities."
+    },
+    {
+      "name": "Parallel agents",
+      "status": "healthy",
+      "detail": "9 roles; drivers initialized: False."
+    },
+    {
+      "name": "Verified actions",
+      "status": "healthy",
+      "detail": "Durable journal; 0 interrupted attempts require observation."
+    },
+    {
+      "name": "Project Builder",
+      "status": "disabled",
+      "detail": "Dormant or disabled; diagnostics do not initialize this subsystem."
+    },
+    {
+      "name": "Research Lab",
+      "status": "disabled",
+      "detail": "Dormant or disabled; diagnostics do not initialize this subsystem."
+    },
+    {
+      "name": "Device Mesh",
+      "status": "disabled",
+      "detail": "Dormant or disabled; diagnostics do not initialize this subsystem."
+    },
+    {
+      "name": "Ambient",
+      "status": "disabled",
+      "detail": "Dormant or disabled; diagnostics do not initialize this subsystem."
+    },
+    {
+      "name": "Generative Media Lab",
+      "status": "disabled",
+      "detail": "Dormant or disabled; diagnostics do not initialize this subsystem."
+    },
+    {
+      "name": "Connectors",
+      "status": "disabled",
+      "detail": "No configured connector."
+    },
+    {
+      "name": "Defensive security",
+      "status": "disabled",
+      "detail": "Monitoring is opt-in and currently disabled."
+    },
+    {
+      "name": "Voice",
+      "status": "disabled",
+      "detail": "Speech output disabled."
+    },
+    {
+      "name": "Semantic vision",
+      "status": "degraded",
+      "detail": "Capture and grounded adapters exist; arbitrary screen understanding requires an available configured vision provider."
+    },
+    {
+      "name": "Resource leases",
+      "status": "healthy",
+      "detail": "0 current leases; physical work retains leases until cleanup."
+    }
+  ],
+  "roles": 9,
+  "runtime_directory": "E:\\QC-OS-Data\\Temp\\morice-clean-wheel-s5z5g7rm\\runtime",
+  "ui": "renovated",
+  "production_window_factory": true,
+  "window_class": "RenovatedWindow",
+  "fast_memory": {
+    "earliest_message": true,
+    "bounded_reopen": true,
+    "preference_persist_forget": true,
+    "memory_controls": true,
+    "fast_model_controls": true,
+    "weights_loaded": false
+  },
+  "composer_geometry": [
+    {
+      "maximized": false,
+      "window": [
+        1366,
+        840
+      ],
+      "controls": {
+        "input": {
+          "visible": true,
+          "inside_window": true,
+          "inside_screen": true
+        },
+        "send_btn": {
+          "visible": true,
+          "inside_window": true,
+          "inside_screen": true
+        }
+      }
+    },
+    {
+      "maximized": true,
+      "window": [
+        1536,
+        864
+      ],
+      "controls": {
+        "input": {
+          "visible": true,
+          "inside_window": true,
+          "inside_screen": true
+        },
+        "send_btn": {
+          "visible": true,
+          "inside_window": true,
+          "inside_screen": true
+        }
+      }
+    },
+    {
+      "maximized": false,
+      "window": [
+        1366,
+        840
+      ],
+      "controls": {
+        "input": {
+          "visible": true,
+          "inside_window": true,
+          "inside_screen": true
+        },
+        "send_btn": {
+          "visible": true,
+          "inside_window": true,
+          "inside_screen": true
+        }
+      }
+    }
+  ],
+  "theme_scenes": [
+    {
+      "preset": "MORICE",
+      "scene": "Plasma",
+      "raster_present": true
+    },
+    {
+      "preset": "GLASS",
+      "scene": "Prismatic glass",
+      "raster_present": true
+    },
+    {
+      "preset": "OBSIDIAN",
+      "scene": "Basalt",
+      "raster_present": true
+    },
+    {
+      "preset": "ICE",
+      "scene": "Crystal bloom",
+      "raster_present": true
+    },
+    {
+      "preset": "AMETHYST",
+      "scene": "Petal garden",
+      "raster_present": true
+    },
+    {
+      "preset": "MIDNIGHT",
+      "scene": "Star atlas",
+      "raster_present": true
+    },
+    {
+      "preset": "NEON",
+      "scene": "Circuit current",
+      "raster_present": true
+    },
+    {
+      "preset": "MONOCHROME",
+      "scene": "Kinetic weave",
+      "raster_present": true
+    },
+    {
+      "preset": "CUSTOM",
+      "scene": "Harmonic braid",
+      "raster_present": true
+    },
+    {
+      "preset": "ARCTIC",
+      "scene": "Aurora",
+      "raster_present": true
+    },
+    {
+      "preset": "SOLAR",
+      "scene": "Corona",
+      "raster_present": true
+    },
+    {
+      "preset": "CRIMSON",
+      "scene": "Resonance",
+      "raster_present": true
+    }
+  ],
+  "ambient_animation": {
+    "phase_advanced": true,
+    "raster_count": 49,
+    "reduced_motion": false
+  },
+  "spatial_result": {
+    "schema": 1,
+    "mode": "GEODESIC",
+    "earth_model": "WGS84 ellipsoid",
+    "metres": 13488533.266420476,
+    "distance": 13488.533266420476,
+    "unit": "km",
+    "initial_bearing": 337.44946911465973,
+    "final_bearing": 209.4847860825153,
+    "path": [
+      {
+        "latitude": 13.08784,
+        "longitude": 80.27846999999997,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 13.967231328272861,
+        "longitude": 79.90446337850733,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 14.84597933686077,
+        "longitude": 79.52760931475063,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 15.724037569676277,
+        "longitude": 79.14769894250594,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 16.60135841182772,
+        "longitude": 78.76451770818579,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 17.477892992333572,
+        "longitude": 78.37784491991738,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 18.353591081279095,
+        "longitude": 77.98745327499779,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 19.22840098091007,
+        "longitude": 77.5931083639075,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 20.10226941012029,
+        "longitude": 77.19456814895602,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 20.975141381748315,
+        "longitude": 76.79158241551596,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 21.846960072052816,
+        "longitude": 76.3838921936781,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 22.717666681686048,
+        "longitude": 75.97122914802776,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 23.587200287429567,
+        "longitude": 75.55331493310177,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 24.455497683895985,
+        "longitude": 75.12986051193758,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 25.322493214334468,
+        "longitude": 74.70056543497037,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 26.1881185896048,
+        "longitude": 74.26511707637093,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 27.052302694305943,
+        "longitude": 73.82318982474976,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 27.914971378957496,
+        "longitude": 73.37444422497788,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 28.776047237038373,
+        "longitude": 72.91852606770036,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 29.63544936558245,
+        "longitude": 72.45506542294027,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 30.49309310791862,
+        "longitude": 71.98367561401582,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 31.348889777018826,
+        "longitude": 71.5039521278257,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 32.20274635778384,
+        "longitude": 71.01547145739801,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 33.054565186450375,
+        "longitude": 70.51778987245851,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 33.90424360514521,
+        "longitude": 70.01044211365763,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 34.751673589440365,
+        "longitude": 69.49294000601407,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 35.59674134657829,
+        "longitude": 68.96477098709951,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 36.439326881837104,
+        "longitude": 68.42539654551643,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 37.27930353029124,
+        "longitude": 67.87425056532985,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 38.116537450995004,
+        "longitude": 67.31073757232662,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 38.95088708037294,
+        "longitude": 66.73423087832128,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 39.78220254134418,
+        "longitude": 66.1440706202371,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 40.61032500443865,
+        "longitude": 65.53956169141202,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 41.43508599688299,
+        "longitude": 64.91997156355717,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 42.25630665534769,
+        "longitude": 64.28452799909508,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 43.073796917756454,
+        "longitude": 63.632416655298755,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 43.88735464927307,
+        "longitude": 62.96277858383132,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 44.69676469730722,
+        "longitude": 62.274707632053406,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 45.50179787012872,
+        "longitude": 61.56724775595012,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 46.302209833467494,
+        "longitude": 60.839390258881735,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 47.09773991931981,
+        "longitude": 60.09007097575517,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 47.88810984110697,
+        "longitude": 59.31816742885823,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 48.673022309370104,
+        "longitude": 58.522495989728526,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 49.45215954237433,
+        "longitude": 57.70180909132256,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 50.225181666385794,
+        "longitude": 56.8547925467156,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 50.99172500103595,
+        "longitude": 55.98006304494476,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 51.75140022617547,
+        "longitude": 55.0761659117868,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 52.503790428033874,
+        "longitude": 54.14157324363529,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 53.2484490244513,
+        "longitude": 53.17468254662225,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 53.98489757156705,
+        "longitude": 52.17381604110733,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 54.71262345778634,
+        "longitude": 51.13722082397342,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 55.43107749528445,
+        "longitude": 50.063070118051655,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 56.13967142494289,
+        "longitude": 48.94946587949539,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 56.837775357673266,
+        "longitude": 47.79444307978707,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 57.524715183806705,
+        "longitude": 46.595976028610124,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 58.19976999285521,
+        "longitude": 45.35198715576462,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 58.862169558715514,
+        "longitude": 44.06035872251158,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 59.511091960475014,
+        "longitude": 42.71894798196331,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 60.14566142650196,
+        "longitude": 41.32560634973879,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 60.764946509433244,
+        "longitude": 39.878203173690196,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 61.36795872178003,
+        "longitude": 38.37465469666773,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 61.953651785630306,
+        "longitude": 36.81295877837968,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 62.52092167441101,
+        "longitude": 35.191235868545135,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 63.068607648438956,
+        "longitude": 33.50777658893523,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 63.59549450697243,
+        "longitude": 31.761096070669595,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 64.10031629488384,
+        "longitude": 29.949994889871277,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 64.58176170837368,
+        "longitude": 28.073626036967426,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 65.03848143711316,
+        "longitude": 26.13156683641762,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 65.46909765515208,
+        "longitude": 24.12389410911561,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 65.87221582512419,
+        "longitude": 22.05126015966988,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 66.24643890561555,
+        "longitude": 19.914966416548225,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 66.59038394744795,
+        "longitude": 17.717030820364783,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 66.90270093111818,
+        "longitude": 15.460244434917996,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 67.18209353854434,
+        "longitude": 13.148212357777368,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 67.42734137612655,
+        "longitude": 10.785373952179327,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 67.63732298658323,
+        "longitude": 8.376997820349459,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 67.81103882238529,
+        "longitude": 5.929147867176596,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 67.9476332252552,
+        "longitude": 3.4486182797450624,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 68.0464143857867,
+        "longitude": 0.9428372083281147,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 68.10687126302649,
+        "longitude": -1.5802587775704637,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 68.12868653674423,
+        "longitude": -4.112375006962679,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 68.11174484536723,
+        "longitude": -6.645027171449954,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 68.05613581817073,
+        "longitude": -9.169719628581106,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 67.96215171771524,
+        "longitude": -11.678124298268642,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 67.83027983574439,
+        "longitude": -14.162250848810999,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 67.66119009753248,
+        "longitude": -16.6145997025275,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 67.45571859330897,
+        "longitude": -19.028290989176583,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 67.21484794603539,
+        "longitude": -21.397164704865475,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 66.93968552891664,
+        "longitude": -23.715849703023537,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 66.63144056236453,
+        "longitude": -25.979801457834668,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 66.29140105841692,
+        "longitude": -28.185310552302496,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 65.92091145839055,
+        "longitude": -30.329485385921203,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 65.52135164825877,
+        "longitude": -32.41021359519624,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 65.09411785748364,
+        "longitude": -34.42610714209556,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 64.64060576960513,
+        "longitude": -36.37643602186802,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 64.16219601108092,
+        "longitude": -38.26105518036934,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 63.660242047842246,
+        "longitude": -40.08032863198085,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 63.13606041114934,
+        "longitude": -41.83505404513102,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 62.59092309605811,
+        "longitude": -43.52639030677622,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 62.02605192483043,
+        "longitude": -45.15578985885165,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 61.44261463996099,
+        "longitude": -46.724936962897004,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 60.84172248245969,
+        "longitude": -48.23569251668238,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 60.22442901589362,
+        "longitude": -49.69004562508309,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 59.591729971167155,
+        "longitude": -51.09007181162676,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 58.94456390746696,
+        "longitude": -52.437897535147584,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 58.28381350834418,
+        "longitude": -53.735670532619594,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 57.61030735639042,
+        "longitude": -54.98553542858912,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 56.92482205387399,
+        "longitude": -56.189614018686996,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 56.22808457905426,
+        "longitude": -57.34998963633433,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 55.52077478811465,
+        "longitude": -58.468695037028766,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 54.80352799048485,
+        "longitude": -59.547703274827285,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 54.07693754071486,
+        "longitude": -60.58892109420191,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 53.34155740311027,
+        "longitude": -61.59418441248215,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 52.597904656223875,
+        "longitude": -62.5652555202133,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 51.846461913246976,
+        "longitude": -63.50382167669662,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 51.08767964160046,
+        "longitude": -64.41149482435276,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 50.32197837082826,
+        "longitude": -65.28981218761675,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 49.549750782471925,
+        "longitude": -66.14023755954068,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 48.77136367915804,
+        "longitude": -66.96416311215884,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 47.98715983284248,
+        "longitude": -67.7629115951797,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 47.197459714181726,
+        "longitude": -68.53773881202869,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 46.40256310647673,
+        "longitude": -69.28983628307199,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 45.60275060867079,
+        "longitude": -70.0203340234097,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 44.798285032571904,
+        "longitude": -70.7303033773384,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 43.9894126998892,
+        "longitude": -71.42075986383398,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 43.17636464488543,
+        "longitude": -72.0926659975402,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 42.359357728501536,
+        "longitude": -72.7469340580858,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 41.53859566974652,
+        "longitude": -73.38442878737092,
+        "altitude": null,
+        "reference": "WGS84"
+      },
+      {
+        "latitude": 40.71427,
+        "longitude": -74.00597,
+        "altitude": null,
+        "reference": "WGS84"
+      }
+    ],
+    "provenance": "COMPUTED",
+    "algorithm": "GeographicLib WGS84",
+    "bearing_reference": "Shortest surface direction on the selected reference ellipsoid/sphere",
+    "altitude_note": "Surface geodesic ignores altitude.",
+    "origin": {
+      "latitude": 13.08784,
+      "longitude": 80.27846999999997,
+      "altitude": null,
+      "reference": "WGS84"
+    },
+    "destination": {
+      "latitude": 40.71427,
+      "longitude": -74.00597,
+      "altitude": null,
+      "reference": "WGS84"
+    },
+    "locations": [
+      {
+        "identifier": "geonames:1264527",
+        "label": "Chennai",
+        "coordinate": {
+          "latitude": 13.08784,
+          "longitude": 80.27846999999997,
+          "altitude": null,
+          "reference": "WGS84"
+        },
+        "source": "https://www.geonames.org/1264527",
+        "country": "IN",
+        "region": "25",
+        "population": 4681087,
+        "kind": "city"
+      },
+      {
+        "identifier": "geonames:5128581",
+        "label": "New York City",
+        "coordinate": {
+          "latitude": 40.71427,
+          "longitude": -74.00597,
+          "altitude": null,
+          "reference": "WGS84"
+        },
+        "source": "https://www.geonames.org/5128581",
+        "country": "US",
+        "region": "NY",
+        "population": 8804190,
+        "kind": "city"
+      }
+    ]
+  },
+  "shutdown": {
+    "clean": true,
+    "failures": [],
+    "leases_remaining": 0,
+    "pending_workers": 0
+  },
+  "leases_after": 0,
+  "validation_clean_dependency_environment": true,
+  "validation_outside_checkout": true,
+  "validation_python": "E:\\MORICE\\build\\phase11-clean-venv\\Scripts\\python.exe",
+  "validation_wheel_sha256": "21dbfa9814ca316708380a6aedca57e2001be012c8771aa2b46aa6e70f38dabc",
+  "validation_installed_files_equal_wheel": 299,
+  "validation_dependency_environment_scope": "Previously created isolated venv with no system-site-packages; current wheel is reinstalled into that dependency environment and byte-checked before launch."
+}

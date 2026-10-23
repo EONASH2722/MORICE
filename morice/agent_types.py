@@ -178,6 +178,7 @@ class AgentRequestContext:
     model_route: dict[str, Any]
     renderer: str = ""
     created_at: str = ""
+    conversation_id: str = ""
 
 
 @dataclass

@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from functools import wraps
 import inspect
 import uuid
+import threading
 
 from .core import SYSTEM_PROMPT, current_datetime_summary, emotional_checkin_response, short_form_hints
 from .local_llama import chat as local_chat
@@ -31,6 +32,30 @@ DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "2048"))
 _OLLAMA_PROCESS = None
 DEFAULT_BUNDLED_GGUF = "Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf"
 OFFICIAL_QWEN_GGUF = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+_MODEL_GENERATION_LOCK = threading.Lock()
+_MODEL_GENERATION_OWNER = None
+
+
+@contextmanager
+def _generation_slot(cancel_event=None, timeout=180):
+    global _MODEL_GENERATION_OWNER
+    if _MODEL_GENERATION_OWNER == threading.get_ident():
+        # A suspended stream may be resumed/closed by this same thread. Waiting
+        # for it here would prevent the caller from ever releasing that stream.
+        raise RuntimeError('The active model is busy. Close its stream before starting another.')
+    started=time.monotonic()
+    while not _MODEL_GENERATION_LOCK.acquire(timeout=0.05):
+        if cancel_event is not None and cancel_event.is_set():
+            yield False
+            return
+        if time.monotonic()-started>max(1,float(timeout)):
+            raise RuntimeError('The active model is busy. Retry after generation completes.')
+    _MODEL_GENERATION_OWNER = threading.get_ident()
+    try:
+        yield not (cancel_event is not None and cancel_event.is_set())
+    finally:
+        _MODEL_GENERATION_OWNER = None
+        _MODEL_GENERATION_LOCK.release()
 
 
 def _report_telemetry(callback, event: str, **payload) -> None:
@@ -87,13 +112,16 @@ def _shared_model_resources(function):
     if function.__name__ == "stream_chat":
         @wraps(function)
         def streaming(*args, **kwargs):
-            with _local_model_claim(selected(args, kwargs), execution_scope=False):
-                yield from function(*args, **kwargs)
+            with _generation_slot(kwargs.get('cancel_event'),kwargs.get('timeout',180)) as admitted:
+                if admitted:
+                    with _local_model_claim(selected(args, kwargs), execution_scope=False):
+                        yield from function(*args, **kwargs)
         return streaming
     @wraps(function)
     def complete(*args, **kwargs):
-        with _local_model_claim(selected(args, kwargs)):
-            return function(*args, **kwargs)
+        with _generation_slot(timeout=kwargs.get('timeout',180)):
+            with _local_model_claim(selected(args, kwargs)):
+                return function(*args, **kwargs)
     return complete
 
 
@@ -102,7 +130,8 @@ def reset_model_runtime() -> None:
     runtime = peek_runtime_services()
     if runtime is not None and any(c.resource == "LOCAL_MODEL" for claims in runtime.kernel.resources.snapshot().values() for c in claims):
         raise RuntimeError("An active local model lease must finish before unloading.")
-    _unload_owned_models()
+    with _generation_slot():
+        _unload_owned_models()
 
 
 def unload_idle_model_for_media(resources, owner) -> None:
@@ -375,7 +404,7 @@ def _merge_continuation(existing: str, continuation: str) -> str:
 
 def _fit_messages_to_context(messages):
     """Keep current instructions and prompt while dropping only oldest history."""
-    input_token_budget = max(4096, DEFAULT_CTX - DEFAULT_MAX_TOKENS - 768)
+    input_token_budget = max(512, DEFAULT_CTX - DEFAULT_MAX_TOKENS - 768)
     character_budget = input_token_budget * 4
     clean = [
         {
@@ -390,22 +419,30 @@ def _fit_messages_to_context(messages):
     system_messages = [message for message in clean if message["role"] == "system"]
     conversation = [message for message in clean if message["role"] != "system"]
     latest = conversation[-1:] if conversation else []
+    system_budget=max(256,int(character_budget*.55))
+    bounded=[]; remaining=system_budget
+    for item in system_messages:
+        if remaining<=0: break
+        text=item['content'][:remaining]
+        bounded.append({**item,'content':text});remaining-=len(text)
+    system_messages=bounded
     fixed_size = sum(len(message["content"]) for message in system_messages + latest)
 
     if latest and fixed_size > character_budget:
-        available = max(1600, character_budget - sum(
+        available = max(0, character_budget - sum(
             len(message["content"]) for message in system_messages
         ))
         content = latest[0]["content"]
         if len(content) > available:
-            head = max(800, available // 2)
-            tail = max(800, available - head - 80)
+            marker='\n[Prompt excerpt omitted to fit context.]\n'
+            head = max(0, (available-len(marker)) // 2)
+            tail = max(0, available-head-len(marker))
             latest[0] = {
                 **latest[0],
                 "content": (
                     content[:head]
-                    + "\n\n[Middle of exceptionally long prompt omitted to fit the selected model context.]\n\n"
-                    + content[-tail:]
+                    + marker
+                    + (content[-tail:] if tail else '')
                 ),
             }
 
@@ -419,6 +456,42 @@ def _fit_messages_to_context(messages):
         used += size
     selected.reverse()
     return system_messages + selected + latest
+
+
+def _fit_backend_context(base_url,messages,max_output_tokens,*,telemetry=None):
+    """Use the installed model tokenizer when the byte upper bound is too large.
+
+    Tiny prompts avoid extra HTTP calls. Older backends without these endpoints
+    fall back to a conservative UTF-8 byte budget rather than an unbounded guess.
+    """
+    budget=max(256,DEFAULT_CTX-int(max_output_tokens)-128)
+    clean=[dict(m) for m in messages]
+    def byte_count():return sum(len(m['content'].encode('utf-8'))+32 for m in clean)+64
+    if byte_count()<=budget:return clean
+    exact=True
+    for _ in range(16):
+        if exact:
+            try:
+                prompt=_post_json(base_url.rstrip('/')+'/apply-template',{'messages':clean},2)['prompt']
+                count=len(_post_json(base_url.rstrip('/')+'/tokenize',{'content':prompt,'add_special':True,'parse_special':True},2)['tokens'])
+            except (OSError,ValueError,KeyError,TypeError):
+                exact=False;count=byte_count()
+        else: count=byte_count()
+        if count<=budget:
+            _report_telemetry(telemetry,'context_budget_checked',inputTokens=count,exact=exact,budgetTokens=budget)
+            return clean
+        history_index=next((i for i,m in enumerate(clean[:-1]) if m['role']!='system'),None)
+        if history_index is not None:
+            clean.pop(history_index);continue
+        # Preserve the base system instructions and the current user request.
+        index=max(range(1,len(clean)),key=lambda i:len(clean[i]['content'])) if len(clean)>1 else 0
+        if index==0:raise ValueError('Base system instructions exceed the selected model context.')
+        content=clean[index]['content']; target=max(32,int(len(content)*min(.75,budget/max(1,count)*.85)))
+        if clean[index]['role']=='user':
+            marker='\n[Context excerpt omitted.]\n';head=max(0,(target-len(marker))//2)
+            clean[index]['content']=content[:head]+marker+content[-max(1,target-head-len(marker)):]
+        else:clean[index]['content']=content[:target]
+    raise ValueError('The request could not fit within the selected model context.')
 
 
 def _try_chat_endpoint(base_url, payload, timeout):
@@ -906,6 +979,7 @@ def stream_chat(
                     DEFAULT_THREADS,
                     DEFAULT_BATCH,
                 )
+                payload['messages']=_fit_backend_context(server_url,payload['messages'],payload['max_tokens'],telemetry=telemetry)
                 _report_telemetry(
                     telemetry,
                     "model_ready",

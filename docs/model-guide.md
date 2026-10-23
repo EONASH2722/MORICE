@@ -2,6 +2,10 @@
 
 MORICE separates model inference from host execution. A model supplies language, coding output, or typed instructions; the application still validates renderers, project manifests, paths, permissions, and sensitive actions.
 
+## Fast replies and thinking in 0.9.5
+
+Open **Settings → Models** to change the generative GGUF or installed local Ollama tag independently of the thinking model. Automatic selection uses the fast profile for ordinary replies and the thinking profile for complex work. The preferred fast file is Qwen3-4B-Instruct-2507 Q4_K_M, installed separately under the local data directory's `models/llm` folder. Missing fast weights use the thinking fallback. Disable automatic selection to use the thinking profile for model replies. See the [fast-model and memory guide](fast-memory-guide.md) for controls and the [validation report](fast-memory-report-0.9.5.md) for measured results and limits.
+
 ## Supported Sources
 
 ### Local GGUF

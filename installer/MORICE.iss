@@ -1,10 +1,12 @@
 #define MyAppName "MORICE"
 #ifndef MyAppVersion
-  #define MyAppVersion "0.9.4"
+  #define MyAppVersion "0.9.5"
 #endif
 #define MyAppPublisher "EONASH2722"
 #define MyAppExeName "MORICE.exe"
-#define MyAppSourceDir "..\dist\MORICE"
+#ifndef MyAppSourceDir
+  #define MyAppSourceDir "..\dist\MORICE"
+#endif
 
 [Setup]
 AppId={{6DD56E2B-7D4C-4D69-B8A8-204BA7B22D72}
@@ -30,7 +32,7 @@ WizardStyle=modern
 CloseApplications=yes
 RestartApplications=no
 AppMutex=MORICE.Desktop.Platform
-VersionInfoVersion=0.8.0.0
+VersionInfoVersion={#MyAppVersion}.0
 VersionInfoDescription=MORICE desktop AI platform
 VersionInfoProductName=MORICE
 

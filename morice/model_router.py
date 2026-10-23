@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import threading
 import time
@@ -23,7 +24,7 @@ class ModelHealth:
     last_context_usage: float = 0.0
     last_error: str = ""
     last_used_at: float = 0.0
-    gpu_layers: int = 0
+    gpu_layers: int | None = None
     temperature: float = 0.2
 
     @property
@@ -58,6 +59,66 @@ class ModelRouter:
     def __init__(self):
         self._health: dict[str, ModelHealth] = {}
         self._lock = threading.RLock()
+
+    @staticmethod
+    def reply_models(settings):
+        """Resolve the two profiles without loading models or modifying the thinking selection."""
+        from .config import local_data_dir
+        from .llm_client import _resolve_gguf_path, DEFAULT_MODEL
+        saved_name=str(settings.get('model_name','')).strip()
+        thinking_name=saved_name or DEFAULT_MODEL
+        thinking_path=_resolve_gguf_path(settings.get('model_path',''),thinking_name,bool(saved_name))
+        if thinking_path: thinking_name=saved_name
+        fast_name=str(settings.get('generative_model_name','')).strip()
+        configured=str(settings.get('generative_model_path','')).strip()
+        default_path=local_data_dir()/'models'/'llm'/'Qwen3-4B-Instruct-2507-Q4_K_M.gguf'
+        fast_path=configured or (str(default_path) if default_path.is_file() and not fast_name else '')
+        fast_available=bool((fast_path and fast_path.lower().endswith('.gguf') and os.path.isfile(fast_path)) or (fast_name and not fast_path))
+        return {'thinking':{'path':thinking_path,'name':thinking_name},
+                'generative':{'path':fast_path if fast_available else '', 'name':fast_name if fast_available else ''},
+                'generative_available':fast_available,
+                'generative_configured':configured or fast_name or str(default_path),
+                'residency':'swap_on_demand'}
+
+    def select_reply(self, settings, tier='general'):
+        models=self.reply_models(settings)
+        fast=settings.get('automatic_model_selection','true')=='true' and str(getattr(tier,'value',tier))!='deep'
+        role='generative' if fast and models['generative_available'] else 'thinking'
+        result={**models[role], 'role':role, 'requested_role':'generative' if fast else 'thinking',
+                'fallback':bool(fast and not models['generative_available']), 'residency':models['residency']}
+        with self._lock:
+            self.last_reply_selection=dict(result)
+        return result
+
+    def stream_reply(self, selection, history, request, *, thinking, stream_function, **kwargs):
+        """Escalate one failed fast backend before visible output; never splice answers."""
+        cancellation=kwargs.get('cancel_event')
+        candidates=[selection]
+        if selection['role']=='generative' and (thinking.get('path') or thinking.get('name')):
+            candidates.append({**thinking,'role':'thinking'})
+        for index,provider in enumerate(candidates):
+            if cancellation is not None and cancellation.is_set(): return
+            options=dict(kwargs)
+            if index:
+                options['enable_reasoning']=True
+                callback=options.get('telemetry')
+                if callback: callback('model_escalation',{'reason':'fast_backend_failed_before_output'})
+            stream=None
+            emitted=False
+            try:
+                stream=iter(stream_function(history,request,model=provider.get('name') or None,gguf_path=provider.get('path',''),**options))
+                for delta in stream:
+                    if not str(delta).strip() and not emitted: continue
+                    failed=not emitted and (str(delta).startswith(('(MORICE)','(No response)')) or 'local model took too long' in str(delta).lower() or 'local model stumbled' in str(delta).lower())
+                    if failed and index+1<len(candidates): break
+                    emitted=True
+                    yield delta
+                if emitted: return
+            except Exception:
+                if emitted or index+1==len(candidates): raise
+            finally:
+                close=getattr(stream,'close',None)
+                if close: close()
 
     def route(
         self,
@@ -125,7 +186,7 @@ class ModelRouter:
         generated_tokens: int = 0,
         context_limit: int = 0,
         error: str = "",
-        gpu_layers: int = 0,
+        gpu_layers: int | None = None,
         temperature: float = 0.2,
     ) -> None:
         clean_id = model_id or "unknown"
@@ -149,7 +210,7 @@ class ModelRouter:
             )
             health.last_error = error
             health.last_used_at = time.time()
-            health.gpu_layers = max(0, int(gpu_layers))
+            health.gpu_layers = max(0, int(gpu_layers)) if gpu_layers is not None else None
             health.temperature = float(temperature)
 
     def health(self) -> dict[str, dict[str, Any]]:
@@ -180,9 +241,12 @@ class ContextManager:
         project_context: str = "",
         persistent_context: str = "",
     ) -> tuple[tuple[dict[str, str], ...], dict[str, Any]]:
-        budget_chars = max(4_000, int(token_budget * self.chars_per_token))
+        budget_chars = max(512, int(token_budget * self.chars_per_token))
+        context_room=max(0,budget_chars-len(request)-1000)
+        persistent_context=persistent_context[:int(context_room*.4)]
+        project_context=project_context[:int(context_room*.35)]
         reserved = len(request) + len(project_context) + len(persistent_context) + 1_000
-        available = max(2_000, budget_chars - reserved)
+        available = max(0, budget_chars - reserved)
         clean = [
             {
                 "role": (
@@ -199,7 +263,7 @@ class ContextManager:
         query_terms = set(re.findall(r"[a-z0-9_]+", request.lower()))
         selected_entries: list[tuple[int, dict[str, str]]] = []
         used = 0
-        history_budget = max(1_000, int(available * 0.8))
+        history_budget = max(0, int(available * 0.8))
         for index in range(len(clean) - 1, -1, -1):
             item = clean[index]
             content = item["content"]
@@ -210,7 +274,7 @@ class ContextManager:
                 continue
             selected_entries.append((index, item))
             used += len(content)
-        if not selected_entries and clean:
+        if not selected_entries and clean and history_budget>0:
             newest = dict(clean[-1])
             newest["content"] = newest["content"][-history_budget:]
             selected_entries.append((len(clean) - 1, newest))
@@ -272,6 +336,7 @@ class ContextManager:
             ),
             "omittedMessages": omitted,
             "compressed": omitted > 0,
+            "overBudget":len(request)+1000>budget_chars,
         }
 
     @staticmethod

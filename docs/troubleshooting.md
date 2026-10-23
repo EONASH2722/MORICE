@@ -24,6 +24,14 @@ Open **Theme** in the top bar and choose **Glass · Prismatic glass**. Each them
 
 ## Models And Replies
 
+### Older messages disappear while scrolling
+
+Update to 0.9.5 and restart the current packaged executable. Chat pages now preserve the reading anchor while loading older/newer messages, and streaming output waits without pulling you away from older text. Use **Search current chat** or the latest-message action to jump directly. Only a bounded window is rendered; retained messages remain in History. Check the chat's retention setting if it was configured for automatic expiry.
+
+### Fast replies or personal memory are unavailable
+
+Check **Settings → Models** for the fast profile's actual path/status. Install or select the GGUF separately; release packages do not include its weights. Cold starts and swaps can take several seconds. **Settings → Memory** controls current-chat retrieval and optional personal preferences independently. Personal Memory defaults off. Rebuild the history index from that panel if a retained source cannot be found; cancellation preserves the previous index. Embedding search is not included in this release.
+
 ### MORICE returns no text
 
 Empty completions are converted into a visible failure. Retry once, reduce prompt/context size, close VRAM-heavy programs, inspect logs, or choose another model. A blank model response is never counted as completed work.

@@ -6,7 +6,9 @@
 
 <h1 align="center">MORICE</h1>
 
-## Current source: 0.9.4
+## Current source: 0.9.5
+
+The [0.9.5 fast replies and memory update](docs/release-notes-0.9.5.md) adds automatic fast/thinking model routing, a separate **Fast Reply Model** setting, indexed recall across the entire retained current chat, and optional approved personal preferences. Chat scrolling loads earlier messages without losing the reading position or snapping to each streamed token. See the [setup and privacy guide](docs/fast-memory-guide.md) and [implementation and validation report](docs/fast-memory-report-0.9.5.md).
 
 The [0.9.4 location and image update](docs/release-notes-0.9.4.md) adds online city/state/country lookup, understands distance questions, and makes prompt-only image generation explicit. See [the new guide](docs/spatial-media-0.9.4.md).
 
@@ -50,7 +52,7 @@ Choose **Theme** in the top bar to preview a theme or toggle **Animate the works
 
 **Validation scope:** [0.9.4 validation](docs/spatial-media-validation-0.9.4.md) covers online places, prompt-only image requests and matching package checks. The [0.9.3 workspace validation](docs/workspace-validation-0.9.3.md) records the earlier Project and Experiment update at its own source fingerprint. The preserved [0.9.2 chat repair](docs/chat-routing-validation-0.9.2.md), [0.9.1 UI follow-up](docs/followup-audit-0.9.1.md) and [original release audit](docs/release-audit-report.md) record earlier checks. Physical audio/devices, heavy inference memory and compositor frame pacing remain scoped; compatible providers and sufficient RAM/VRAM are required.
 
-**Downloads:** [Windows 0.9.4 desktop preview and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.4) include simpler Project and Research workflows, the renovated interface, and the earlier chat routing repair. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest stable release](https://github.com/EONASH2722/MORICE/releases/latest).
+**Downloads:** [Windows 0.9.5 desktop preview and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.5) include fast reply model selection, indexed chat recall, optional personal memory and the scrolling repairs. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest stable release](https://github.com/EONASH2722/MORICE/releases/latest).
 
 ### Installation
 
@@ -62,7 +64,7 @@ python -m venv .venv
 
 Use Python 3.12+ for the desktop. Local media model dependencies may require a separate compatible runtime; the main app remains usable when those providers are unavailable. See [troubleshooting](docs/troubleshooting.md), [architecture](docs/architecture.md) and [the renovation report](docs/renovation-report.md).
 
-The [0.9.4 desktop preview](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.4) contains the renovated Windows app and matching Python packages. Install `morice_ai-0.9.4-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
+The [0.9.5 desktop preview](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.5) contains the updated Windows app and matching Python packages. Install `morice_ai-0.9.5-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
 
 
 <p align="center">

@@ -19,6 +19,14 @@ DEFAULT_SETTINGS = {
     "project_lookup_mode": "online",
     "model_path": "",
     "model_name": "",
+    "automatic_model_selection": "true",
+    "generative_model_path": "",
+    "generative_model_name": "",
+    "chat_memory_enabled": "true",
+    "personal_memory_enabled": "false",
+    "memory_allow_explicit": "true",
+    "memory_allow_suggestions": "false",
+    "project_memory_enabled": "true",
     "gpu_name": "",
     "gpu_vram_mb": "",
     "animation_speed": "normal",
@@ -414,6 +422,15 @@ def wake_signal_path() -> str:
     return os.path.join(_settings_dir(), "wake.signal")
 
 
+def _normalize_intelligence_settings(target, source):
+    target['generative_model_path'] = normalize_model_path(source.get('generative_model_path', ''))
+    target['generative_model_name'] = normalize_model_name(source.get('generative_model_name', ''))
+    for key in ('automatic_model_selection','chat_memory_enabled','personal_memory_enabled',
+                'memory_allow_explicit','memory_allow_suggestions','project_memory_enabled'):
+        default = DEFAULT_SETTINGS[key] == 'true'
+        target[key] = str(normalize_boolean_setting(source.get(key, DEFAULT_SETTINGS[key]),default=default)).lower()
+
+
 def load_settings() -> dict:
     path = settings_path()
     if not os.path.exists(path):
@@ -448,6 +465,7 @@ def load_settings() -> dict:
     settings["project_lookup_mode"] = normalize_project_lookup_mode(settings.get("project_lookup_mode", ""))
     settings["model_path"] = normalize_model_path(settings.get("model_path", ""))
     settings["model_name"] = normalize_model_name(settings.get("model_name", ""))
+    _normalize_intelligence_settings(settings, settings)
     settings["gpu_name"] = normalize_gpu_name(settings.get("gpu_name", ""))
     settings["gpu_vram_mb"] = normalize_gpu_vram_mb(settings.get("gpu_vram_mb", ""))
     settings["animation_speed"] = normalize_animation_speed(
@@ -591,6 +609,7 @@ def save_settings(settings: dict) -> None:
     clean["project_lookup_mode"] = normalize_project_lookup_mode(settings.get("project_lookup_mode", ""))
     clean["model_path"] = normalize_model_path(settings.get("model_path", ""))
     clean["model_name"] = normalize_model_name(settings.get("model_name", ""))
+    _normalize_intelligence_settings(clean, settings)
     clean["gpu_name"] = normalize_gpu_name(settings.get("gpu_name", ""))
     clean["gpu_vram_mb"] = normalize_gpu_vram_mb(settings.get("gpu_vram_mb", ""))
     clean["animation_speed"] = normalize_animation_speed(
