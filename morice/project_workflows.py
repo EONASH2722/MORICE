@@ -166,7 +166,7 @@ ADAPTERS: tuple[ProjectAdapter, ...] = (
     ProjectAdapter(
         "python",
         "Python",
-        markers=("pyproject.toml", "requirements.txt", "main.py", "app.py"),
+        markers=("pyproject.toml", "requirements.txt", "main.py", "app.py", "test_*.py", "tests/test_*.py"),
         request_terms=("python", "pygame", "django", "fastapi"),
         executable_names=("python.exe", "py.exe"),
         test_candidates=(("python", "-m", "pytest"),),

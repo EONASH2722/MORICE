@@ -104,6 +104,8 @@ def register_pc_adapters(kernel, registry) -> None:
     if kernel.resources.descriptor("MEDIA_SESSION") is None:
         kernel.resources.register(ResourceDescriptor("MEDIA_SESSION"))
     for capability_id, permissions, claims in (
+        *((f"computer.{verb}",(PermissionCategory.DESKTOP_AUTOMATION,PermissionCategory.SCREEN_ACCESS),
+            (ResourceClaim('FOREGROUND_UI',exclusive=True),)) for verb in ('inspect','focus','type','set_value','invoke','scroll')),
         ("application.open", (PermissionCategory.APPLICATION_CONTROL,), (ResourceClaim("FOREGROUND_UI", exclusive=True),)),
         *((f"application.{verb}", (PermissionCategory.APPLICATION_CONTROL, PermissionCategory.WINDOW_CONTROL), (ResourceClaim("FOREGROUND_UI", exclusive=True),)) for verb in ("focus", "restore", "maximize", "minimize", "close", "close_others")),
         *((f"browser.{verb}", (PermissionCategory.BROWSER_CONTROL, PermissionCategory.NETWORK_ACCESS, *extra),
@@ -125,10 +127,10 @@ def register_pc_adapters(kernel, registry) -> None:
                 if action.tool_id != cid:
                     raise ValueError("PC action does not match its capability permission contract.")
                 return replace(action, permissions=tuple(dict.fromkeys((*action.permissions, *required))),
-                    risk=ActionRisk.DESTRUCTIVE if cid in {"browser.click", "browser.submit", "browser.upload", "application.close_others"} else action.risk)
+                      risk=ActionRisk.DESTRUCTIVE if cid in {"browser.click", "browser.submit", "browser.upload", "application.close_others",'computer.invoke','computer.set_value','computer.type'} else action.risk)
             domain, verb = cid.split(".", 1)
             return ControlAction(domain, verb, inputs.get("target", ""), inputs.get("arguments", {}),
-                required, ActionRisk.DESTRUCTIVE if cid in {"browser.click", "browser.submit", "browser.upload", "application.close_others"} else ActionRisk.ROUTINE, action_id=context.task_id)
+                required, ActionRisk.DESTRUCTIVE if cid in {"browser.click", "browser.submit", "browser.upload", "application.close_others",'computer.invoke','computer.set_value','computer.type'} else ActionRisk.ROUTINE, action_id=context.task_id)
         def permission_check(inputs, context, make_action=action_for):
             # Preview only. The old registry consumes the exact grant once.
             action = make_action(inputs, context)
@@ -149,7 +151,9 @@ def register_pc_adapters(kernel, registry) -> None:
             action = make_action(context.metadata["task_inputs"], context)
             verified = bool(result.success and result.verification and result.verification.status == VerificationStatus.VERIFIED)
             value = result.legacy_result
-            message = "Desired state was observed; no duplicate action was needed." if result.metrics.get("action_noop") else "Action verified from observed state." if verified else result.verification.message if result.verification else "Action could not be verified."
+            message = ("Desired state was observed; no duplicate action was needed." if result.metrics.get("action_noop")
+                else "Action verified from observed state." if verified
+                else "; ".join(e.message for e in result.errors) or (result.verification.message if result.verification else "Action could not be verified."))
             if isinstance(value, ControlResult):
                 value = replace(value, success=result.success, verified=verified, message=message,
                     errors=tuple(dict.fromkeys((*value.errors, *(e.message for e in result.errors)))),

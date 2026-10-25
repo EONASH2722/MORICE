@@ -4,6 +4,18 @@ All notable changes to MORICE are documented here.
 
 ## [Unreleased]
 
+## [0.10.0] — natural-language control and interactive results
+
+- Prefer an installed Qwen3.5 4B Q6_K reasoning model while preserving explicit selections and the separate fast profile. Combine initial system instructions for strict chat templates, reserve tokens for visible answers, and recover once from reasoning-only output exhaustion.
+- Parse LaTeX before Markdown escapes/emphasis; preserve fenced/inline code, currency, units and readable invalid expressions. Finalize streamed replies in their existing bubble, preserve heading boundaries after optional user addresses, and verify the bundled parser in package startup checks.
+- Guard queued activity updates after window closure and avoid rebuilding the renovated shell's hidden legacy workspace models.
+- Connect typed first-party intents and text/voice entry points to the existing Kernel, TaskGraphs, model router, domain owners and native UI bridge. Preserve stable targets, bounded clarification, restart reauthorization, cancellation and partial results.
+- Add an initially disabled Desktop automation permission in Settings, immediate revocation, and observed Windows accessibility operations. Existing action confirmations and unsupported-control errors remain in force.
+- Add data-only, versioned rich responses with lazy native metrics, tables, linked charts, calculations, receipts, progress, actual artifact previews, STL assemblies and geographic results. Preserve source provenance, units, state, hashes and stale/missing-file behavior.
+- Bind real project proposals/reviews, discovered test commands, failed-test evidence, saved build results, experiments, media, Device Mesh transfers, watches, scoped GitHub issues, security containment, installed plugin lifecycle, saved-chat search and preferences to their existing owners.
+- Export actual charts as verified PNG/SVG/PDF; preserve camera and part/point selection. Fix concurrent Builder checkpoint reads on Windows, a selected-project context mutation, and custom permission callbacks bypassing explicit host denials.
+- Preserve the 0.9.5 duplicate-message, reading-anchor, clock, model selection and technical-reply fixes. Move the README introduction and navigation to the top. Document measured coverage and conditional capabilities without promising universal application control or scientific correctness.
+
 ## [0.9.5] — fast replies, dual memory and stable chat scrolling
 
 - Repair technical audit routing, installed-default Research synthesis, duplicate Research user turns and delayed processing updates after completion. Preserve complete current prompts and honor per-request context/output limits, including a longer answer budget for detailed Deep requests.

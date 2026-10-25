@@ -23,7 +23,8 @@ class GitHubProvider:
             raise ValueError("A safe connector id and owner/repository are required.")
         if not fixture and (api_url != "https://api.github.com" or auth_url != "https://github.com"):
             raise ValueError("This adapter supports the official GitHub origins only.")
-        self.descriptor = ConnectorDescriptor(connector_id, "GitHub: " + repository, "github", metadata={"repository": repository})
+        self.descriptor = ConnectorDescriptor(connector_id, "GitHub: " + repository, "github",
+            capabilities=('issue.read','issue.create','issue.list','events.poll','auth.step','auth.refresh'),metadata={"repository": repository})
         self.vault, self.repository, self.client_id = vault, repository, client_id
         self.http = BoundedHTTP(api_url, fixture=fixture)
         self.auth_http = BoundedHTTP(auth_url, fixture=fixture)
@@ -46,6 +47,8 @@ class GitHubProvider:
 
     def operations(self):
         return {"issue.read":ConnectorOperation(self.read_issue),"issue.create":ConnectorOperation(self.create_issue,"write",True),
+                "issue.list":ConnectorOperation(self.list_issues,input_schema={'type':'object','properties':{
+                    'query':{'type':'string','maxLength':200},'state':{'type':'string','enum':['open','closed','all']}},'additionalProperties':False}),
                 "events.poll":ConnectorOperation(self.poll),"auth.step":ConnectorOperation(self.auth_step,"auth"),
                 "auth.refresh":ConnectorOperation(self.refresh,"auth")}
 
@@ -240,6 +243,23 @@ class GitHubProvider:
         return ExecutionResult(TaskStatus.SUCCEEDED, True, {"object": value, "trust": "UNTRUSTED_CONTENT",
             "retrieved_at": time.time(), "cache_revalidated": status == 304, "etag": self._cache[number]["etag"],
             "connector_id": self.descriptor.connector_id}, evidence=["Official API object identity and fresh retrieval/revalidation."])
+
+    def list_issues(self,arguments,context):
+        state=arguments.get('state','open');query=arguments.get('query','')
+        if state not in {'open','closed','all'} or not isinstance(query,str) or len(query)>200:raise ValueError('Invalid bounded issue query.')
+        _,values,_=self._request('GET',self._issue_path()+'?state='+state+'&sort=updated&direction=desc&per_page=100',context)
+        if not isinstance(values,list) or len(values)>100:raise ValueError('Issue listing exceeded its page bound.')
+        rows=[]
+        for value in values:
+            if not isinstance(value,dict) or not isinstance(value.get('number'),int) or not value.get('id'):
+                raise ValueError('Provider issue identity is missing.')
+            if value.get('pull_request'):continue
+            if query and query.casefold() not in (str(value.get('title',''))+' '+str(value.get('body') or '')).casefold():continue
+            rows.append({key:value.get(key) for key in ('id','number','title','state','html_url','updated_at')})
+        return ExecutionResult(TaskStatus.SUCCEEDED,True,{'issues':rows,'repository':self.repository,
+            'retrieved_at':time.time(),'page_limit':100,'possibly_more':len(values)==100,'query':query,
+            'trust':'UNTRUSTED_CONTENT','connector_id':self.descriptor.connector_id},
+            evidence=['Fresh authenticated repository issue page; pull requests excluded. Filtering covers only this bounded page.'])
 
     def create_issue(self, arguments, context):
         title = arguments.get("title", "")

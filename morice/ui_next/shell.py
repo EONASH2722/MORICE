@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import weakref
+from collections import OrderedDict
+from shiboken6 import isValid
 
 from PySide6.QtCore import Qt, Signal, Slot, QObject, QTimer, QSize
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QKeySequence, QShortcut, QPalette, QColor, QFont
@@ -71,6 +74,11 @@ class RenovatedWindow(ExistingPresenter):
         self.motion_director = MotionDirector(self.theme_engine, self)
         self.effect_clock = EffectClock(self.effect_policy, self)
         self.ui_bridge = UiBridge(self.runtime, self)
+        self._rich_hosts=weakref.WeakSet();self._rich_plan_cache=OrderedDict();self._rich_pending_ids=set()
+        self._rich_sync_timer=QTimer(self);self._rich_sync_timer.setSingleShot(True);self._rich_sync_timer.timeout.connect(self._sync_rich_messages)
+        from .nlui import WindowCapabilityPort
+        self.nlui_port=WindowCapabilityPort(self)
+        self.runtime.nlui.attach_window(self.nlui_port)
         self.core_presentation = CorePresentation(self, self.ui_bridge, self)
         self.routes = {}; self.active_route = 'home'; self.route_factories = {}
         # Keep established backend callbacks and their controls during staged
@@ -216,7 +224,7 @@ class RenovatedWindow(ExistingPresenter):
         self.navigation.setVisible(key != 'home'); self.action_deck.set_active(key); self.core_button.setVisible(key != 'home')
         self.action_deck.setVisible(not self.navigation.isVisible())
         self.breadcrumb.setText(key.title() if key != 'home' else 'Core')
-        self.composer.setVisible(key in {'home', 'chats', 'projects', 'voice'})
+        self.composer.setVisible(True)  # One natural-language entry point in every workspace.
         self._size_renovated_composer()
         if key == 'spatial': self.routes[key].set_context(self.runtime.spatial.snapshot())
         if key == 'projects': self.project_lookup_btn.show(); self.routes[key].refresh_state()
@@ -249,6 +257,11 @@ class RenovatedWindow(ExistingPresenter):
 
     def _cancel_current_work(self):
         self.runtime.voice.interrupt('user stop')
+        token=getattr(self,'_nlui_token',None)
+        if token is not None:
+            token.cancel('Stopped by user.')
+            self.status_line.setText('Stopping the request; completed changes will be reported.')
+            return
         if self.is_busy: self.input.setText('stop'); ExistingPresenter.on_send(self)
 
     def append_message(self, *args, **kwargs):
@@ -260,6 +273,113 @@ class RenovatedWindow(ExistingPresenter):
         if hasattr(self, 'renderer_clocks'): self.renderer_clocks.register(self)
         if getattr(self,'_renovated_ready',False):self._refresh_rich_appearance()
         return result
+
+    def _create_message_row(self,*args,**kwargs):
+        row=super()._create_message_row(*args,**kwargs)
+        if getattr(self,'_renovated_ready',False):self._rich_sync_timer.start(0)
+        return row
+
+    def _sync_rich_messages(self):
+        if not getattr(self,'_renovated_ready',False) or self._is_closing:return
+        from ..pyside_app import ChatBubble
+        chat_id=self._chat_id;pending=[]
+        for row in self._message_rows:
+            bubble=row.findChild(ChatBubble);identifier=row.property('messageId')
+            if bubble is None or bubble.is_user or not identifier:continue
+            key=(chat_id,identifier)
+            if key in self._rich_plan_cache:
+                plan=self._rich_plan_cache[key]
+                if plan and getattr(bubble,'_response_host',None) is None:self._mount_response_plan(row,identifier,plan)
+            elif self._session_enabled and key not in self._rich_pending_ids:pending.append(identifier);self._rich_pending_ids.add(key)
+        if not pending:return
+        def done(envelope):
+            for identifier in pending:self._rich_pending_ids.discard((chat_id,identifier))
+            if self._is_closing:return
+            if envelope['ok']:
+                for identifier in pending:
+                    if (chat_id,identifier) not in self._rich_plan_cache:self._cache_response_plan(chat_id,identifier,envelope['value'].get(identifier))
+                if self._chat_id==chat_id:self._rich_sync_timer.start(0)
+        try:self.ui_bridge.submit('Restore response metadata',lambda:self.runtime.chat_history.get_response_plans(chat_id,pending),done,priority='background')
+        except (ValueError,RuntimeError):
+            for identifier in pending:self._rich_pending_ids.discard((chat_id,identifier))
+
+    def _cache_response_plan(self,chat_id,identifier,plan):
+        key=(chat_id,identifier);self._rich_plan_cache[key]=plan;self._rich_plan_cache.move_to_end(key)
+        while len(self._rich_plan_cache)>256:self._rich_plan_cache.popitem(last=False)
+
+    def _mount_response_plan(self,row,identifier,plan):
+        from ..pyside_app import ChatBubble
+        from .rich_response import RichResponseHost
+        bubble=row.findChild(ChatBubble)
+        if bubble is None or bubble.is_user:return
+        existing=getattr(bubble,'_response_host',None)
+        if existing is not None and isValid(existing):
+            if existing.plan.id==plan['id']:return
+            existing.dispose();bubble.layout().removeWidget(existing);existing.deleteLater()
+        chat_id=self._chat_id
+        def changed(value):
+            self._cache_response_plan(chat_id,identifier,value.to_dict())
+            if self._session_enabled:self.runtime.chat_history.set_response_plan(chat_id,identifier,value)
+        try:
+            host=RichResponseHost(plan,self,bubble,on_changed=changed);bubble.layout().addWidget(host)
+            bubble._response_host=host;self._rich_hosts.add(host)
+        except (ValueError,TypeError) as exc:self.runtime.logs.log('WARNING','Rich response unavailable: '+str(exc),category='ui')
+
+    def _present_response_plan(self,plan,*,source_values=None):
+        if plan is None or not self.history or not self._message_rows:return
+        from ..pyside_app import ChatBubble
+        import uuid
+        message=self.history[-1]
+        if message.get('role')!='assistant':return
+        if self._session_enabled:self._persist_chat_history()
+        identifier=message.setdefault('message_id',uuid.uuid4().hex)
+        for owner,source_value in (source_values or {}).items():
+            from dataclasses import replace
+            from ..spatial.contracts import SpatialContext
+            from ..rich_response.sources import digest
+            if owner=='spatial':data=SpatialContext.from_dict(source_value).to_dict();kind='spatial';revision=digest(data)
+            elif owner=='chat_search':data=dict(source_value);kind='chat_metadata';revision=''
+            else:continue
+            attachments=message.get('attachments',[])
+            if not isinstance(attachments,list):attachments=[]
+            message['attachments']=[a for a in attachments if not isinstance(a,dict) or not(a.get('kind')=='response_source' and a.get('owner')==owner)]+[
+                {'kind':'response_source','schema':1,'owner':owner,'revision':digest(data),'data':data}]
+            plan=replace(plan,components=tuple(replace(c,source=replace(c.source,id=identifier,revision=revision)) if c.source and c.source.kind==kind else c for c in plan.components))
+            if self._session_enabled:self.runtime.chat_history.set_response_source(self._chat_id,identifier,owner,data)
+        row=next((r for r in self._message_rows if r.property('messageId')==identifier),None)
+        if row is None:
+            candidate=self._message_rows[-1];bubble=candidate.findChild(ChatBubble)
+            if bubble is None or bubble.is_user:return
+            row=candidate;row.setProperty('messageId',identifier)
+        value=plan.to_dict();self._cache_response_plan(self._chat_id,identifier,value)
+        if self._session_enabled:self.runtime.chat_history.set_response_plan(self._chat_id,identifier,plan)
+        show_start=self.follow_latest and self.active_route=='chats'
+        if show_start:self.follow_latest=False
+        self._mount_response_plan(row,identifier,value)
+        if show_start:
+            bubble=row.findChild(ChatBubble);host=getattr(bubble,'_response_host',None)
+            if host is not None:
+                target=next(iter(host.sections.values()))['toggle']
+                epoch=self._history_scroll_epoch
+                QTimer.singleShot(0,lambda:self.scroll.ensureWidgetVisible(target,20,20) if isValid(target) and not self._is_closing and epoch==self._history_scroll_epoch else None)
+
+    def _present_nlui_result(self,result,context):
+        from ..rich_response.planner import ResponsePlanner
+        sources={}
+        for execution in result.executions:
+            value=execution.get('output') or {}
+            if execution.get('success') and value.get('spatial_context'):sources['spatial']=value['spatial_context']
+            if execution.get('success') and 'chats' in value and value.get('query'):sources['chat_search']={'query':value['query']}
+        self._present_response_plan(ResponsePlanner().from_nlui(result,context,self.settings.get('response_presentation','auto')),source_values=sources)
+
+    def _present_user_data(self):
+        if not self.history or self.history[-1].get('role')!='assistant':return
+        user=next((m for m in reversed(self.history[:-1]) if m.get('role')=='user'),None)
+        if user is None or len(user.get('content',''))<100:return
+        import uuid
+        user.setdefault('message_id',uuid.uuid4().hex)
+        from ..rich_response.planner import ResponsePlanner
+        self._present_response_plan(ResponsePlanner().from_user_message(user,self._chat_id,self.settings.get('response_presentation','auto')))
 
     def _project_submission_action(self):
         if getattr(self, '_renovated_ready', False) and self.active_route == 'projects':
@@ -541,6 +661,28 @@ class RenovatedWindow(ExistingPresenter):
         if not getattr(self, '_renovated_ready', False): return super().on_send()
         text = self.input.text().strip()
         if not text: return
+        if getattr(self,'_nlui_token',None) is not None:
+            if text.casefold().strip('.!') in {'stop','cancel','stop that','cancel that','stop the request'}:
+                self.input.clear();self._cancel_current_work()
+            else:self.status_line.setText('A request is running. Choose Stop before sending another request.')
+            return
+        if self.settings.get('nlui_enabled','true')=='true' and not self.is_busy:
+            context=self.nlui_port.context()
+            resolution=self.runtime.nlui.resolve(text,context)
+            semantic=resolution.route=='semantic_pending' or (not resolution.matched and self.runtime.nlui.semantic_candidate(text))
+            if semantic:
+                from ..nlui.contracts import IntentResolution
+                if resolution.route!='semantic_pending':resolution=IntentResolution(route='semantic_pending')
+            if resolution.matched or semantic:
+                self.input.clear()
+                from ..personalization import resolve_user_address
+                self._ensure_history_user(text)
+                self.append_message(resolve_user_address(self._identity_profile()) or 'You',text,is_user=True,force_scroll=False)
+                if resolution.operations or semantic:self._execute_nlui(resolution,context,text)
+                else:
+                    self._append_direct_reply(text,resolution.question,address=False)
+                    self.runtime.nlui.commit_pending(self.nlui_port.context(),persist=self._session_enabled)
+                return
         if self.is_busy and self.active_route != getattr(self, '_request_workspace_route', self.active_route):
             self.status_line.setText('Finish or stop the current response before sending from another workspace.')
             return
@@ -639,8 +781,57 @@ class RenovatedWindow(ExistingPresenter):
             self.wake_controller.tts_request_id = handle.request_id
         return handle
 
+    def _execute_nlui(self,resolution,context,text):
+        from ..kernel.cancellation import CancellationToken
+        semantic=resolution.route=='semantic_pending'
+        quick=bool(resolution.operations) and all(operation.capability_id.startswith('ui.') for operation in resolution.operations)
+        if quick:
+            try:result=self.runtime.nlui.execute(resolution,context)
+            except Exception as exc:
+                self._append_direct_reply(text,str(exc),address=False);return
+            self._append_direct_reply(text,result.message+('\n'+resolution.question if resolution.question else ''),address=False)
+            self.nlui_port.remember_result(result)
+            self._present_nlui_result(result,context)
+            self.runtime.nlui.commit_pending(self.nlui_port.context(),persist=self._session_enabled)
+            return
+        token=CancellationToken();self._nlui_token=token
+        self._set_busy(True)
+        plan=' → '.join(operation.capability_id.rsplit('.',1)[-1] for operation in resolution.operations)
+        self._show_thinking('Running the request'+(': '+plan if self.settings.get('nlui_show_plan','true')=='true' else '.'))
+        model_id=self._configure_project_backend(purpose='control',request=text) if semantic else ''
+        def done(envelope):
+            if getattr(self,'_nlui_token',None) is not token:return
+            self._nlui_token=None
+            if self._chat_id!=context.conversation_id:
+                self._remove_thinking();self._set_busy(False);return
+            result=envelope.get('value')
+            message=result.message if envelope['ok'] else envelope.get('error','The request failed.')
+            self.history.append({'role':'assistant','content':message})
+            self._on_message_ready('MORICE',message,False)
+            if envelope['ok']:
+                self.nlui_port.remember_result(result);self._present_nlui_result(result,context)
+            self.runtime.nlui.commit_pending(self.nlui_port.context(),persist=self._session_enabled)
+        try:
+            def operation():
+                request_text=resolution.context_request or text
+                selected=self.runtime.nlui.propose(request_text,context,cancellation=token,model_id=model_id) if semantic else resolution
+                if not selected.operations:
+                    from ..nlui.contracts import NaturalLanguageResult
+                    if semantic:self.runtime.nlui.remember_semantic_question(request_text,selected.question,context)
+                    return NaturalLanguageResult(selected.request_id,'awaiting_input',selected.question)
+                return self.runtime.nlui.execute(selected,context,cancellation=token)
+            self.ui_bridge.submit('Natural-language request',operation,done)
+        except Exception as exc:done({'ok':False,'error':str(exc)})
+
+    def _restore_history_chat(self,chat_id):
+        result=super()._restore_history_chat(chat_id)
+        if getattr(self,'_renovated_ready',False):
+            self.runtime.nlui.restore_pending(self._chat_id);self.nlui_port.restore_selection()
+        return result
+
     def _append_direct_reply(self, user_input, reply, *, address=True):
         result = super()._append_direct_reply(user_input, reply, address=address)
+        if getattr(self,'_renovated_ready',False):self._present_user_data()
         if getattr(self, '_renovated_ready', False) and self.wake_controller.active:
             self.wake_controller.result(reply)
         return result
@@ -649,6 +840,7 @@ class RenovatedWindow(ExistingPresenter):
         if getattr(self, '_project_presentation_active', False) and kwargs.get('already_visible'):
             self.routes['projects'].record_message(author, message)
         result = super()._finish_response_delivery(author, message, is_user, **kwargs)
+        if getattr(self,'_renovated_ready',False) and not is_user:self._present_user_data()
         self._project_presentation_active = False
         if getattr(self, '_renovated_ready', False): self.routes['projects'].refresh_state()
         if getattr(self, '_renovated_ready', False) and self.wake_controller.active and not is_user:
@@ -756,6 +948,11 @@ class RenovatedWindow(ExistingPresenter):
 
     def closeEvent(self, event):
         if getattr(self, '_renovated_ready', False):
+            self._rich_sync_timer.stop()
+            for host in tuple(self._rich_hosts):
+                if isValid(host):host.dispose()
+            token=getattr(self,'_nlui_token',None)
+            if token is not None:token.cancel('Target MORICE window closed.')
             self.wake_controller.close()
             self.core_presentation.close(); self.action_deck.dispose()
             for view in set(self.routes.values()):
@@ -765,4 +962,6 @@ class RenovatedWindow(ExistingPresenter):
             self.renderer_clocks.close()
             self.icon_binder.close()
             self.ui_bridge.close(); self.effect_clock.close(); self.motion_director.stop_all()
+            if self.runtime._nlui_controller is not None:
+                self.runtime._nlui_controller.detach_window(self.nlui_port.window_id)
         return super().closeEvent(event)

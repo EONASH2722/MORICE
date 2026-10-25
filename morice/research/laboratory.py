@@ -9,6 +9,7 @@ import math
 import os
 import platform
 import queue
+import re
 import shutil
 import statistics
 import threading
@@ -75,9 +76,11 @@ class VirtualLaboratory:
                        (identifier, project_id, record, experiment.title, encode(experiment.to_dict()), encode(estimate), "PREPARED", now, now))
         return self.get(identifier)
 
-    def get(self, experiment_id, include_runs=False, *, run_limit=None, run_filter=""):
+    def get(self, experiment_id, include_runs=False, *, run_limit=None, run_filter="",run_offset=0,run_stride=1,run_sort=None):
         if run_limit is not None and (type(run_limit) is not int or run_limit < 1):
             raise ValueError("A result page limit must be a positive integer.")
+        if type(run_offset) is not int or not 0<=run_offset<=10000 or type(run_stride) is not int or not 1<=run_stride<=10000:
+            raise ValueError('Result page offset/stride exceeds laboratory bounds.')
         with self.store.connect() as db:
             row = db.execute("SELECT * FROM lab_experiments WHERE id=?", (experiment_id,)).fetchone()
             if row is None:
@@ -94,8 +97,22 @@ class VirtualLaboratory:
                     where += " AND instr(morice_casefold(CAST(run_index AS TEXT)||' '||parameters||' '||status||' '||outputs||' '||error),?)>0"
                     arguments.append(str(run_filter).casefold())
                 result["matching_runs"] = db.execute("SELECT count(*) FROM lab_runs WHERE "+where, arguments).fetchone()[0]
-                query = "SELECT * FROM lab_runs WHERE "+where+" ORDER BY run_index"
+                if run_stride>1:where+=' AND run_index % ?=0';arguments.append(run_stride)
+                order='run_index'
+                if run_sort:
+                    field=run_sort.get('field','run');descending=run_sort.get('descending',False)
+                    if not isinstance(field,str) or type(descending) is not bool:raise ValueError('Invalid result sort.')
+                    if field in {'run','status','elapsed_ms'}:order={'run':'run_index','status':'status','elapsed_ms':'elapsed_ms'}[field]
+                    else:
+                        prefix='input_' if field.startswith('input_') else 'output_' if field.startswith('output_') else ''
+                        key=field[len(prefix):]
+                        if not prefix or not re.fullmatch(r'[A-Za-z_]\w{0,63}',key):raise ValueError('Unsupported result sort column.')
+                        order='json_extract('+('parameters' if prefix=='input_' else 'outputs')+',?)';arguments.append('$.'+key)
+                    order+=' DESC' if descending else ' ASC'
+                query = "SELECT * FROM lab_runs WHERE "+where+" ORDER BY "+order+',run_index'
                 if run_limit is not None: query += " LIMIT ?"; arguments.append(run_limit)
+                elif run_offset:query+=' LIMIT -1'
+                if run_offset:query+=' OFFSET ?';arguments.append(run_offset)
                 stored_runs = db.execute(query, arguments).fetchall()
         # Release SQLite cursors/read locks before JSON decoding can yield to
         # GUI painting or cyclic GC. Full exports retain the unbounded default;

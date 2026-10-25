@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import math
+import json
+import copy
 
 UNITS = {'m': 1.0, 'km': 1000.0, 'miles': 1609.344, 'nautical miles': 1852.0}
 MODES = {'GEODESIC', 'CHORD', 'ROUTE'}
@@ -69,3 +71,30 @@ class SpatialContext:
             'markers': [item.to_dict() for item in self.markers.values()],
             'selected_marker': self.selected_marker, 'mode': self.mode, 'unit': self.unit,
             'viewport': self.viewport, 'result': self.result, 'pending': self.pending}
+
+    @classmethod
+    def from_dict(cls,value):
+        if not isinstance(value,dict) or set(value)-{'origin','destination','markers','selected_marker','mode','unit','viewport','result','pending'}:
+            raise ValueError('Invalid saved geographic context.')
+        raw=json.dumps(value,allow_nan=False)
+        if len(raw.encode())>65536:raise ValueError('Saved geographic context exceeds its bounded presentation size.')
+        if value.get('mode','GEODESIC') not in MODES or value.get('unit','km') not in UNITS or value.get('viewport','globe') not in {'globe','map'}:
+            raise ValueError('Unknown saved geographic mode, unit or viewport.')
+        def location(row):
+            if row is None:return None
+            if not isinstance(row,dict) or set(row)-set(Location.__dataclass_fields__):raise ValueError('Invalid saved geographic location.')
+            for key,limit in (('identifier',160),('label',240),('source',120),('country',120),('region',160),('kind',80)):
+                if not isinstance(row.get(key,''),str) or len(row.get(key,''))>limit:raise ValueError('Geographic location labels exceed their bounds.')
+            return Location(**{**row,'coordinate':Coordinate.from_dict(row['coordinate'])})
+        markers=value.get('markers',[]);pending=value.get('pending',[]);result=value.get('result')
+        if not isinstance(markers,list) or len(markers)>128 or not isinstance(pending,list) or len(pending)>4:raise ValueError('Saved geographic collections exceed their bounds.')
+        if result is not None:
+            if not isinstance(result,dict):raise ValueError('Invalid geographic result.')
+            points=result.get('path',[])
+            if not isinstance(points,list) or len(points)>513:raise ValueError('Saved geographic path exceeds its display bound.')
+            for point in points:Coordinate.from_dict(point)
+        parsed=[location(row) for row in markers]
+        if any(row is None for row in parsed) or len({row.identifier for row in parsed})!=len(parsed):raise ValueError('Ambiguous saved geographic marker identities.')
+        return cls(location(value.get('origin')),location(value.get('destination')),{row.identifier:row for row in parsed},
+            str(value.get('selected_marker',''))[:160],value.get('mode','GEODESIC'),value.get('unit','km'),value.get('viewport','globe'),
+            copy.deepcopy(result),copy.deepcopy(pending))

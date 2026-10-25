@@ -432,6 +432,13 @@ class MediaLab:
     def export(self,identifier,destination,context=None,*,index=0):
         return self.kernel.dispatch('media.artifact.export',{'generation_id':identifier,'index':index,'destination':str(Path(destination).resolve())},context or ExecutionContext())
 
+    def export_permission(self,args,context):
+        state=self.kernel.permissions.controller.state('file_write')
+        selected={str(Path(value).resolve()) for value in context.active_files}
+        allowed=state==PermissionState.GRANTED or state==PermissionState.ASK and str(Path(args['destination']).resolve()) in selected
+        return PermissionDecision(allowed,required=() if allowed else ('file_write',),
+            reason='' if allowed else 'Choose the exact export destination under the existing file-write policy. Denied permissions remain in force.')
+
     def export_handler(self,args,ctx):
         artifact=self.artifact(args['generation_id'],int(args.get('index',0)))
         receipt=atomic_export(artifact['path'],args['destination'],artifact['sha256'])

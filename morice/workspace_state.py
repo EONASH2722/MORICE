@@ -101,6 +101,7 @@ class WorkspaceState:
     history: list[dict[str, str]] = field(default_factory=list)
     user_messages: list[str] = field(default_factory=list)
     recent_files: list[str] = field(default_factory=list)
+    recent_projects: list[dict[str,str]] = field(default_factory=list)
     recent_chats: list[str] = field(default_factory=list)
     recent_commands: list[str] = field(default_factory=list)
     notes: str = ""
@@ -123,6 +124,14 @@ class WorkspaceState:
             clean_path,
             *[item for item in self.recent_files if os.path.normcase(item) != os.path.normcase(clean_path)],
         ][:MAX_RECENT_ITEMS]
+
+    def add_recent_project(self,path: str) -> None:
+        root=os.path.abspath(os.path.expanduser(_clean_text(path,1000)))
+        if not os.path.isdir(root):raise ValueError('An existing project directory is required.')
+        prior=next((r for r in self.recent_projects if os.path.normcase(r['id'])==os.path.normcase(root)),None)
+        now=datetime.now(timezone.utc).isoformat()
+        self.recent_projects=[{'id':root,'title':os.path.basename(root) or root,'created':prior['created'] if prior else now,'updated':now},
+            *[r for r in self.recent_projects if os.path.normcase(r['id'])!=os.path.normcase(root)]][:MAX_RECENT_ITEMS]
 
     def add_recent_chat(self, text: str) -> None:
         preview = " ".join(_clean_text(text, 240).split())
@@ -186,6 +195,15 @@ class WorkspaceState:
             for entry in (ActivityEntry.from_value(value) for value in data.get("activity", []))
             if entry is not None
         ][-MAX_ACTIVITY_ITEMS:]
+        recent_projects=[]
+        rows=data.get('recent_projects',[])
+        for row in rows[:MAX_RECENT_ITEMS] if isinstance(rows,list) else ():
+            if not isinstance(row,dict) or not all(isinstance(row.get(k),str) for k in ('id','title','created','updated')):continue
+            if not os.path.isabs(row['id']) or len(row['id'])>1000:continue
+            try:
+                if any(datetime.fromisoformat(row[k]).tzinfo is None for k in ('created','updated')):continue
+            except ValueError:continue
+            recent_projects.append({k:_clean_text(row[k],1000 if k=='id' else 240) for k in ('id','title','created','updated')})
         return cls(
             theme=theme,
             accent=_clean_text(data.get("accent"), 16) or "#62d6b0",
@@ -207,6 +225,7 @@ class WorkspaceState:
             recent_files=_clean_string_list(
                 data.get("recent_files"), MAX_RECENT_ITEMS, item_limit=1000
             ),
+            recent_projects=recent_projects,
             recent_chats=_clean_string_list(
                 data.get("recent_chats"), MAX_RECENT_ITEMS, item_limit=240
             ),

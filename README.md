@@ -4,11 +4,49 @@
   </a>
 </p>
 
+<p align="center">
+  <a href="https://eonash2722.github.io/MORICE/"><strong>Website</strong></a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="https://github.com/EONASH2722/MORICE/releases/latest">Releases</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/EONASH2722/MORICE/releases/latest"><img src="https://img.shields.io/github/v/release/EONASH2722/MORICE?label=latest" alt="Latest release"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4" alt="Windows 10 and 11">
+  <img src="https://img.shields.io/badge/companion-Android%209%2B-3ddc84" alt="Android 9 and newer">
+  <img src="https://img.shields.io/badge/Python-3.12%2B-3776ab" alt="Python 3.12+">
+  <img src="https://img.shields.io/badge/UI-PySide6-41cd52" alt="PySide6">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="MIT license"></a>
+</p>
+
 <h1 align="center">MORICE</h1>
 
-## Current source: 0.9.5
+<p align="center">
+  <strong>A local-first Windows AI workspace for conversation, Live Action, real visualizations, project building, and desktop assistance.</strong>
+</p>
 
-The [0.9.5 fast replies and memory update](docs/release-notes-0.9.5.md) adds automatic fast/thinking model routing, a separate **Fast Reply Model** setting, indexed recall across the entire retained current chat, and optional approved personal preferences. Chat scrolling loads earlier messages without losing the reading position or snapping to each streamed token. See the [setup and privacy guide](docs/fast-memory-guide.md) and [implementation and validation report](docs/fast-memory-report-0.9.5.md).
+## Current source: 0.10.0
+
+The [natural-language and rich-response update](docs/release-notes-0.10.0.md) connects chat and voice transcripts to the existing workspaces and verified tools. Try “Open my latest project”, “Run the project tests, then fix this project”, “Compare my latest two experiments”, “Show my latest CAD model”, or “Find the chat about the UI”. Simple navigation uses no language model. Less direct commands use the configured local model to propose typed actions, which MORICE validates before execution.
+
+Actual results can now appear as linked charts and tables, unit-aware calculators, check receipts, job controls, file collections, local previews, real STL parts and exploded assemblies. Display settings and source references survive retained-chat reopening. Short answers keep their ordinary text path. See the [usage guide and measured coverage](docs/nlui-rich-response-guide.md); missing providers, protected app controls and STEP import are explicitly unavailable.
+
+**Reasoning model and equations:** an installed `Qwen3.5-4B-abliterated.Q6_K.gguf` is now preferred for the reasoning profile. Explicit model choices still win, older models remain available, and Qwen3 4B remains the separate fast profile. Change either selection in Settings → Models. Streamed answers now finish with correctly parsed inline/display LaTeX, Markdown tables and code in the same message bubble. See the [model and rendering notes](docs/reasoning-math-0.10.0.md) for setup, actual checks and limits. Model weights are separate downloads or user-provided files.
+
+The new conversational controls cover these existing workspaces:
+
+- **Projects:** select saved folders, prepare and review real changes, run discovered tests/builds, inspect saved results and use actual failures to guide repairs.
+- **Research:** open saved projects, run/pause/cancel experiments, compare results, inspect calculations and show actual CAD artifacts.
+- **Media and files:** generate with installed providers, edit/vary/animate actual sources, inspect history and previews, and export verified artifacts to a chosen destination.
+- **Connected tools:** manage watches and installed plugins, transfer checked files through Device Mesh, and use scoped GitHub and security operations with their existing permissions.
+- **Chat and presentation:** find retained conversations, resolve saved targets and ambiguous dates, change supported settings/themes/layout controls, and reopen saved interactive responses.
+- **Rich results:** explore 18 native component kinds, linked charts/tables, unit-aware calculators, actual progress, file previews, STL parts/assemblies and geography; export actual chart images, data samples and PDF reports.
+
+Desktop control is explicitly opt-in, actions retain their existing confirmations, and unavailable providers or unsupported controls report their actual limits. Rich sections load near the viewport and release hidden work; delayed source results preserve the reading position.
+
+**Desktop automation permission:** the integration update adds **Settings → Permissions & control → Desktop automation**, off by default. Enable it to let MORICE operate requested third-party app windows and supported Windows accessibility controls. When it is off, MORICE explains where to enable it and asks you to resend the request. Turning it off revokes access and pending approvals; enabling it preserves existing confirmations for consequential actions. MORICE's own workspace navigation and tools do not require PC control. Custom/protected controls without a supported accessibility interface remain unavailable.
+
+The earlier [0.9.5 fast replies and memory update](docs/release-notes-0.9.5.md) added automatic fast/thinking model routing, a separate **Fast Reply Model** setting, indexed recall across the entire retained current chat, and optional approved personal preferences. Chat scrolling loads earlier messages without losing the reading position or snapping to each streamed token. See the [setup and privacy guide](docs/fast-memory-guide.md) and [implementation and validation report](docs/fast-memory-report-0.9.5.md).
 
 The existing 0.9.5 downloads are amended with a fix for duplicate assistant bubbles during history scrolling and returning to the latest reply. Informal date questions now use the system clock.
 
@@ -56,7 +94,7 @@ Choose **Theme** in the top bar to preview a theme or toggle **Animate the works
 
 **Validation scope:** [0.9.4 validation](docs/spatial-media-validation-0.9.4.md) covers online places, prompt-only image requests and matching package checks. The [0.9.3 workspace validation](docs/workspace-validation-0.9.3.md) records the earlier Project and Experiment update at its own source fingerprint. The preserved [0.9.2 chat repair](docs/chat-routing-validation-0.9.2.md), [0.9.1 UI follow-up](docs/followup-audit-0.9.1.md) and [original release audit](docs/release-audit-report.md) record earlier checks. Physical audio/devices, heavy inference memory and compositor frame pacing remain scoped; compatible providers and sufficient RAM/VRAM are required.
 
-**Downloads:** [Windows 0.9.5 desktop preview and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.5) include fast reply model selection, indexed chat recall, optional personal memory and the scrolling repairs. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest stable release](https://github.com/EONASH2722/MORICE/releases/latest).
+**Downloads:** [Windows 0.10.0 and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.10.0) include natural-language workspace controls, interactive results, the desktop permission toggle, and the earlier model, memory and scrolling repairs. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest release](https://github.com/EONASH2722/MORICE/releases/latest).
 
 ### Installation
 
@@ -68,27 +106,8 @@ python -m venv .venv
 
 Use Python 3.12+ for the desktop. Local media model dependencies may require a separate compatible runtime; the main app remains usable when those providers are unavailable. See [troubleshooting](docs/troubleshooting.md), [architecture](docs/architecture.md) and [the renovation report](docs/renovation-report.md).
 
-The [0.9.5 desktop preview](https://github.com/EONASH2722/MORICE/releases/tag/v0.9.5) contains the updated Windows app and matching Python packages. Install `morice_ai-0.9.5-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
+The [0.10.0 desktop release](https://github.com/EONASH2722/MORICE/releases/tag/v0.10.0) contains the updated Windows app and matching Python packages. Install `morice_ai-0.10.0-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
 
-
-<p align="center">
-  <strong>A local-first Windows AI workspace for conversation, Live Action, real visualizations, project building, and desktop assistance.</strong>
-</p>
-
-<p align="center">
-  <a href="https://eonash2722.github.io/MORICE/"><strong>Website</strong></a> ·
-  <a href="docs/README.md">Documentation</a> ·
-  <a href="https://github.com/EONASH2722/MORICE/releases/latest">Releases</a>
-</p>
-
-<p align="center">
-  <a href="https://github.com/EONASH2722/MORICE/releases/latest"><img src="https://img.shields.io/github/v/release/EONASH2722/MORICE?label=latest" alt="Latest release"></a>
-  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4" alt="Windows 10 and 11">
-  <img src="https://img.shields.io/badge/companion-Android%209%2B-3ddc84" alt="Android 9 and newer">
-  <img src="https://img.shields.io/badge/Python-3.12%2B-3776ab" alt="Python 3.12+">
-  <img src="https://img.shields.io/badge/UI-PySide6-41cd52" alt="PySide6">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-16a34a" alt="MIT license"></a>
-</p>
 
 MORICE combines local model inference with a desktop workspace that can answer questions, build projects, operate permission-aware tools, and mount validated interactive artifacts directly in chat. Language models provide reasoning and structured proposals; MORICE validates and executes the result through its own renderers, project engine, and desktop services.
 

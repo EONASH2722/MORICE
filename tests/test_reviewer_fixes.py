@@ -19,6 +19,12 @@ def test_canonical_address(name,title,expected):
     assert bool(expected)==('local model failed.'!=reply)
 
 
+@pytest.mark.parametrize('text',['# Analysis\n\nA paragraph.','```python\nprint(1)\n```','| A | B |\n| --- | --- |','$$\nx^2\n$$',r'\[x^2\]','- An item.'])
+def test_optional_address_preserves_markdown_block_boundaries(text):
+    assert address_message(text,PersonalizationProfile(user_title='Sir'))=='Sir,\n\n'+text
+    assert address_message('Sir, '+text,PersonalizationProfile(user_title='Sir'))=='Sir,\n\n'+text
+
+
 def test_settings_live_change_clear_and_restart(tmp_path):
     path=tmp_path/'settings.json'
     with patch.object(settings,'settings_path',return_value=str(path)):

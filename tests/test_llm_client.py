@@ -1,4 +1,9 @@
 from pathlib import Path
+import json
+import os
+import subprocess
+import sys
+import threading
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -7,6 +12,77 @@ from morice import llm_client
 
 
 class LlmCompletionTests(unittest.TestCase):
+    def test_supported_auto_gpu_environment_can_import_the_client(self):
+        for setting in ('auto','all'):
+            with self.subTest(setting=setting):
+                result=subprocess.run([sys.executable,'-c','from morice.llm_client import DEFAULT_GPU_LAYERS;print(DEFAULT_GPU_LAYERS)'],
+                    cwd=Path(__file__).resolve().parents[1],env={**os.environ,'MORICE_GPU_LAYERS':setting},capture_output=True,text=True,check=True,timeout=20)
+                self.assertEqual(result.stdout.strip(),'0')
+
+    def test_reasoning_only_stream_retries_once_with_same_prompt_for_visible_answer(self):
+        payload={'messages':[{'role':'user','content':'Calculate the result.'}],'max_tokens':96,'chat_template_kwargs':{'enable_thinking':True}}
+        first=[{'choices':[{'delta':{'reasoning_content':'Owned synthetic reasoning fixture'}}]},
+            {'choices':[{'delta':{},'finish_reason':'length'}]}]
+        second=[{'choices':[{'delta':{'content':'The result is 56.'}}]},{'choices':[{'delta':{},'finish_reason':'stop'}]}]
+        with patch.object(llm_client,'_post_stream_json',side_effect=(iter(first),iter(second))) as request:
+            answer=''.join(llm_client._try_openai_chat_stream('http://local',payload,10))
+        self.assertEqual(answer,'The result is 56.')
+        self.assertEqual(request.call_count,2)
+        retry=request.call_args_list[1].args[1]
+        self.assertEqual(retry['messages'],payload['messages'])
+        self.assertEqual(retry['reasoning_budget_tokens'],0)
+        self.assertFalse(retry['chat_template_kwargs']['enable_thinking'])
+        self.assertTrue(payload['chat_template_kwargs']['enable_thinking'])
+
+    def test_cancelled_reasoning_stream_does_not_retry(self):
+        cancellation=threading.Event()
+        def events(*args):
+            yield {'choices':[{'delta':{'reasoning_content':'Owned fixture'}}]}
+            cancellation.set()
+            yield {'choices':[{'delta':{},'finish_reason':'length'}]}
+        with patch.object(llm_client,'_post_stream_json',side_effect=events) as request:
+            self.assertEqual(''.join(llm_client._try_openai_chat_stream('http://local',{'messages':[]},10,cancellation)),'')
+        self.assertEqual(request.call_count,1)
+
+    def test_reasoning_only_sync_retries_without_fabricating_conversation(self):
+        payload={'messages':[{'role':'user','content':'Calculate it.'}],'chat_template_kwargs':{'enable_thinking':True}}
+        replies=[{'choices':[{'message':{'content':'','reasoning_content':'Owned fixture'},'finish_reason':'length'}]},
+            {'choices':[{'message':{'content':'56'},'finish_reason':'stop'}]}]
+        with patch.object(llm_client,'_post_json',side_effect=replies) as request:
+            self.assertEqual(llm_client._try_openai_chat('http://local',payload,10),'56')
+        self.assertEqual(request.call_count,2)
+        self.assertEqual(request.call_args.args[1]['messages'],payload['messages'])
+
+    def test_installed_qwen35_preferred_and_explicit_or_older_selections_preserved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);models=root/'models/llm';models.mkdir(parents=True)
+            preferred=models/llm_client.PREFERRED_REASONING_GGUF;preferred.write_bytes(b'GGUF')
+            older=root/llm_client.DEFAULT_BUNDLED_GGUF;older.write_bytes(b'GGUF')
+            with patch('morice.config.local_data_dir',return_value=root), \
+                patch.object(llm_client,'_project_path',side_effect=lambda *parts:str(root.joinpath(*parts))), \
+                patch.object(llm_client,'_asset_path',side_effect=lambda *parts:str(root.joinpath('assets',*parts))), \
+                patch.object(llm_client,'DEFAULT_GGUF',''),patch.object(llm_client,'DEFAULT_MODEL',''):
+                self.assertEqual(llm_client._resolve_gguf_path(),str(preferred))
+                self.assertEqual(llm_client._resolve_gguf_path(str(older)),str(older))
+                preferred.unlink()
+                self.assertEqual(llm_client._resolve_gguf_path(),str(older))
+
+    def test_strict_template_gets_one_system_role_on_sync_and_stream_wire(self):
+        messages=[{'role':'system','content':'Core policy.'},{'role':'system','content':'Saved preferences and context.'},
+            {'role':'user','content':'Original question.'},{'role':'assistant','content':'Earlier reply.'},{'role':'user','content':'Latest request.'}]
+        payload={'messages':messages,'temperature':.2}
+        for streaming in (False,True):
+            response=Mock();response.__enter__=Mock(return_value=response);response.__exit__=Mock(return_value=False)
+            response.read.return_value=b'{"ok": true}';response.__iter__=Mock(return_value=iter((b'data: {"ok":true}\n',b'data: [DONE]\n')))
+            with patch.object(llm_client.urllib.request,'urlopen',return_value=response) as request:
+                if streaming:list(llm_client._post_stream_json('http://local/v1/chat/completions',payload,10))
+                else:llm_client._post_json('http://local/v1/chat/completions',payload,10)
+            sent=json.loads(request.call_args.args[0].data)
+            self.assertEqual([m['role'] for m in sent['messages']],['system','user','assistant','user'])
+            self.assertEqual(sent['messages'][0]['content'],'Core policy.\n\nSaved preferences and context.')
+            self.assertEqual(sent['messages'][1:],messages[2:])
+            self.assertEqual(len(payload['messages']),5)
+
     def test_prewarm_loads_selected_gguf_without_generating(self):
         with tempfile.TemporaryDirectory() as directory:
             model = Path(directory) / "fast.gguf"
@@ -265,6 +341,8 @@ class LlmCompletionTests(unittest.TestCase):
             model.unlink(missing_ok=True)
 
         self.assertEqual(captured["reasoning_budget"], -1)
+        self.assertGreater(captured['reasoning_budget_tokens'],0)
+        self.assertLess(captured['reasoning_budget_tokens'],captured['max_tokens'])
         self.assertTrue(captured["chat_template_kwargs"]["enable_thinking"])
 
     def test_deep_stream_honors_context_and_output_budget(self):

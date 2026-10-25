@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+_MARKDOWN_BLOCK = r'(?:#{1,6}\s|```|\|.*\||\$\$|\\\[|[-*+]\s|\d+[.)]\s)'
+
 
 def normalize_identity(value, limit=42):
     return " ".join(str(value or "").replace("\x00", "").split())[:limit]
@@ -53,9 +55,14 @@ def address_message(message, profile=None, *, user_title=None):
     if address.casefold() not in {"all father", "father"}:
         text = re.sub(rf"^{legacy}\s*[,.:]?\s*", "", text, flags=re.I)
         text = re.sub(rf",\s*{legacy}(?=[.!?\s]|$)", "", text, flags=re.I)
+    if address:
+        prefix=re.match(r'^('+re.escape(address)+r',)[ \t]+(?='+_MARKDOWN_BLOCK+r')',text,flags=re.I)
+        if prefix:text=prefix[1]+'\n\n'+text[prefix.end():]
     if not address or address.casefold() in text.casefold():
         return text
-    return f"{address}, {text}"
+    # Keep block-level Markdown at the beginning of its own line.
+    separator = '\n\n' if re.match(_MARKDOWN_BLOCK, text) else ' '
+    return f"{address},{separator}{text}"
 
 
 def identity_instruction(profile=None, *, user_title=None):

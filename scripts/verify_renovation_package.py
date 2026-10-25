@@ -15,19 +15,25 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+web_fingerprint=hashlib.sha256()
+for path in sorted((ROOT/'morice/assets/web').rglob('*')):
+    if path.is_file():web_fingerprint.update(str(path.relative_to(ROOT)).encode());web_fingerprint.update(path.read_bytes())
 parser = argparse.ArgumentParser(); parser.add_argument('--wheel', required=True); parser.add_argument('--output', default='build/phase10-wheel-current-evidence.json'); args = parser.parse_args()
 wheel = Path(args.wheel).resolve(); modules = []; assets = []; fingerprint = hashlib.sha256()
 with zipfile.ZipFile(wheel) as archive:
     assert archive.testzip() is None
     from packaging.requirements import Requirement
     metadata = archive.read(next(name for name in archive.namelist() if name.endswith('.dist-info/METADATA'))).decode()
+    from email.parser import Parser
+    description=Parser().parsestr(metadata).get_payload()
+    assert description.replace('\r\n','\n').strip()==(ROOT/'README.md').read_text(encoding='utf-8').replace('\r\n','\n').strip(),'Wheel README differs from the final repository README.'
     requirements = [Requirement(line.removeprefix('Requires-Dist: ')) for line in metadata.splitlines() if line.startswith('Requires-Dist: ')]
     assert any(requirement.name == 'psutil' and (requirement.marker is None or requirement.marker.evaluate({'platform_system':'Windows','extra':''}))
                for requirement in requirements), 'Windows process ownership requires psutil in base wheel metadata.'
     for source in sorted((ROOT/'morice').rglob('*.py')):
         name = source.relative_to(ROOT).as_posix(); content = source.read_bytes(); assert archive.read(name) == content, name
         modules.append(name); fingerprint.update(str(source.relative_to(ROOT)).encode()); fingerprint.update(content)
-    for source in [*(ROOT/'morice/assets/spatial').iterdir(), ROOT/'morice/assets/morice-logo-rgb.png', ROOT/'morice/assets/morice_logo.ico']:
+    for source in [*(ROOT/'morice/assets/spatial').iterdir(), *(ROOT/'morice/assets/web').rglob('*'), ROOT/'morice/assets/morice-logo-rgb.png', ROOT/'morice/assets/morice_logo.ico']:
         if source.is_file():
             name = source.relative_to(ROOT).as_posix(); assert archive.read(name) == source.read_bytes(), name; assets.append(name)
     for name in archive.namelist():
@@ -88,6 +94,6 @@ with patch('morice.settings._settings_dir',return_value=str(profile/'settings'))
         result = subprocess.run([sys.executable, '-I', '-c', smoke, str(package), str(base/'profile')], cwd=base, env=environment, capture_output=True, text=True, timeout=120)
         assert result.returncode == 0, result.stdout+'\n'+result.stderr
         evidence = {'status': 'PRODUCTION_FACTORY_WHEEL_PASSED', 'production_window_factory': 'morice.pyside_app.create_application_window', 'wheel': str(wheel), 'bytes': wheel.stat().st_size,
-            'sha256': hashlib.sha256(wheel.read_bytes()).hexdigest(), 'source_sha256': fingerprint.hexdigest(), 'source_equal_modules': len(modules), 'asset_equal_files': assets,
+            'sha256': hashlib.sha256(wheel.read_bytes()).hexdigest(), 'source_sha256': fingerprint.hexdigest(), 'web_assets_sha256':web_fingerprint.hexdigest(), 'source_equal_modules': len(modules), 'asset_equal_files': assets,
             'native_extracted_wheel': json.loads(result.stdout.splitlines()[-1]), 'scope': 'Extracted exact wheel, outside repository cwd, isolated profile, installed dependency runtime; not a clean dependency install or final frozen release.'}
         output = ROOT/args.output; output.parent.mkdir(parents=True, exist_ok=True); output.write_text(json.dumps(evidence, indent=2), encoding='utf-8'); print(json.dumps(evidence), flush=True)

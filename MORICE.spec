@@ -63,6 +63,7 @@ if bundle_models and vision_files:
 # Release builders install .[dev,research]; fail here if it is missing.
 import pint
 data_files += collect_data_files('pint')
+data_files += collect_data_files('uiautomation')
 
 a = Analysis(
     [os.path.join(project_dir, 'morice_app_launcher.py')],

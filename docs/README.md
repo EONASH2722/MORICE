@@ -1,6 +1,6 @@
 # MORICE Documentation
 
-This documentation describes MORICE `0.9.5`, including fast reply model selection, indexed history, optional personal preferences and anchored chat scrolling. Earlier Windows/Android `0.8.0` packages use the previous interface. Each phase guide retains its own provider and hardware constraints.
+This documentation covers the MORICE `0.10.0` update: natural-language workspace control, interactive results, desktop permissions, reasoning models and mathematical replies. Find installers and packages in [Releases](https://github.com/EONASH2722/MORICE/releases). Earlier Windows/Android `0.8.0` packages use the previous interface. Each phase guide retains its own provider and hardware constraints.
 
 The [current location and image validation](spatial-media-validation-0.9.4.md) records the latest checks and concrete limits. The [earlier workspace validation](workspace-validation-0.9.3.md), [Renovation architecture](renovation-architecture.md), [Renovation acceptance report](renovation-report.md) and [135-topic release audit](release-audit-report.md) retain their measured scope.
 
@@ -8,6 +8,8 @@ The [current location and image validation](spatial-media-validation-0.9.4.md) r
 
 | Guide | Use it for |
 | --- | --- |
+| [Reasoning models and mathematical replies](reasoning-math-0.10.0.md) | Primary/fast selection, Qwen3.5 compatibility, offline LaTeX and streamed reply behavior |
+| [Natural-language and rich-response guide](nlui-rich-response-guide.md) | Supported conversational workflows, desktop permission and real interactive results |
 | [Fast replies and memory](fast-memory-guide.md) | Model selection, whole-chat recall, preferences and privacy |
 | [Locations and prompt-only images](spatial-media-0.9.4.md) | Online places, distances, optional references and image readiness |
 | [User manual](user-manual.md) | Installation, first launch, chat, visuals, settings, and everyday workflows |
@@ -36,7 +38,11 @@ The [current location and image validation](spatial-media-validation-0.9.4.md) r
 
 ## Project Information
 
-- [Current release notes](release-notes-0.9.5.md)
+- [Current release notes](release-notes-0.10.0.md)
+- [Natural-language and rich-response guide](nlui-rich-response-guide.md)
+- [Natural-language architecture audit](nlui-rich-response-audit.md)
+- [Rich-response capability inventory](rich-response-capabilities.md)
+- [0.10.0 local validation report](nlui-rich-validation-0.10.0.md)
 - [Earlier 0.8.0 release notes](release-notes-0.8.0.md)
 - [Release audit](release-audit-0.8.0.md)
 - [Changelog](../CHANGELOG.md)

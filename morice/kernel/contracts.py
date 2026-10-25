@@ -146,6 +146,15 @@ class CapabilityDescriptor:
     inline: bool = False
     node_id: str = "local"
 
+    # Discoverability only. Execution, policy and scheduling stay in this Kernel.
+    natural_language_intents: tuple[str, ...] = ()
+    ui_action: str = ""
+    verification_contract: str = ""
+    idempotent: bool = False
+    preview_supported: bool = False
+    undo_supported: bool = False
+    failure_modes: tuple[str, ...] = ()
+
     def __post_init__(self) -> None:
         if not self.capability_id or not self.name or not math.isfinite(self.timeout) or self.timeout <= 0:
             raise ValueError("Capability id, name and positive finite timeout are required.")

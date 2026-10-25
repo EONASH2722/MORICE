@@ -27,7 +27,7 @@ for path in sorted((ROOT/'morice').rglob('*.py')):
     verified.append(name)
 assert set(omitted)<={'morice.cli','morice.__main__'},omitted
 data=[]
-for source in [*(ROOT/'morice/assets/spatial').iterdir(),ROOT/'morice/assets/morice-logo-rgb.png',ROOT/'morice/assets/morice_logo.ico']:
+for source in [*(ROOT/'morice/assets/spatial').iterdir(),*(ROOT/'morice/assets/web').rglob('*'),ROOT/'morice/assets/morice-logo-rgb.png',ROOT/'morice/assets/morice_logo.ico']:
     if source.is_file():
         relative=source.relative_to(ROOT);packaged=directory/'_internal'/relative
         assert packaged.read_bytes()==source.read_bytes(),str(relative)
@@ -38,9 +38,12 @@ databases=[str(path.relative_to(directory)) for path in files if path.suffix=='.
 assert databases==[str(Path('_internal/morice/assets/spatial/cities.sqlite3'))],databases
 voice=directory/'_internal/voice_models/vosk-model-small-en-us-0.15'
 assert voice.is_dir(),'Existing intentionally bundled Vosk must be preserved.'
+web_fingerprint=hashlib.sha256()
+for path in sorted((ROOT/'morice/assets/web').rglob('*')):
+    if path.is_file():web_fingerprint.update(str(path.relative_to(ROOT)).encode());web_fingerprint.update(path.read_bytes())
 record={'status':'FROZEN_ARCHIVE_PARITY_PASSED','production_window_factory':'morice.pyside_app.create_application_window','directory':str(directory),'files':len(files),
     'bytes':sum(path.stat().st_size for path in files),'exe_sha256':hashlib.sha256(executable.read_bytes()).hexdigest(),
-    'source_sha256':fingerprint.hexdigest(),'source_equal_modules':len(verified),'omitted_cli_modules':omitted,'asset_equal_files':data,
+    'source_sha256':fingerprint.hexdigest(),'web_assets_sha256':web_fingerprint.hexdigest(),'source_equal_modules':len(verified),'omitted_cli_modules':omitted,'asset_equal_files':data,
     'generative_media_or_gguf_weights_embedded':False,'existing_vosk_model_intentionally_embedded':True,
     'scope':'Embedded executable bytecode/public asset parity and exclusion scan; startup is a separate check.'}
 (ROOT/args.output).write_text(json.dumps(record,indent=2),encoding='utf-8');print(json.dumps(record))

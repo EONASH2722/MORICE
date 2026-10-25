@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import io
 import json
+import math
 import re
 import time
 import uuid
@@ -50,6 +51,11 @@ class ChatHistory:
                 );
                 CREATE INDEX IF NOT EXISTS research_chat_recency ON research_chats(last_used);
                 CREATE INDEX IF NOT EXISTS research_chat_names ON research_chats(name COLLATE NOCASE);
+                CREATE TABLE IF NOT EXISTS research_chat_ui_state (
+                    chat_id TEXT NOT NULL REFERENCES research_chats(id) ON DELETE CASCADE,
+                    key TEXT NOT NULL, payload TEXT NOT NULL, updated REAL NOT NULL,
+                    expires REAL, PRIMARY KEY(chat_id,key)
+                );
                 CREATE TABLE IF NOT EXISTS research_chat_messages (
                     id TEXT PRIMARY KEY, chat_id TEXT NOT NULL REFERENCES research_chats(id) ON DELETE CASCADE,
                     sequence INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
@@ -122,6 +128,7 @@ class ChatHistory:
                     return 3
                 if all(word in name for word in query.split()):
                     return 2
+                if query in row['preview'].casefold():return 1.5
                 return max((SequenceMatcher(None, query, name).ratio(),
                             *(SequenceMatcher(None, query, word).ratio() for word in name.split())))
             rows = sorted(((score(r), r) for r in rows), key=lambda pair: pair[0], reverse=True)
@@ -143,6 +150,32 @@ class ChatHistory:
                 messages = self._messages(db, chat_id, limit=recent, descending=True)
             db.execute("UPDATE research_chats SET last_used=?,archived=0 WHERE id=?", (time.time() if now is None else now, chat_id))
         return {"id": row["id"], "name": row["name"], "messages": messages, "project_id": row["project_id"]}
+
+    def search_transcripts(self,query,*,exclude_chat='',limit=20):
+        """Explicit search over the existing index; return bounded source metadata."""
+        if not isinstance(query,str) or not 1<=len(query.strip())<=200:raise ValueError('Supply a search phrase of 1–200 characters.')
+        original=list(dict.fromkeys(re.findall(r'\w+',query.casefold())))
+        terms=[term for term in original if term in history_query_terms(query)]
+        if not terms:return []
+        expression=' AND '.join('('+' OR '.join('"'+word.replace('"','""')+'"' for word in history_query_terms(term))+')' for term in terms[:20])
+        with self.store.connect() as db:
+            rows=db.execute('SELECT c.id,c.name,c.preview,c.created,c.last_used,c.retention,c.protected,c.archived,c.project_id,'
+                'm.id AS matching_message_id,snippet(research_message_fts,0,"","","…",24) AS matching_excerpt '
+                'FROM research_message_fts JOIN research_chat_messages m ON m.rowid=research_message_fts.rowid '
+                'JOIN research_chats c ON c.id=m.chat_id WHERE research_message_fts MATCH ? AND c.retention!=? AND c.id!=? '
+                'ORDER BY bm25(research_message_fts),c.last_used DESC LIMIT 200',(expression,'session',exclude_chat)).fetchall()
+        selected={}
+        for row in rows:
+            selected.setdefault(row['id'],{**dict(row),'matching_excerpt':row['matching_excerpt'][:240]})
+            if len(selected)>=max(1,min(50,int(limit))):break
+        return list(selected.values())
+
+    def metadata(self,chat_ids):
+        identifiers=list(dict.fromkeys(value for value in chat_ids if isinstance(value,str) and len(value)<=128))[:50]
+        if not identifiers:return []
+        with self.store.connect() as db:
+            return [dict(row) for row in db.execute('SELECT id,name,preview,created,last_used,retention,protected,archived,project_id '
+                'FROM research_chats WHERE id IN ('+','.join('?' for _ in identifiers)+')',identifiers)]
 
     @staticmethod
     def _decode(row):
@@ -250,6 +283,64 @@ class ChatHistory:
             self._indexed_chat(db,chat_id)
             row=db.execute("SELECT id AS message_id,* FROM research_chat_messages WHERE chat_id=? AND id=?",(chat_id,message_id)).fetchone()
             return dict(row) if row else None
+
+    def set_response_plan(self,chat_id,message_id,plan):
+        from ..rich_response import ResponsePlan
+        value=ResponsePlan.from_dict(plan.to_dict() if isinstance(plan,ResponsePlan) else plan)
+        if value.conversation_id!=chat_id:raise ValueError('Rich response belongs to another conversation.')
+        with self.store.connect() as db:
+            row=db.execute('SELECT role,attachments FROM research_chat_messages WHERE chat_id=? AND id=?',(chat_id,message_id)).fetchone()
+            if row is None or row['role']!='assistant':return False
+            attachments=json.loads(row['attachments'] or '[]')
+            if not isinstance(attachments,list):raise ValueError('Existing message attachments are malformed; stored metadata was preserved.')
+            attachments=[a for a in attachments if not isinstance(a,dict) or a.get('kind')!='rich_response'][:29]
+            attachments.append({'kind':'rich_response','schema':1,'plan':value.to_dict()})
+            encoded=json.dumps(attachments,ensure_ascii=False,allow_nan=False)
+            if len(encoded.encode())>128*1024:raise ValueError('Response attachment metadata exceeds its bound.')
+            db.execute('UPDATE research_chat_messages SET attachments=? WHERE chat_id=? AND id=?',(encoded,chat_id,message_id))
+        return True
+
+    def get_response_plans(self,chat_id,message_ids):
+        from ..rich_response import ResponsePlan
+        identifiers=list(dict.fromkeys(i for i in message_ids if isinstance(i,str) and len(i)<=80))[:100]
+        if not identifiers:return {}
+        with self.store.connect() as db:
+            rows=db.execute('SELECT id,attachments FROM research_chat_messages WHERE chat_id=? AND role=\'assistant\' AND id IN ('+','.join('?' for _ in identifiers)+')',
+                (chat_id,*identifiers)).fetchall()
+        result={}
+        for row in rows:
+            if len(row['attachments'].encode())>128*1024:continue
+            try:
+                attachments=json.loads(row['attachments'] or '[]')
+                if not isinstance(attachments,list):continue
+                for attachment in attachments[:30]:
+                    if isinstance(attachment,dict) and attachment.get('kind')=='rich_response':
+                        plan=ResponsePlan.from_dict(attachment['plan'])
+                        if plan.conversation_id==chat_id:result[row['id']]=plan.to_dict()
+            except (ValueError,TypeError,KeyError,RecursionError):continue
+        return result
+
+    def set_response_source(self,chat_id,message_id,owner,data):
+        """Bounded actual presentation sources belong to their assistant message."""
+        if owner not in {'spatial','chat_search'}:raise ValueError('Unknown inline response source owner.')
+        from ..rich_response.sources import digest
+        if owner=='spatial':
+            from ..spatial.contracts import SpatialContext
+            value=SpatialContext.from_dict(data).to_dict()
+        else:
+            if not isinstance(data,dict) or set(data)!={'query'} or not isinstance(data['query'],str) or not 1<=len(data['query'].strip())<=200:raise ValueError('Saved chat search requires its actual bounded query.')
+            value=dict(data)
+        with self.store.connect() as db:
+            row=db.execute('SELECT role,attachments FROM research_chat_messages WHERE chat_id=? AND id=?',(chat_id,message_id)).fetchone()
+            if row is None or row['role']!='assistant':return False
+            attachments=json.loads(row['attachments'] or '[]')
+            if not isinstance(attachments,list):raise ValueError('Existing message attachments are malformed; stored data was preserved.')
+            attachments=[a for a in attachments if not isinstance(a,dict) or not (a.get('kind')=='response_source' and a.get('owner')==owner)][:29]
+            attachments.append({'kind':'response_source','schema':1,'owner':owner,'revision':digest(value),'data':value})
+            encoded=json.dumps(attachments,allow_nan=False,ensure_ascii=False)
+            if len(encoded.encode())>128*1024:raise ValueError('Response attachment metadata exceeds its bound.')
+            db.execute('UPDATE research_chat_messages SET attachments=? WHERE chat_id=? AND id=?',(encoded,chat_id,message_id))
+        return True
 
     def fetch_range(self, chat_id, start=0, end=None, *, limit=100):
         with self.store.connect() as db:
@@ -405,6 +496,46 @@ class ChatHistory:
             valid=valid and bool(source and source['content']==row['content'] and source['revision']==row['revision'])
         return VerificationResult(VerificationStatus.VERIFIED if valid else VerificationStatus.FAILED,
             ('Re-read source messages under the active chat identity.',))
+
+    def put_ui_state(self,chat_id,key,payload,*,expires=None,now=None):
+        """Bounded presentation/clarification data in the existing chat store."""
+        if key not in {'nlui_pending','nlui_selection','nlui_presentation','nlui_last_action'}:
+            raise ValueError('Unknown chat UI state key.')
+        if not isinstance(payload,dict):raise ValueError('Chat UI state must be structured data.')
+        encoded=json.dumps(payload,allow_nan=False,ensure_ascii=False)
+        if len(encoded.encode('utf-8'))>65536:raise ValueError('Chat UI state exceeds 64 KiB.')
+        queue=[(payload,0)];nodes=0
+        while queue:
+            value,depth=queue.pop();nodes+=1
+            if depth>12 or nodes>4096:raise ValueError('Chat UI state exceeds structural limits.')
+            if isinstance(value,dict):
+                if any(secret in value for secret in ('approval_token','permission_token','credentials','permissions')):
+                    raise ValueError('Permission grants and credentials cannot be stored as chat UI state.')
+                queue.extend((child,depth+1) for child in value.values())
+            elif isinstance(value,list):queue.extend((child,depth+1) for child in value)
+        if expires is not None and (type(expires) not in (int,float) or not math.isfinite(expires)):
+            raise ValueError('Expiry must be a finite timestamp.')
+        with self.store.connect() as db:
+            if db.execute('SELECT 1 FROM research_chats WHERE id=?',(chat_id,)).fetchone() is None:return False
+            db.execute('INSERT INTO research_chat_ui_state VALUES(?,?,?,?,?) ON CONFLICT(chat_id,key) DO UPDATE SET payload=excluded.payload,updated=excluded.updated,expires=excluded.expires',
+                (chat_id,key,encoded,time.time() if now is None else now,expires))
+        return True
+
+    def get_ui_state(self,chat_id,key,*,now=None):
+        with self.store.connect() as db:
+            row=db.execute('SELECT payload,expires FROM research_chat_ui_state WHERE chat_id=? AND key=?',(chat_id,key)).fetchone()
+            if row is None:return None
+            if row['expires'] is not None and row['expires']<=(time.time() if now is None else now):
+                db.execute('DELETE FROM research_chat_ui_state WHERE chat_id=? AND key=?',(chat_id,key));return None
+            raw=row['payload']
+        if len(raw.encode('utf-8'))>65536:return None
+        try:value=json.loads(raw)
+        except (TypeError,ValueError):return None
+        return value if isinstance(value,dict) else None
+
+    def clear_ui_state(self,chat_id,key):
+        with self.store.connect() as db:
+            db.execute('DELETE FROM research_chat_ui_state WHERE chat_id=? AND key=?',(chat_id,key))
 
     def configure(self, chat_id, name, retention="never", protected=False):
         if retention not in RETENTION or not name.strip():

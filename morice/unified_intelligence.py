@@ -145,6 +145,19 @@ class PermissionController:
             raise ValueError("Permission group cannot be empty.")
         with self._lock:
             self._states[clean] = PermissionState(state)
+            if self._states[clean] == PermissionState.DENIED:
+                self._approvals.clear()
+
+    def desktop_automation_authorization(self, capability_id, permissions=()):
+        """Optional host gate; existing independent controllers stay compatible."""
+        with self._lock:
+            state = self._states.get('desktop_automation')
+        external = str(capability_id).startswith(('application.','computer.')) or bool(
+            {'application_control','window_control','computer_use'} & set(permissions))
+        if state is not None and external and state != PermissionState.GRANTED:
+            from .pc_control import DESKTOP_AUTOMATION_GUIDANCE
+            return PermissionDecision(False, denied=('desktop_automation',), reason=DESKTOP_AUTOMATION_GUIDANCE)
+        return PermissionDecision(True)
 
     def state(self, group: str) -> PermissionState:
         with self._lock:
@@ -180,6 +193,9 @@ class PermissionController:
     ) -> PermissionDecision:
         clean_risk = RiskClass(risk)
         groups = tuple(dict.fromkeys(str(item) for item in permissions if str(item)))
+        desktop = self.desktop_automation_authorization(capability_id, groups)
+        if not desktop.allowed:
+            return desktop
         required: list[str] = []
         denied: list[str] = []
         for group in groups:

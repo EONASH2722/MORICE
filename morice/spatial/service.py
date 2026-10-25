@@ -56,6 +56,7 @@ class SpatialService:
         self._measurement_next = 'origin'
         self._lock = threading.RLock()
         self._command_lock = threading.RLock()
+        self._command_context=threading.local()
         if kernel.resources.descriptor('CPU') is None:
             kernel.resources.register(ResourceDescriptor('CPU', max(1, min(2, os.cpu_count() or 1))))
         if register:
@@ -168,7 +169,7 @@ class SpatialService:
             return VerificationResult(VerificationStatus.FAILED, message=str(exc)[:300] or 'Spatial result failed independent verification.')
 
     def _dispatch(self, capability, inputs):
-        result = self.kernel.dispatch(capability, inputs)
+        result = self.kernel.dispatch(capability, inputs,getattr(self._command_context,'value',None))
         if not result.success:
             raise ValueError('; '.join(error.message + (': ' + error.detail if error.detail else '') for error in result.errors))
         return result
@@ -285,19 +286,21 @@ class SpatialService:
             return self.snapshot()
 
     @contextmanager
-    def _command_scope(self):
+    def _command_scope(self,context=None):
         if not self._command_lock.acquire(blocking=False):
             raise ValueError('Another Spatial request is already running. Retry when it finishes.')
         try:
+            self._command_context.value=context
             yield
         finally:
+            self._command_context.value=None
             self._command_lock.release()
 
-    def handle_text(self, text):
+    def handle_text(self, text,*,context=None):
         """Deterministic context commands. None means the existing chat router owns it."""
         clean = ' '.join(str(text).strip().split())
         lower = clean.casefold().rstrip('.?!')
-        with self._command_scope():
+        with self._command_scope(context):
             if lower in {'show earth', 'open spatial lab', 'show globe', 'open globe'}:
                 self._dispatch('spatial.globe.show', {})
                 return {'message': 'Opening Spatial Lab.', 'open_spatial': True, 'context': self.snapshot()}
@@ -307,18 +310,26 @@ class SpatialService:
             pair = self.parse_pair(clean)
             if pair:
                 self.set_pair(pair[0], pair[1], online=self.online_enabled)
-            elif (replacement := re.fullmatch(r'(?:what about|replace (?:it|the destination) with) (.+?)(?: instead)?[.?!]?', clean, re.I)):
+            elif (replacement := re.fullmatch(r'(?:what about|(?:now )?replace (?:it|the destination|.+?) with) (.+?)(?: instead)?[.?!]?', clean, re.I)):
                 if not self.context.origin:
                     raise ValueError('Choose an origin before replacing the destination.')
+                named=re.fullmatch(r'(?:now )?replace (.+?) with .+',clean,re.I)
+                slot='destination'
+                if named and named[1].casefold() not in {'it','the destination','destination'}:
+                    matches=[key for key in ('origin','destination') if getattr(self.context,key) is not None
+                        and named[1].casefold() in getattr(self.context,key).label.casefold()]
+                    if len(matches)!=1:raise ValueError('That name does not identify exactly one currently selected place.')
+                    slot=matches[0]
                 pending = []
-                destination = self._resolve_slot(replacement[1], 'destination', pending=pending, online=self.online_enabled)
+                destination = self._resolve_slot(replacement[1], slot, pending=pending, online=self.online_enabled)
                 with self._lock:
                     self.context.pending = pending; self.context.result = None
-                    self.context.destination = destination
-                if self.context.destination:
-                    self._remember(self.context.destination)
+                    setattr(self.context,slot,destination)
+                if destination:
+                    self._remember(destination)
+                if self.context.origin and self.context.destination and not pending:
                     self.calculate_current()
-            elif lower in {'how far', "what's the distance as the crow flies", 'what is the distance as the crow flies', 'as the crow flies', 'what is the distance', 'show the path'}:
+            elif lower in {'how far','how far apart', "what's the distance as the crow flies", 'what is the distance as the crow flies', 'as the crow flies', 'what is the distance', 'show the path','show the great-circle path'}:
                 if 'crow flies' in lower: self.context.mode = 'GEODESIC'
                 self.calculate_current()
             elif lower in {'chord distance', 'straight line distance'} or re.fullmatch(r'show(?: the)? straight[- ]line distance(?: t(?:oo|o))?', lower):
@@ -334,7 +345,12 @@ class SpatialService:
                 if location:
                     self._remember(location)
                     self.context.result = self._dispatch('spatial.radius.calculate', {'center': location.coordinate.to_dict(), 'metres': float(circle[1]) * UNITS[circle[2].casefold()]}).output
-            elif (single := re.fullmatch(r'(?:show place|find place|locate) (.+)', clean, re.I)):
+            elif (addition := re.fullmatch(r'add (.+?)[.?!]?',clean,re.I)):
+                if not self.context.origin:raise ValueError('Choose the first place before adding a destination.')
+                pending=[];destination=self._resolve_slot(addition[1],'destination',pending=pending,online=self.online_enabled)
+                with self._lock:self.context.pending=pending;self.context.destination=destination;self.context.result=None
+                if destination:self._remember(destination);self.calculate_current()
+            elif (single := re.fullmatch(r'(?:show place|find place|locate|show) (.+?)[.?!]?', clean, re.I)):
                 pending = []
                 location = self._resolve_slot(single[1], 'origin', pending=pending, online=self.online_enabled)
                 with self._lock:
@@ -366,12 +382,14 @@ class SpatialService:
         """Cheap lexical eligibility; ordinary direct actions never queue here."""
         clean = ' '.join(str(text).strip().split()); lower = clean.casefold().rstrip('.?!')
         commands = {'show earth', 'open spatial lab', 'show globe', 'open globe', 'show map', 'open map', '2d map', 'show 2d map',
-            'how far', "what's the distance as the crow flies", 'what is the distance as the crow flies', 'as the crow flies', 'what is the distance', 'show the path',
+            'how far','how far apart', "what's the distance as the crow flies", 'what is the distance as the crow flies', 'as the crow flies', 'what is the distance', 'show the path','show the great-circle path',
             'chord distance', 'straight line distance', 'driving distance', 'walking distance', 'cycling distance', 'route distance',
             'in miles', 'give it to me in miles', 'in km', 'in kilometres', 'in kilometers', 'in m', 'in metres', 'in meters', 'in nautical miles'}
-        return lower in commands or SpatialService.parse_pair(clean) is not None or any(re.fullmatch(pattern, clean, re.I) is not None for pattern in (
+        from .locations import has_local_place
+        local=re.fullmatch(r'(?:show|add) (.+?)[.?!]?',clean,re.I)
+        return bool(local and has_local_place(local[1])) or lower in commands or SpatialService.parse_pair(clean) is not None or any(re.fullmatch(pattern, clean, re.I) is not None for pattern in (
             r'(?:show|compare|distance between) (.+?) (?:and|to) (.+)',
             r'(?:show place|find place) (.+)',
-            r'(?:what about|replace (?:it|the destination) with) (.+?)(?: instead)?[.?!]?',
+            r'(?:what about|(?:now )?replace (?:it|the destination|.+?) with) (.+?)(?: instead)?[.?!]?',
             r'show(?: the)? straight[- ]line distance(?: t(?:oo|o))?[.?!]?',
             r'show (\d+(?:\.\d+)?)\s*(km|miles|m) around (.+)'))

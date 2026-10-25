@@ -110,6 +110,61 @@ def exact(system,cap,args):
     return system.kernel.run_task(node,ExecutionContext(approval_token=token))
 
 
+def test_nlui_connector_reads_and_exact_external_write_confirmation(system):
+    from unittest.mock import Mock
+    from morice.nlui.runtime import NaturalLanguageController
+    from morice.nlui.contracts import ActiveContext,IntentResolution,Operation
+    controller=NaturalLanguageController(system);port=Mock(window_id='w')
+    port.execute.return_value={'confirmed':False};controller.attach_window(port)
+    context=ActiveContext('chat','w')
+    listed=controller.execute(controller.resolve('Show my GitHub issues',context),context)
+    assert listed.status=='completed' and '1 matching issue' in listed.message
+    assert system.fixture['posts']==0
+    system.kernel.permissions.controller.set_state('connector.fixture.read',PermissionState.DENIED)
+    before=system.fixture['reads']
+    denied=controller.execute(controller.resolve('Show my GitHub issues',context),context)
+    assert denied.status=='failed' and system.fixture['reads']==before
+    system.ambient.connectors.authorize_scopes('fixture',('read','write'),user_confirmed=True)
+    resolution=IntentResolution(operations=(Operation('nlui.connector.issue',{'action':'create','title':'Owned fixture issue','body':'Owned test body'}),))
+    cancelled=controller.execute(resolution,context)
+    assert cancelled.status=='failed' and system.fixture['posts']==0
+    port.execute.return_value={'confirmed':True}
+    created=controller.execute(resolution,context)
+    assert created.status=='completed' and system.fixture['posts']==1
+    assert 'owner/repo' in port.execute.call_args.args[1]['details']
+    assert created.executions[0]['verification']['status']=='verified'
+
+
+def test_nlui_watch_preview_denial_and_saved_enabled_state(system):
+    from unittest.mock import Mock
+    from morice.nlui.runtime import NaturalLanguageController
+    from morice.nlui.contracts import ActiveContext
+    controller=NaturalLanguageController(system);port=Mock(window_id='w')
+    controller.attach_window(port);context=ActiveContext('chat','w',research_project_id='owned-project')
+    plan=controller.resolve('Notify me when research completes',context)
+    port.execute.return_value={'confirmed':False}
+    denied=controller.execute(plan,context)
+    assert denied.status=='failed' and not system.ambient.snapshot()['watches']
+    port.execute.return_value={'confirmed':True}
+    done=controller.execute(plan,context)
+    assert done.status=='completed' and 'monitoring is off' in done.message
+    row=system.ambient.snapshot()['watches'][0]
+    assert row['enabled'] and row['project_id']=='owned-project'
+    assert row['action']=='notification.publish' and not system.ambient.enabled
+    # Separate actual creations beyond Windows' clock granularity. Equal
+    # timestamps correctly require clarification rather than guessing latest.
+    time.sleep(.025)
+    battery=controller.execute(controller.resolve('Notify me when battery is below 20%',context),context)
+    assert battery.status=='completed',battery.message
+    watch=next(row for row in system.ambient.snapshot()['watches'] if row['event_type']=='device.battery_low')
+    assert watch['conditions']=={'battery_percent':{'op':'lt','value':20}}
+    plan=controller.resolve('Delete my latest automation',context)
+    port.execute.return_value={'confirmed':False};assert controller.execute(plan,context).status=='failed'
+    assert len(system.ambient.snapshot()['watches'])==2
+    port.execute.return_value={'confirmed':True};assert controller.execute(plan,context).status=='completed'
+    assert [row['trigger_id'] for row in system.ambient.snapshot()['watches']]==[row['trigger_id']]
+
+
 def drain(system,seconds=3):
     deadline=time.monotonic()+seconds
     while time.monotonic()<deadline:

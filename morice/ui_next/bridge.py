@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections import OrderedDict
+from concurrent.futures import Future,TimeoutError
 
-from PySide6.QtCore import QObject, Qt, Signal, Slot
+from PySide6.QtCore import QObject, Qt, Signal, Slot,QThread
 
 from ..redaction import redact_text
 
@@ -14,11 +16,14 @@ class UiBridge(QObject):
     event_arrived = Signal(object)
     completed = Signal(str, object)
     event_pending = Signal()
+    ui_call_requested = Signal(object)
 
     def __init__(self, runtime, parent=None):
         super().__init__(parent)
         self.runtime = runtime; self._closed = False; self._next = 0; self._callbacks = {}; self._lock = threading.RLock()
         self._events = OrderedDict(); self._event_scheduled = False; self.coalesced_events = 0
+        self._ui_calls=set()
+        self.ui_call_requested.connect(self._invoke_ui_call,Qt.QueuedConnection)
         self.delivered.connect(self._deliver, Qt.QueuedConnection)
         self.event_pending.connect(self._flush_events, Qt.QueuedConnection)
         self._subscription = runtime.kernel.events.subscribe(self._event)
@@ -77,7 +82,44 @@ class UiBridge(QObject):
     def close(self):
         self._closed = True
         self.runtime.kernel.events.unsubscribe(self._subscription)
-        with self._lock: self._callbacks.clear(); self._events.clear()
+        with self._lock:
+            self._callbacks.clear(); self._events.clear()
+            for future in tuple(self._ui_calls):future.cancel()
+            self._ui_calls.clear()
 
     def diagnostics(self):
         with self._lock: return {'pending_deliveries': len(self._callbacks), 'maximum_pending': 32, 'pending_events': len(self._events), 'maximum_events': 256, 'coalesced_events': self.coalesced_events, 'closed': self._closed}
+
+    def invoke_on_ui(self,operation,*,cancellation=None,timeout=5):
+        """Bounded delivery for trusted typed adapters, never model UI code."""
+        if self._closed:raise RuntimeError('The target MORICE window is closed.')
+        if cancellation is not None:cancellation.raise_if_cancelled()
+        if QThread.currentThread()==self.thread():return operation()
+        future=Future()
+        with self._lock:
+            if len(self._ui_calls)>=32:raise RuntimeError('Too many pending interface actions.')
+            self._ui_calls.add(future)
+        try:
+            self.ui_call_requested.emit((future,operation,cancellation))
+            deadline=time.monotonic()+max(.05,min(30.,timeout))
+            while True:
+                if self._closed:raise RuntimeError('The target MORICE window closed.')
+                if cancellation is not None:cancellation.raise_if_cancelled()
+                remaining=deadline-time.monotonic()
+                if remaining<=0:raise TimeoutError('The interface action did not start before its deadline.')
+                try:return future.result(timeout=min(.05,remaining))
+                except TimeoutError:
+                    if future.done():raise
+        finally:
+            future.cancel()
+            with self._lock:self._ui_calls.discard(future)
+
+    @Slot(object)
+    def _invoke_ui_call(self,packet):
+        future,operation,cancellation=packet
+        if self._closed or future.cancelled():return
+        if not future.set_running_or_notify_cancel():return
+        try:
+            if cancellation is not None:cancellation.raise_if_cancelled()
+            future.set_result(operation())
+        except BaseException as exc:future.set_exception(exc)

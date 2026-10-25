@@ -49,9 +49,9 @@ def _theme_orbit_geometry(radius,orbit,paths,preset):
     return path,tuple(positions)
 
 
-def draw_core(painter, rect, snapshot, tokens, phase, complexity=3, brightness=.7, moving=True, motion_strength=1.):
+def draw_core(painter, rect, snapshot, tokens, phase, complexity=3, brightness=.7, moving=True, motion_strength=1.,core_scale=1.):
     """Spline orbits with a luminous point; no face, eyes or identity mark."""
-    center = rect.center(); radius = min(rect.width(), rect.height()) * .33
+    center = rect.center(); radius = min(rect.width(), rect.height()) * .33 * max(.5,min(1.5,core_scale))
     if radius < 1: return
     color = core_color(snapshot, tokens); secondary = QColor(tokens['accent_secondary'])
     moving = moving and motion_strength > 0
@@ -131,7 +131,7 @@ class CoreCanvas(QWidget):
     def paintEvent(self,event):
         started=time.perf_counter();p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
         profile=self.theme.profile
-        draw_core(p,QRectF(self.rect()),self.model.snapshot,self.theme.tokens,self._phase,profile.orbital_complexity,profile.core_brightness, self.policy.budget.decorative_motion, profile.motion_strength)
+        draw_core(p,QRectF(self.rect()),self.model.snapshot,self.theme.tokens,self._phase,profile.orbital_complexity,profile.core_brightness, self.policy.budget.decorative_motion, profile.motion_strength,profile.core_scale)
         p.end();self.paint_count+=1;self.paint_samples.append((time.perf_counter()-started)*1000)
 
     def showEvent(self,event):self.clock.request();super().showEvent(event)

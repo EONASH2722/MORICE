@@ -41,7 +41,7 @@ class AppearanceView(QWidget):
         for key, label, minimum, maximum, factor in (
             ('glow', 'Glow intensity', 0, 100, .01), ('glass', 'Glass intensity', 0, 100, .01), ('blur', 'Blur amount', 0, 100, .01),
             ('border_brightness', 'Border brightness', 0, 100, .01), ('radius', 'Corner radius', 0, 32, 1),
-            ('font_scale', 'Font scale', 80, 180, .01), ('motion_strength', 'Animation strength', 0, 100, .01), ('motion_speed', 'Animation speed', 50, 200, .01)):
+            ('font_scale', 'Font scale', 80, 180, .01), ('core_scale','Core size',50,150,.01), ('motion_strength', 'Animation strength', 0, 100, .01), ('motion_speed', 'Animation speed', 50, 200, .01)):
             field = QSlider(Qt.Horizontal); field.setRange(minimum, maximum); field.setValue(round(getattr(theme.profile, key) / factor)); field.setAccessibleName(label)
             if key == 'blur': field.setToolTip('Procedural raster softness; no desktop pixels are captured.')
             if key == 'glass': field.setToolTip('Glass theme: translucent panels, refracted field and soft reflective edges.')

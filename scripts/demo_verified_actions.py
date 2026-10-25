@@ -81,6 +81,9 @@ def main():
         root = Path(directory); (root / "viewer.py").write_text(VIEWER, encoding="utf-8")
         begin = time.perf_counter(); services = RuntimeServices(root / "runtime", project_root=root)
         values["constructor_ms"] = (time.perf_counter() - begin) * 1000
+        # This isolated demo deliberately exercises only its own viewer process.
+        services.set_desktop_automation_enabled(True,persist=False)
+        values['desktop_automation_fixture_enabled']=services.desktop_automation_enabled
         for permission in PermissionCategory:
             services.pc_permissions.set_policy(permission, PolicyMode.ALLOW)
         # A visible offscreen view and an off-the-record owned profile avoid

@@ -10,6 +10,11 @@ class ToolValidationError(ValueError):
 
 
 def validate_schema(value: Any, schema: dict[str, Any], path: str = "arguments") -> None:
+    if 'anyOf' in schema:
+        for variant in schema['anyOf']:
+            try:validate_schema(value,variant,path);break
+            except ToolValidationError:pass
+        else:raise ToolValidationError(f'{path} must match a declared value type.')
     expected = schema.get("type")
     types = {
         "object": dict,
@@ -24,8 +29,12 @@ def validate_schema(value: Any, schema: dict[str, Any], path: str = "arguments")
         type_matches = False
     if not type_matches:
         raise ToolValidationError(f"{path} must be {expected}.")
-    if expected == "number" and not math.isfinite(float(value)):
-        raise ToolValidationError(f"{path} must be finite.")
+    if expected in {'number','integer'}:
+        try:finite=math.isfinite(float(value))
+        except (OverflowError,ValueError):finite=False
+        if not finite:raise ToolValidationError(f"{path} must be finite.")
+        if 'minimum' in schema and value<schema['minimum']:raise ToolValidationError(f"{path} is below its supported minimum.")
+        if 'maximum' in schema and value>schema['maximum']:raise ToolValidationError(f"{path} exceeds its supported maximum.")
     if expected == "object":
         required = schema.get("required", ())
         for key in required:
@@ -38,6 +47,7 @@ def validate_schema(value: Any, schema: dict[str, Any], path: str = "arguments")
             elif schema.get("additionalProperties") is False:
                 raise ToolValidationError(f"{path}.{key} is not supported.")
     elif expected == "array":
+        if len(value)<int(schema.get('minItems',0)):raise ToolValidationError(f"{path} has too few items.")
         if len(value) > int(schema.get("maxItems", 100_000)):
             raise ToolValidationError(f"{path} has too many items.")
         child = schema.get("items")
@@ -45,6 +55,7 @@ def validate_schema(value: Any, schema: dict[str, Any], path: str = "arguments")
             for index, item in enumerate(value):
                 validate_schema(item, child, f"{path}[{index}]")
     elif expected == "string":
+        if len(value)<int(schema.get('minLength',0)):raise ToolValidationError(f"{path} is too short.")
         if len(value) > int(schema.get("maxLength", 1_000_000)):
             raise ToolValidationError(f"{path} is too long.")
         if pattern := schema.get("pattern"):

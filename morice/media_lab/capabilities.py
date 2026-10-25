@@ -27,7 +27,8 @@ def register_media_capabilities(kernel,factory):
         lambda args,ctx:factory().status_result())
     kernel.registry.register(CapabilityDescriptor('media.artifact.export','Export a verified media artifact',category='media',
         required_permissions=('file_write',),supported_resources=(ResourceClaim('DISK'),),supports_verification=True,timeout=10),
-        lambda args,ctx:factory().export_handler(args,ctx),verifier=lambda result,expected,ctx:factory().verify_export(result,ctx))
+        lambda args,ctx:factory().export_handler(args,ctx),verifier=lambda result,expected,ctx:factory().verify_export(result,ctx),
+        permission_check=lambda args,ctx:factory().export_permission(args,ctx))
     kernel.registry.register(CapabilityDescriptor('media.model.benchmark','Benchmark Generative Media',category='media',inline=True,timeout=1800),
         lambda args,ctx:factory().start_benchmark(args,ctx))
     kernel.registry.register(CapabilityDescriptor('media.artifact.contact_sheet','Preview verified generations',category='media',supported_resources=(ResourceClaim('CPU'),ResourceClaim('DISK')),supports_verification=True,timeout=10),

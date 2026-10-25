@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import heapq
 import operator
+import re
 import threading
 import time
 from collections import deque
@@ -200,6 +201,7 @@ class AmbientService:
         if trigger.enabled and not user_confirmed:
             raise PermissionError("Enabling a watch requires explicit user authorization.")
         self._validate_action(trigger)
+        trigger=replace(trigger,created_at=time.time())
         with self._lock:
             self.store.save(trigger)
             self._watches[trigger.trigger_id] = trigger
@@ -309,10 +311,14 @@ class AmbientService:
 
     def from_request(self, text, *, project_id="", device_id=""):
         lower = text.lower().strip()
-        if "battery" in lower and ("15" in lower or "low" in lower):
-            return Trigger("Notify when battery is below 15%", "device.battery_low",
-                conditions={"battery_percent":{"op":"lt","value":15}}, device_id=device_id,
-                arguments={"title":"Low battery","message":"The configured device battery is below 15%."})
+        if 'battery' in lower:
+            match=re.search(r'(?:below|under|less than)\s*(\d{1,3}(?:\.\d+)?)\s*(?:%|percent)?',lower)
+            threshold=float(match[1]) if match else 15 if 'low' in lower else None
+            if threshold is None or not 0<threshold<=100:raise ValueError('Supply a battery threshold above 0 and at most 100 percent.')
+            label=f'{threshold:g}%'
+            return Trigger('Notify when battery is below '+label,'device.battery_low',
+                conditions={'battery_percent':{'op':'lt','value':threshold}},device_id=device_id,
+                arguments={'title':'Low battery','message':'A permitted device battery event reports a value below '+label+'.'})
         if "build" in lower and ("finish" in lower or "complete" in lower or "fail" in lower):
             failed = "fail" in lower
             return Trigger("Notify when build " + ("fails" if failed else "completes"), "build.failed" if failed else "build.completed",
@@ -323,7 +329,7 @@ class AmbientService:
                 arguments={"title":"Research status","message":"The configured research watch matched."})
         if "issue" in lower and "assign" in lower:
             return Trigger("Assigned GitHub issue", "github.issue.assigned",arguments={"title":"Assigned issue","message":"An issue was assigned in the configured repository."})
-        raise ValueError("Supported watches: build completion/failure, research completion/failure, battery below 15%, assigned issue.")
+        raise ValueError('Supported watches: build completion/failure, research completion/failure, an explicit battery percentage, assigned issue.')
 
     def configure_poll(self, cid, *, interval_seconds=60, user_confirmed=False):
         if not user_confirmed or not self.connectors or cid not in self.connectors.providers:

@@ -24,7 +24,8 @@ def app():return QApplication.instance() or QApplication([])
 
 @pytest.fixture
 def window(tmp_path,app):
-    with patch.dict(os.environ,MORICE_LOCAL_DATA_DIR=str(tmp_path/'data'),MORICE_DISABLE_SESSION='1',
+    with patch.dict(os.environ,APPDATA=str(tmp_path/'roaming'),LOCALAPPDATA=str(tmp_path/'local'),
+        MORICE_LOCAL_DATA_DIR=str(tmp_path/'data'),MORICE_DISABLE_SESSION='1',
         MORICE_DISABLE_RECOVERY='1',MORICE_PRELOAD='0',MORICE_NODE_NETWORK='0',MORICE_REDUCE_MOTION='1',MORICE_START_AWAKE='1',MORICE_WEB='0'), \
         patch('morice.settings._settings_dir',return_value=str(tmp_path/'settings')):
         settings.save_settings({**settings.DEFAULT_SETTINGS,'tts_enabled':'false','stt_enabled':'false','pet_enabled':'false'})
@@ -256,6 +257,23 @@ def test_completed_processing_does_not_accept_delayed_generation_updates(window,
     assert '[active]' not in completed
 
 
+def test_queued_activity_after_close_does_not_refresh_retired_workspace(window,app,monkeypatch):
+    from PySide6.QtCore import QTimer
+    assert not window.assistant_hub.isVisible()
+    rebuild=Mock(side_effect=AssertionError('The hidden legacy item models must not be rebuilt by chat activity.'))
+    monkeypatch.setattr(window.assistant_hub,'set_desktop_state',rebuild)
+    window._record_activity('Owned current activity','Stored through the live owner.')
+    assert window.workspace_state.activity[-1].title=='Owned current activity'
+    delivered=[]
+    def late():
+        window._record_activity('Owned stale activity','Queued before closing.')
+        delivered.append(True)
+    QTimer.singleShot(0,late);window.close();pump(app,lambda:bool(delivered))
+    assert window._is_closing
+    assert not any(row.title=='Owned stale activity' for row in window.workspace_state.activity)
+    rebuild.assert_not_called()
+
+
 def test_research_uses_installed_default_model_without_custom_selection(window,app,tmp_path,monkeypatch):
     from morice.research.providers import ResearchProvider
     model=tmp_path/'installed-default.gguf';model.write_bytes(b'GGUF')
@@ -294,3 +312,75 @@ def test_engineering_calculation_and_interpretation_share_one_reply(window,app,m
     window._load_history_page(earlier=False)
     pump(app,lambda:not window._loading_history)
     assert len(window._message_rows)==2,[(r.property('messageId'),r.findChild(ChatBubble).message[:120]) for r in window._message_rows]
+
+
+def test_desktop_automation_toggle_and_disabled_chat_guidance(window,app,monkeypatch):
+    from morice.pc_control import PermissionCategory,PolicyMode
+    from morice.unified_intelligence import PermissionState
+    controls=window.routes['settings'].control_settings
+    assert not controls.desktop.isChecked() and not window.runtime.desktop_automation_enabled
+    stream=Mock(side_effect=AssertionError('Disabled PC requests must not be handed to a model'))
+    execute=Mock(side_effect=AssertionError('Disabled PC control must not execute'))
+    monkeypatch.setattr('morice.pyside_app.stream_chat',stream)
+    monkeypatch.setattr(window.runtime.pc_control,'execute',execute)
+    window.input.setText('Open Notepad');window.on_send()
+    pump(app,lambda:len(window.history)==2 and not window.is_busy)
+    assert 'turn on Desktop automation in Settings' in window.history[-1]['content']
+    execute.assert_not_called();stream.assert_not_called()
+    controls.desktop.setChecked(True);app.processEvents()
+    assert window.runtime.pc_permissions.policy(PermissionCategory.DESKTOP_AUTOMATION)==PolicyMode.ALLOW
+    assert window.runtime.unified_permissions.state('desktop_automation')==PermissionState.GRANTED
+    controls.desktop.setChecked(False);app.processEvents()
+    assert not window.runtime.desktop_automation_enabled
+    assert window.settings['desktop_automation_enabled']=='false'
+
+
+def test_natural_first_party_navigation_and_theme_use_actual_state(window,app,monkeypatch):
+    window._session_enabled=True;window._render_chat_messages([])
+    model=Mock(side_effect=AssertionError('UI commands must not initialize a model'))
+    pc=Mock(side_effect=AssertionError('MORICE navigation must not automate external apps'))
+    monkeypatch.setattr('morice.pyside_app.stream_chat',model)
+    monkeypatch.setattr(window.runtime.pc_control,'execute',pc)
+    window.input.setText('Open Settings.');window.on_send();app.processEvents()
+    assert window.active_route=='settings' and window.composer.isVisible()
+    assert [m['role'] for m in window.history]==['user','assistant']
+    window.input.setText('Change the primary color to purple.');window.on_send();app.processEvents()
+    assert window.theme_engine.profile.primary_accent=='#a855f7'
+    assert window.theme_engine.store.load().primary_accent=='#a855f7'
+    window.input.setText('Go back to Chat.');window.on_send();app.processEvents()
+    assert window.active_route=='chats'
+    assert len(window.history)==6
+    assert len(window._message_rows)==6
+    assert len({r.property('messageId') for r in window._message_rows})==6
+    assert not window.runtime.desktop_automation_enabled
+    model.assert_not_called();pc.assert_not_called()
+    purple=window.theme_engine.profile.to_dict()
+    window.input.setText('Make Core smaller');window.on_send();app.processEvents()
+    assert window.theme_engine.profile.core_scale==pytest.approx(purple['core_scale']-.1)
+    window.input.setText('Undo that appearance change');window.on_send();app.processEvents()
+    assert window.theme_engine.profile.to_dict()==purple
+    window.input.setText('Use compact responses');window.on_send();app.processEvents()
+    assert window.settings['response_presentation']=='compact'
+    window.input.setText('Turn off precision mode');window.on_send();app.processEvents()
+    assert not window.precision_mode
+
+
+def test_natural_research_selection_is_async_and_keeps_one_row_per_turn(window,app,monkeypatch):
+    window._session_enabled=True;window._render_chat_messages([])
+    store=window.runtime.research.store
+    store.create('Energy alpha');store.create('Energy beta')
+    monkeypatch.setattr('morice.pyside_app.stream_chat',Mock(side_effect=AssertionError('Saved research uses no model')))
+    window.input.setText('Open my energy research');window.on_send()
+    pump(app,lambda:not window.is_busy)
+    assert 'Which research notebook' in window.history[-1]['content']
+    pending=window.runtime.nlui._pending[window._chat_id]
+    chosen=pending['choices'][1]['id']
+    assert pending['question_turn_key']==window.nlui_port.context().last_turn_key
+    window.input.setText('the second');window.on_send()
+    pump(app,lambda:not window.is_busy)
+    assert window.active_route=='research'
+    assert window.routes['research'].project_id==chosen
+    assert window._research_project_id==chosen
+    assert [m['role'] for m in window.history]==['user','assistant','user','assistant']
+    assert len(window._message_rows)==4
+    assert window.runtime.chat_history.get_ui_state(window._chat_id,'nlui_pending') is None

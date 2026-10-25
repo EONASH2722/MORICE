@@ -1140,6 +1140,7 @@ class RuntimeServices:
         self.autonomous_builder = AutonomousBuilder(base / "builder")
         settings = load_settings()
         self._chat_memory_history = None
+        self._nlui_controller = None
         self.default_music_provider = str(
             settings.get("default_music_provider", "Amazon Music")
         ).strip() or "Amazon Music"
@@ -1303,7 +1304,12 @@ class RuntimeServices:
         self.pc_permissions = PermissionBroker(
             base / "pc-control" / "permissions.json",
             defaults=routine_pc_defaults,
+            require_desktop_automation=True,
         )
+        self.desktop_automation_enabled=(normalize_boolean_setting(settings.get('desktop_automation_enabled','false'))
+            and self.pc_permissions.policy(PermissionCategory.DESKTOP_AUTOMATION)==PolicyMode.ALLOW)
+        self.pc_permissions.set_policy(PermissionCategory.DESKTOP_AUTOMATION,
+            PolicyMode.ALLOW if self.desktop_automation_enabled else PolicyMode.DENY)
         self.pc_context = DesktopContext()
         self.pc_browser = _SystemBrowserController()
         file_roots = tuple(
@@ -1343,6 +1349,7 @@ class RuntimeServices:
         # unsupported capability honestly instead of fabricating control.
         self.unified_permissions = PermissionController(
             states={
+                "desktop_automation": PermissionState.GRANTED if self.desktop_automation_enabled else PermissionState.DENIED,
                 "application_control": PermissionState.GRANTED,
                 "file_read": PermissionState.GRANTED,
                 "media": PermissionState.GRANTED,
@@ -1371,6 +1378,8 @@ class RuntimeServices:
         from .action_runtime.adapters import install_action_adapters
         self.actions = VerifiedActionRuntime(self.kernel, ActionJournal(base / "agent" / "history" / "action-attempts.json"))
         install_action_adapters(self.actions, self.desktop, self.pc_browser, self.pc_control, self.agent.tools)
+        from .computer_use import register_computer_actions
+        register_computer_actions(self.actions,self.pc_control.computer_use)
         from .agent_runtime import AgentCoordinator
         self.agents = AgentCoordinator(self.kernel, model_router=self.agent.model_router)
         self.agent.parallel_runtime = self.agents
@@ -1496,6 +1505,15 @@ class RuntimeServices:
                 self._spatial_service = SpatialService(self.kernel,
                     online=OnlineGeocoder(self.directory/'spatial'/'online-places.json'), register=False)
             return self._spatial_service
+
+    @property
+    def nlui(self):
+        with self._lock:
+            if self._shutdown:raise RuntimeError('Runtime is shut down.')
+            if self._nlui_controller is None:
+                from .nlui import NaturalLanguageController
+                self._nlui_controller=NaturalLanguageController(self)
+            return self._nlui_controller
 
     def _log_node_error(self, error: Exception, address: Any) -> None:
         self.logs.log(
@@ -1783,6 +1801,31 @@ class RuntimeServices:
         self.desktop.applications.set_default_music_provider(clean)
         self.desktop.media.set_default_music_provider(clean)
         self.pc_router.set_default_music_provider(clean)
+
+    def set_desktop_automation_enabled(self, enabled: bool, *, persist=True) -> None:
+        """Settings-owned opt-in. Revocation is immediate and invalidates grants."""
+        if type(enabled) is not bool:
+            raise TypeError('Desktop automation needs an explicit boolean setting.')
+        # Fail closed if saving or enabling subsequently fails.
+        self.desktop_automation_enabled=False
+        self.unified_permissions.set_state('desktop_automation',PermissionState.DENIED)
+        self.pc_permissions.set_policy(PermissionCategory.DESKTOP_AUTOMATION,PolicyMode.DENY)
+        self.pc_permissions.revoke_confirmations()
+        if persist:
+            from .settings import save_settings
+            preferences=load_settings()
+            preferences['desktop_automation_enabled']=str(enabled).lower()
+            save_settings(preferences)
+        if enabled:
+            try:
+                self.pc_permissions.set_policy(PermissionCategory.DESKTOP_AUTOMATION,PolicyMode.ALLOW)
+            except Exception:
+                try:self.pc_permissions.set_policy(PermissionCategory.DESKTOP_AUTOMATION,PolicyMode.DENY)
+                except Exception:pass  # In-memory policy is still denied if disk is unwritable.
+                raise
+            self.unified_permissions.set_state('desktop_automation',PermissionState.GRANTED)
+            self.desktop_automation_enabled=True
+        self.logs.log('INFO','Desktop automation enabled.' if enabled else 'Desktop automation disabled.',category='permissions')
 
     def update_live_camera_diagnostics(self, payload: dict[str, Any]) -> None:
         with self._lock:

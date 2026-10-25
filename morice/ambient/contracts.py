@@ -114,6 +114,7 @@ class Trigger:
     quiet_end_hour: int | None = None
     critical_override: bool = False
     trigger_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    created_at: float | None = None
 
     def __post_init__(self):
         self.level = Autonomy(self.level)
@@ -132,8 +133,8 @@ class Trigger:
         for hour in (self.quiet_start_hour, self.quiet_end_hour):
             if hour is not None and not 0 <= hour < 24:
                 raise ValueError("Invalid quiet period.")
-        for stamp in (self.expires_at, self.schedule_at):
-            if stamp is not None and not math.isfinite(stamp):
+        for stamp in (self.expires_at, self.schedule_at,self.created_at):
+            if stamp is not None and (type(stamp) not in (int,float) or not math.isfinite(stamp)):
                 raise ValueError("Invalid watch timestamp.")
         if self.interval_seconds is not None and (not math.isfinite(self.interval_seconds) or self.interval_seconds < 60):
             raise ValueError("Recurring schedules require at least 60 seconds.")

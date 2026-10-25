@@ -50,6 +50,7 @@ class AppearanceProfile:
     field_intensity: float = .25
     field_motion: float = .45
     core_brightness: float = .7
+    core_scale: float = 1.0
     orbital_complexity: int = 3
     particles: str = 'OFF'
     reduced_motion: bool = False
@@ -74,7 +75,7 @@ class AppearanceProfile:
             raise ValueError('Unknown energy field palette.')
         if not isinstance(self.font_family, str) or not 1 <= len(self.font_family) <= 100 or not all(character.isalnum() or character in ' _.,-' for character in self.font_family):
             raise ValueError('Font family must be bounded text, without stylesheet syntax or file paths.')
-        for value, low, high in ((self.font_scale, .8, 1.8), (self.motion_speed, .5, 2)):
+        for value, low, high in ((self.font_scale, .8, 1.8), (self.motion_speed, .5, 2),(self.core_scale,.5,1.5)):
             if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
                 raise ValueError('Appearance scale/speed exceeds supported bounds.')
         if self.density not in {'compact', 'comfortable', 'spacious'} or self.quality not in {'LOW', 'BALANCED', 'HIGH', 'ULTRA'}:

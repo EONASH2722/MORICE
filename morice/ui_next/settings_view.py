@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineE
 from .appearance_view import AppearanceView
 from .profiles_view import ProfilesView
 from .memory_view import FastModelSettings, MemorySettings
+from .control_settings import ControlSettings
 
 
 class SettingsWorkspace(QWidget):
@@ -32,6 +33,8 @@ class SettingsWorkspace(QWidget):
         self.add_form('Models', (('Reply model routing', self.fast_model_settings), ('Thinking Ollama model', 'model_name_input'), ('Thinking local GGUF', 'model_path_input'),
             ('Select model', 'change_model_btn'), ('Clear local file', 'clear_model_btn'), ('Hardware', 'gpu_status_input'), ('Detect GPU', 'detect_gpu_btn')))
         self.memory_settings=MemorySettings(window)
+        self.control_settings=ControlSettings(window)
+        self.add_form('Permissions & control',(('Desktop automation and natural language',self.control_settings),))
         memory_scroll=QScrollArea(); memory_scroll.setWidgetResizable(True); memory_scroll.setWidget(self.memory_settings)
         self.add_category('Memory',memory_scroll)
         provider = QComboBox(); provider.addItem('ElevenLabs', 'elevenlabs'); provider.addItem('Windows local speech', 'local')

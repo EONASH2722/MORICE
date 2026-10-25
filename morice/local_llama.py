@@ -112,12 +112,14 @@ def stream_chat(
     *,
     cancel_event=None,
     max_tokens=None,
+    response_schema=None,
 ):
     """Yield local model text as llama.cpp produces it."""
 
     llm = _get_llm(model_path, n_ctx, n_gpu_layers, chat_format, n_threads, n_batch)
     result = llm.create_chat_completion(
         messages=messages,
+        **({'response_format':{'type':'json_object','schema':response_schema}} if response_schema is not None else {}),
         **({'max_tokens':int(max_tokens)} if max_tokens is not None else {}),
         temperature=temperature,
         top_p=top_p,

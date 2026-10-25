@@ -23,7 +23,8 @@ DEFAULT_MODEL = os.getenv("MORICE_MODEL", "").strip()
 DEFAULT_BASE_URL = os.getenv("MORICE_OLLAMA_URL", "http://localhost:11434")
 DEFAULT_GGUF = os.getenv("MORICE_GGUF_PATH", "").strip()
 DEFAULT_CTX = int(os.getenv("MORICE_CTX", "8192"))
-DEFAULT_GPU_LAYERS = int(os.getenv("MORICE_GPU_LAYERS", "0"))
+_GPU_LAYER_SETTING = os.getenv("MORICE_GPU_LAYERS", "0").strip().lower()
+DEFAULT_GPU_LAYERS = 0 if _GPU_LAYER_SETTING in {'auto','all'} else int(_GPU_LAYER_SETTING)
 DEFAULT_CHAT_FORMAT = os.getenv("MORICE_CHAT_FORMAT", "").strip() or None
 DEFAULT_THREADS = int(os.getenv("MORICE_THREADS", str(max(2, (os.cpu_count() or 4) // 2))))
 DEFAULT_BATCH = int(os.getenv("MORICE_BATCH", "256"))
@@ -32,8 +33,10 @@ DEFAULT_MAX_TOKENS = int(os.getenv("MORICE_MAX_TOKENS", "2048"))
 _OLLAMA_PROCESS = None
 DEFAULT_BUNDLED_GGUF = "Qwen2.5-Coder-7B-Instruct-abliterated-Q4_K_M.gguf"
 OFFICIAL_QWEN_GGUF = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
+PREFERRED_REASONING_GGUF = "Qwen3.5-4B-abliterated.Q6_K.gguf"
 _MODEL_GENERATION_LOCK = threading.Lock()
 _MODEL_GENERATION_OWNER = None
+_REASONING_BUDGET_MESSAGE = '\nConclude now with only the final answer in the requested format. Computed values are conditional calculations, not measurements.\n'
 
 
 @contextmanager
@@ -231,6 +234,7 @@ def prime_local_chat_prefix(
         "top_p": 0.8,
         "max_tokens": 8,
         "reasoning_budget": 0,
+        "reasoning_budget_tokens": 0,
         "chat_template_kwargs": {"enable_thinking": False},
         "stream_options": {"include_usage": True},
     }
@@ -271,10 +275,24 @@ def _is_stale_llama_model(model_name: str) -> bool:
     return any(marker in lowered for marker in ("llama3", "llama-3", "meta-llama"))
 
 
+def _single_system_message(messages):
+    """Keep ordered host instructions in the one initial role strict templates allow."""
+    prefix=[];rest=list(messages)
+    while rest and rest[0].get('role')=='system':prefix.append(rest.pop(0))
+    if len(prefix)<2:return prefix+rest
+    return [{'role':'system','content':'\n\n'.join(str(item.get('content') or '') for item in prefix)},*rest]
+
+
+def _chat_wire_payload(payload):
+    if isinstance(payload,dict) and isinstance(payload.get('messages'),list):
+        return {**payload,'messages':_single_system_message(payload['messages'])}
+    return payload
+
+
 def _post_json(url, payload, timeout):
     request = urllib.request.Request(
         url,
-        data=json.dumps(payload).encode("utf-8"),
+        data=json.dumps(_chat_wire_payload(payload)).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -287,7 +305,7 @@ def _post_stream_json(url, payload, timeout, cancel_event=None, telemetry=None):
 
     request = urllib.request.Request(
         url,
-        data=json.dumps(payload).encode("utf-8"),
+        data=json.dumps(_chat_wire_payload(payload)).encode("utf-8"),
         headers={
             "Accept": "text/event-stream, application/x-ndjson, application/json",
             "Content-Type": "application/json",
@@ -539,12 +557,18 @@ def _try_openai_chat(base_url, payload, timeout):
     running_payload = dict(payload)
     running_payload["messages"] = list(payload.get("messages", []))
     content = ""
+    retried_for_answer = False
     for continuation_index in range(3):
         data = _post_json(openai_url, running_payload, timeout)
         choice = data.get("choices", [{}])[0]
         part = choice.get("message", {}).get("content", "").strip()
         content = _merge_continuation(content, part)
         finish_reason = str(choice.get("finish_reason") or "").lower()
+        if not content and choice.get('message',{}).get('reasoning_content') and finish_reason=='length' and not retried_for_answer:
+            retried_for_answer=True
+            running_payload={**running_payload,'reasoning_budget':0,'reasoning_budget_tokens':0,'reasoning_budget_message':'',
+                'chat_template_kwargs':{**running_payload.get('chat_template_kwargs',{}),'enable_thinking':False}}
+            continue
         if finish_reason not in {"length", "max_tokens"}:
             break
         running_payload["messages"] = [
@@ -575,33 +599,34 @@ def _try_openai_chat_stream(
     running_payload["stream"] = True
     emitted = False
     useful_emitted = False
-    for event in _post_stream_json(
-        openai_url,
-        running_payload,
-        timeout,
-        cancel_event,
-        telemetry,
-    ):
-        if cancel_event is not None and cancel_event.is_set():
-            break
-        choice = (event.get("choices") or [{}])[0]
-        delta = choice.get("delta") or {}
-        text = delta.get("content") or choice.get("text") or ""
-        if text:
-            if not useful_emitted and str(text).strip():
-                useful_emitted = True
-                _report_telemetry(telemetry, "model_first_useful_token")
-            emitted = True
-            yield str(text)
-        usage = event.get("usage")
-        timings = event.get("timings")
-        if isinstance(usage, dict) or isinstance(timings, dict):
-            _report_telemetry(
-                telemetry,
-                "model_usage",
-                usage=usage if isinstance(usage, dict) else {},
-                timings=timings if isinstance(timings, dict) else {},
-            )
+    for attempt in range(2):
+        reasoning_only=False;finish_reason=''
+        for event in _post_stream_json(openai_url,running_payload,timeout,cancel_event,telemetry):
+            if cancel_event is not None and cancel_event.is_set():break
+            choice = (event.get("choices") or [{}])[0]
+            delta = choice.get("delta") or {}
+            reasoning_only=reasoning_only or bool(delta.get('reasoning_content'))
+            finish_reason=choice.get('finish_reason') or finish_reason
+            text = delta.get("content") or choice.get("text") or ""
+            if text:
+                if not useful_emitted and str(text).strip():
+                    useful_emitted = True
+                    _report_telemetry(telemetry, "model_first_useful_token")
+                emitted = True
+                yield str(text)
+            usage = event.get("usage")
+            timings = event.get("timings")
+            if isinstance(usage, dict) or isinstance(timings, dict):
+                _report_telemetry(telemetry,"model_usage",usage=usage if isinstance(usage,dict) else {},
+                    timings=timings if isinstance(timings,dict) else {})
+        if attempt==0 and not emitted and reasoning_only and finish_reason=='length' and not (cancel_event is not None and cancel_event.is_set()):
+            # Older backends may ignore finite reasoning budgets. Retry once
+            # for a visible answer, using the same request and no fake history.
+            running_payload={**running_payload,'reasoning_budget':0,'reasoning_budget_tokens':0,'reasoning_budget_message':'',
+                'chat_template_kwargs':{**running_payload.get('chat_template_kwargs',{}),'enable_thinking':False}}
+            _report_telemetry(telemetry,'model_answer_retry',reason='reasoning_consumed_output_budget')
+            continue
+        break
     _report_telemetry(telemetry, "model_stream_complete", emitted=emitted)
     if not emitted and not (cancel_event is not None and cancel_event.is_set()):
         yield "(No response)"
@@ -669,7 +694,11 @@ def _resolve_gguf_path(override_path=None, requested_model: str = "", explicit_m
         return ""
     if DEFAULT_GGUF and os.path.exists(DEFAULT_GGUF):
         return DEFAULT_GGUF
+    from .config import local_data_dir
     candidates = [
+        str(local_data_dir()/'models'/'llm'/PREFERRED_REASONING_GGUF),
+        _project_path(PREFERRED_REASONING_GGUF),
+        _asset_path(PREFERRED_REASONING_GGUF),
         _project_path(DEFAULT_BUNDLED_GGUF),
         _asset_path(DEFAULT_BUNDLED_GGUF),
         _project_path(OFFICIAL_QWEN_GGUF),
@@ -792,7 +821,7 @@ def _try_ollama_messages_stream(
     temperature,
     top_p,
     cancel_event=None,
-    *, max_tokens=None, context_tokens=None,
+    *, max_tokens=None, context_tokens=None, response_schema=None,
 ):
     payload = {
         "model": model,
@@ -806,6 +835,7 @@ def _try_ollama_messages_stream(
         },
     }
     emitted = False
+    if response_schema is not None:payload['format']=response_schema
     for event in _post_stream_json(
         f"{base_url.rstrip('/')}/api/chat",
         payload,
@@ -875,7 +905,9 @@ def _conversation_messages(
     if extra_system:
         system_additions.append(extra_system)
     if precision_mode:
-        system_additions.append("Precision mode is on: be exact and avoid guesses.")
+        system_additions.append("Precision mode is on: be exact and avoid guesses. Carry units through calculations. "
+            "SI conversion reference: 1 kg = 1000 g = 1000000 mg; 1 N = 1000 mN. "
+            "Convert kilograms to milligrams by multiplying by 1000000, not 1000.")
     if math_steps_mode:
         system_additions.append("Math steps mode is on: show all steps clearly.")
     if system_additions:
@@ -902,6 +934,8 @@ def stream_chat(
     context_tokens: int | None = None,
     enable_reasoning: bool = False,
     telemetry=None,
+    response_schema: dict | None = None,
+    intent_mode: bool = False,
 ):
     """Yield response text while a local GGUF or Ollama backend is generating."""
 
@@ -911,6 +945,10 @@ def stream_chat(
     model = (model or DEFAULT_MODEL).strip()
     sampling = sampling_settings(precision_mode, _needs_precision(user_message))
     temperature, top_p = sampling.temperature, sampling.top_p
+    if response_schema is not None:
+        if not isinstance(response_schema,dict) or len(json.dumps(response_schema,allow_nan=False).encode())>32768:
+            raise ValueError('Structured responses require a bounded host JSON schema.')
+        temperature=0.0
     selected_path = (gguf_path or "").strip()
     if selected_path and os.path.splitext(selected_path)[1].lower() != ".gguf":
         yield "(MORICE) Selected model file is not a GGUF model."
@@ -919,7 +957,9 @@ def stream_chat(
     if selected_path and not resolved_path:
         yield "(MORICE) Selected model file was not found. Use Change model and pick the file again."
         return
-    messages = _conversation_messages(
+    if intent_mode and (history or response_schema is None):raise ValueError('Intent proposals require a host schema and an empty conversation-history input.')
+    messages = ([{'role':'system','content':str(extra_system or 'Return only the requested capability intent JSON.')[:2000]},
+        {'role':'user','content':str(user_message)}] if intent_mode else _conversation_messages(
         history,
         user_message,
         extra_system=extra_system,
@@ -927,7 +967,7 @@ def stream_chat(
         math_steps_mode=math_steps_mode,
         context_tokens=context_limit,
         max_output_tokens=output_limit,
-    )
+    ))
     prompt_characters = sum(
         len(str(message.get("content") or "")) for message in messages
     )
@@ -952,11 +992,14 @@ def stream_chat(
                 # hidden reasoning_content before the first visible token.
                 # Deep/project requests opt back in through the tier router.
                 "reasoning_budget": -1 if enable_reasoning else 0,
+                "reasoning_budget_tokens": min(1024,max(1,output_limit//3)) if enable_reasoning else 0,
+                "reasoning_budget_message": _REASONING_BUDGET_MESSAGE if enable_reasoning else '',
                 "chat_template_kwargs": {
                     "enable_thinking": bool(enable_reasoning),
                 },
                 "stream_options": {"include_usage": True},
             }
+            if response_schema is not None:payload['response_format']={'type':'json_object','schema':response_schema}
             try:
                 prepare_started = time.perf_counter_ns()
                 _report_telemetry(telemetry, "model_prepare_started")
@@ -1005,7 +1048,7 @@ def stream_chat(
             return
         try:
             yield from local_stream_chat(
-                messages,
+                _single_system_message(messages),
                 resolved_path,
                 context_limit,
                 DEFAULT_GPU_LAYERS,
@@ -1016,6 +1059,7 @@ def stream_chat(
                 top_p,
                 cancel_event=cancel_event,
                 max_tokens=output_limit,
+                **({'response_schema':response_schema} if response_schema is not None else {}),
             )
         except Exception as exc:  # noqa: BLE001
             if cancel_event is None or not cancel_event.is_set():
@@ -1040,6 +1084,7 @@ def stream_chat(
                 cancel_event,
                 max_tokens=output_limit,
                 context_tokens=context_limit,
+                **({'response_schema':response_schema} if response_schema is not None else {}),
             )
             return
         except urllib.error.HTTPError as exc:
@@ -1112,6 +1157,8 @@ def chat(
                 "top_p": top_p,
                 "max_tokens": DEFAULT_MAX_TOKENS,
                 "reasoning_budget": -1 if enable_reasoning else 0,
+                "reasoning_budget_tokens": min(1024,max(1,DEFAULT_MAX_TOKENS//3)) if enable_reasoning else 0,
+                "reasoning_budget_message": _REASONING_BUDGET_MESSAGE if enable_reasoning else '',
                 "chat_template_kwargs": {
                     "enable_thinking": bool(enable_reasoning),
                 },
@@ -1140,7 +1187,7 @@ def chat(
 
         try:
             return local_chat(
-                messages,
+                _single_system_message(messages),
                 gguf_path,
                 DEFAULT_CTX,
                 DEFAULT_GPU_LAYERS,

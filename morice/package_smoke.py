@@ -53,6 +53,46 @@ def run(output):
     assert 'Memory' in controls.categories and controls.fast_model_settings.automatic.isChecked()
     memory_probe={'earliest_message':source['sequence']==1,'bounded_reopen':True,'preference_persist_forget':True,
         'memory_controls':True,'fast_model_controls':True,'weights_loaded':False}
+    from PySide6.QtTest import QTest
+    from .ui_next.rich_charts import ChartView
+    assert not runtime.desktop_automation_enabled and not controls.control_settings.desktop.isChecked()
+    window.input.setText('Open memory settings');window.on_send()
+    until=time.monotonic()+15
+    while window.is_busy and time.monotonic()<until:app.processEvents();QTest.qWait(10)
+    assert not window.is_busy and window.active_route=='settings'
+    window.navigate('chats')
+    window._append_direct_reply('Actual packaging user data for a linked chart and table; these controlled values are not physical measurements.\nx,y\n1,2\n2,4\n3,9',
+        'This chart reads the actual supplied rows.',address=False)
+    until=time.monotonic()+15
+    while not window.findChildren(ChartView) and time.monotonic()<until:app.processEvents();QTest.qWait(10)
+    chart=window.findChildren(ChartView)[-1];assert len(chart.canvas.rows)==3
+    chart.style.setCurrentText('scatter');chart.table_toggle.setChecked(True)
+    until=time.monotonic()+10
+    while chart.table.model.rowCount()!=3 and time.monotonic()<until:app.processEvents();QTest.qWait(10)
+    assert chart.canvas.style=='scatter' and chart.table.model.rowCount()==3
+    nlui_probe={'desktop_default_off':True,'native_settings_request':True,'actual_chart_rows':3,
+        'linked_table_rows':3,'actual_style_change':True,'weights_loaded':False}
+    from .pyside_app import ChatBubble,RichContentView
+    reply='# Owned packaged reply\n\n'+r'Force \(F=mg\).'+ '\n\n$$\na=\\frac{F-mg}{m}\n$$'
+    before=len(window._message_rows);window.follow_latest=True
+    window._on_assistant_stream_delta('owned-package-math',reply[:25])
+    bubble=window._stream_bubble
+    assert bubble is not None and not bubble.findChildren(RichContentView)
+    window._on_assistant_stream_delta('owned-package-math',reply[25:])
+    window.history.append({'role':'assistant','content':reply})
+    window._on_assistant_stream_finished('owned-package-math',reply);app.processEvents()
+    assert len(window._message_rows)==before+1 and window._message_rows[-1].findChild(ChatBubble) is bubble
+    math_view=bubble.findChild(RichContentView);assert math_view is not None
+    math_state={};until=time.monotonic()+20
+    while math_state.get('equations')!=2 and time.monotonic()<until:
+        received=[]
+        math_view.page().runJavaScript("document.body && JSON.stringify({equations:document.querySelectorAll('.katex').length,errors:document.querySelectorAll('.morice-math-error').length})",received.append)
+        deadline=time.monotonic()+2
+        while not received and time.monotonic()<deadline:app.processEvents();QTest.qWait(10)
+        if received and received[0]:math_state=json.loads(received[0])
+        app.processEvents();QTest.qWait(20)
+    assert math_state.get('equations')==2 and math_state.get('errors')==0,math_state
+    math_probe={**math_state,'same_stream_bubble':True,'copy_text_preserved':bubble.message==reply,'bundled_assets':True}
     scenes=[]
     for preset in SCENES:
         window.theme_engine.update(preset=preset,persist=False)
@@ -68,6 +108,8 @@ def run(output):
         "roles":len(runtime.agents.roles.all()),"runtime_directory":str(runtime.directory)}
     result['ui']='renovated';result['production_window_factory']=True;result['window_class']=type(window).__name__
     result['fast_memory']=memory_probe
+    result['nlui_rich_response']=nlui_probe
+    result['reply_math']=math_probe
     result['composer_geometry']=geometry;result['theme_scenes']=scenes
     result['ambient_animation']={'phase_advanced':window.material_backdrop._phase!=initial_phase,'raster_count':window.material_backdrop.render_count,'reduced_motion':window.theme_engine.profile.reduced_motion}
     if spatial is not None:result['spatial_result']=spatial

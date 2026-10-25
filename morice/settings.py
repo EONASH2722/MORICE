@@ -4,6 +4,11 @@ import os
 
 DEFAULT_SETTINGS = {
     "device_mesh_enabled": "false",
+    "desktop_automation_enabled": "false",
+    "nlui_enabled": "true",
+    "nlui_auto_open": "true",
+    "nlui_show_plan": "true",
+    "response_presentation": "auto",
     "response_style": "",
     "wake_phrase": "wake up son",
     "user_title": "",
@@ -426,9 +431,12 @@ def _normalize_intelligence_settings(target, source):
     target['generative_model_path'] = normalize_model_path(source.get('generative_model_path', ''))
     target['generative_model_name'] = normalize_model_name(source.get('generative_model_name', ''))
     for key in ('automatic_model_selection','chat_memory_enabled','personal_memory_enabled',
-                'memory_allow_explicit','memory_allow_suggestions','project_memory_enabled'):
+                'memory_allow_explicit','memory_allow_suggestions','project_memory_enabled',
+                'desktop_automation_enabled','nlui_enabled','nlui_auto_open','nlui_show_plan'):
         default = DEFAULT_SETTINGS[key] == 'true'
         target[key] = str(normalize_boolean_setting(source.get(key, DEFAULT_SETTINGS[key]),default=default)).lower()
+    presentation=str(source.get('response_presentation','auto')).strip().casefold()
+    target['response_presentation']=presentation if presentation in {'auto','compact','detailed','visual','technical'} else 'auto'
 
 
 def load_settings() -> dict:

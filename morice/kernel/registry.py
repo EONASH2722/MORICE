@@ -120,7 +120,7 @@ class CapabilityRegistry:
         for entry in entries:
             d = entry.descriptor
             state = health[d.capability_id if d.node_id == "local" else (d.node_id, d.capability_id)].status
-            if query.casefold() not in f"{d.capability_id} {d.name} {d.description} {d.category} {d.provider}".casefold():
+            if query.casefold() not in (f"{d.capability_id} {d.name} {d.description} {d.category} {d.provider} "+' '.join(d.natural_language_intents)).casefold():
                 continue
             if platform_name and "any" not in d.supported_platforms and platform_name.casefold() not in {p.casefold() for p in d.supported_platforms}:
                 continue

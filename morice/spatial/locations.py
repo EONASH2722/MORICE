@@ -5,12 +5,23 @@ from contextlib import contextmanager
 from pathlib import Path
 import sqlite3
 import unicodedata
+from functools import lru_cache
 
 from .contracts import Coordinate, Location
 
 
 def normalized(value):
     return ' '.join(''.join(c for c in unicodedata.normalize('NFKD', value.casefold()) if not unicodedata.combining(c)).split())
+
+
+@lru_cache(maxsize=256)
+def has_local_place(query):
+    """Cheap bounded eligibility only; resolution still verifies the real dataset."""
+    if not isinstance(query,str) or not 1<=len(query)<=200:return False
+    try:
+        with LocalGazetteer().connect() as db:
+            return db.execute('SELECT 1 FROM aliases WHERE name=? LIMIT 1',(normalized(query),)).fetchone() is not None
+    except (OSError,ValueError,sqlite3.Error):return False
 
 
 class LocalGazetteer:

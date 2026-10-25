@@ -16,6 +16,11 @@ from urllib.parse import urlparse
 
 
 POLICY_VERSION = 1
+DESKTOP_AUTOMATION_GUIDANCE = (
+    'To let MORICE use third-party app windows and controls for this request, '
+    'turn on Desktop automation in Settings → Permissions & control. '
+    'Then send your request again.'
+)
 
 
 def _utc_now() -> str:
@@ -49,6 +54,7 @@ def _clean_text(value: Any, limit: int = 4_000) -> str:
 
 
 class PermissionCategory(str, Enum):
+    DESKTOP_AUTOMATION = "desktop_automation"
     READ_SYSTEM_STATE = "read_system_state"
     APPLICATION_CONTROL = "application_control"
     WINDOW_CONTROL = "window_control"
@@ -284,12 +290,14 @@ class PermissionBroker:
         defaults: Mapping[PermissionCategory | str, PolicyMode | str] | None = None,
         confirmation_ttl_seconds: float = 300.0,
         monotonic: Callable[[], float] = time.monotonic,
+        require_desktop_automation: bool = False,
     ):
         self.path = Path(path)
         self.confirmation_ttl_seconds = max(
             5.0, min(float(confirmation_ttl_seconds), 3_600.0)
         )
         self._monotonic = monotonic
+        self.require_desktop_automation = bool(require_desktop_automation)
         self._lock = threading.RLock()
         self._policies = {
             category: PolicyMode.ASK for category in PermissionCategory
@@ -402,6 +410,10 @@ class PermissionBroker:
         consume_confirmation: bool = True,
     ) -> AuthorizationDecision:
         with self._lock:
+            if (self.require_desktop_automation and action.domain in {'application','computer'}
+                    and self._policies[PermissionCategory.DESKTOP_AUTOMATION] != PolicyMode.ALLOW):
+                return AuthorizationDecision(False, DESKTOP_AUTOMATION_GUIDANCE,
+                    (PermissionCategory.DESKTOP_AUTOMATION,), False)
             modes = {
                 category: self._policies.get(category, PolicyMode.ASK)
                 for category in action.permissions
@@ -1872,6 +1884,9 @@ def build_pc_control_registry(
     )
     registry.register(DesktopSystemAdapter(layer), priority=100)
     registry.register(DesktopScreenshotAdapter(layer), priority=100)
+    from .computer_use import NativeComputerUseAdapter
+    registry.computer_use=NativeComputerUseAdapter(layer,permission_broker)
+    registry.register(registry.computer_use,priority=100)
     registry.register(UnavailableComputerUseAdapter(), priority=-100)
     return registry
 
@@ -1932,6 +1947,13 @@ class FastActionRouter:
         clean = source.casefold().strip(" .!?\t\r\n")
         if not clean:
             return self._escalate(started, "The request is empty.", "What would you like me to do?")
+        from .computer_use import parse_computer_request
+        computer=parse_computer_request(text)
+        if computer:
+            verb,target,arguments=computer
+            return self._action(started,'computer',verb,target,arguments=arguments,
+                permissions=(PermissionCategory.DESKTOP_AUTOMATION,PermissionCategory.SCREEN_ACCESS),
+                risk=ActionRisk.DESTRUCTIVE if verb in {'type','set_value','invoke'} else ActionRisk.ROUTINE,source=source)
 
         if re.fullmatch(
             r"(?:take|capture|make) (?:a |the )?(?:full |desktop |screen )?screenshot",

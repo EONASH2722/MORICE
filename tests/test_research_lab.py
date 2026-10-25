@@ -57,6 +57,14 @@ def test_result_pages_filter_all_stored_rows_and_keep_complete_exports(lab):
     assert matching['matching_runs']==11 and [r['run_index'] for r in matching['runs']]==list(range(90,95))
     assert lab.laboratory.get(row['id'],True,run_limit=5,run_filter="' OR 1=1 --")['runs']==[]
     assert len(lab.laboratory.get(row['id'],True)['runs'])==101
+    page=lab.laboratory.get(row['id'],True,run_limit=5,run_offset=90)
+    assert [run['run_index'] for run in page['runs']]==list(range(90,95))
+    sample=lab.laboratory.get(row['id'],True,run_limit=100,run_stride=10)
+    assert [run['run_index'] for run in sample['runs']]==list(range(0,101,10))
+    sorted_page=lab.laboratory.get(row['id'],True,run_limit=5,run_sort={'field':'input_fraction_a','descending':True})
+    assert [run['run_index'] for run in sorted_page['runs']]==list(range(100,95,-1))
+    assert sorted_page['matching_runs']==101
+    with pytest.raises(ValueError):lab.laboratory.get(row['id'],True,run_sort={'field':'outputs); DROP TABLE lab_runs;--'})
     with pytest.raises(ValueError):lab.laboratory.get(row['id'],True,run_limit=0)
 
 

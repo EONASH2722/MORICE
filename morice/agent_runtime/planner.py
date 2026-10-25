@@ -10,6 +10,46 @@ from ..kernel.contracts import new_id
 
 
 class WorkflowPlanner:
+    @staticmethod
+    def intent_schema(catalog,*,max_operations=12):
+        """Constrain local decoding to the same selected capability contracts."""
+        choices=[]
+        for descriptor in catalog[:10]:
+            choices.append({'type':'object','required':['capability_id','arguments'],'properties':{
+                'capability_id':{'const':descriptor['capability_id']},'arguments':descriptor['input_schema']},'additionalProperties':False})
+        return {'type':'object','required':['operations','question'],'properties':{
+            'operations':{'type':'array','maxItems':max_operations,'items':{'anyOf':choices}},
+            'question':{'type':'string','maxLength':1000}},'additionalProperties':False}
+
+    @staticmethod
+    def capability_steps(proposal,catalog):
+        """Validate model intent data against host-selected registered contracts.
+
+        This extends the existing planner; it creates no scheduler or executor.
+        Arbitrary tools, commands, code and permission grants are never accepted.
+        """
+        from ..kernel.schema import validate_schema
+        if isinstance(proposal,str):
+            if len(proposal)>16384:raise ValueError('Intent proposal exceeds its bound.')
+            proposal=json.loads(proposal)
+        if not isinstance(proposal,dict) or set(proposal)-{'operations','question'}:
+            raise ValueError('Intent proposal must contain only operations and a question.')
+        question=proposal.get('question','')
+        if not isinstance(question,str) or len(question)>1000:raise ValueError('Invalid clarification question.')
+        operations=proposal.get('operations',[])
+        if not isinstance(operations,list) or len(operations)>12:raise ValueError('At most twelve intent steps are supported.')
+        if question and operations:raise ValueError('Clarify missing details before executing any proposed actions.')
+        allowed={d['capability_id']:d for d in catalog};steps=[]
+        for operation in operations:
+            if not isinstance(operation,dict) or set(operation)!={'capability_id','arguments'}:
+                raise ValueError('Intent steps require an exact capability and structured arguments.')
+            identifier=operation['capability_id']
+            if identifier not in allowed:raise ValueError('Proposed capability is outside the selected host catalog.')
+            arguments=operation['arguments']
+            validate_schema(arguments,allowed[identifier]['input_schema'])
+            steps.append((identifier,arguments))
+        return steps,question
+
     def documents(self, paths, *, goal="Compare local documents and verify the evidence."):
         paths = tuple(dict.fromkeys(paths))
         if len(paths) < 2:
