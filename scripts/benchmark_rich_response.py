@@ -55,7 +55,7 @@ def main():
                 started=time.perf_counter();window._append_direct_reply('Owned plain request '+str(i),'Actual short reply.',address=False);app.processEvents()
                 plain.append((time.perf_counter()-started)*1000)
             report['plain_append_ms']={'p50':statistics.median(plain),'max':max(plain)}
-            content='Actual controlled user data, not hardware measurements.\nx,y\n'+'\n'.join(f'{i},{i*i}' for i in range(1000))
+            content='Plot this actual controlled user data, not hardware measurements.\nx,y\n'+'\n'.join(f'{i},{i*i}' for i in range(1000))
             window._append_direct_reply(content,'The chart uses exactly these user supplied values.',address=False)
             original=window.history[-2];reference=SourceRef('chat_dataset',original['message_id'],hashlib.sha256(content.encode()).hexdigest(),window._chat_id)
             settle(.3);process=psutil.Process();memory_before=process.memory_info().rss;rich=[]

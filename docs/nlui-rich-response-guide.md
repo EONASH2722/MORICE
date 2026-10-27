@@ -63,6 +63,8 @@ The denominator here is **25 explicitly inventoried workflow groups**, listed be
 
 ## Rich-response contract and renderer coverage
 
+Ordinary conversation and engineering analysis stay as written answers, including Markdown tables and equations. A table in your prompt is input context; it does not automatically become an interactive result. Ask explicitly to plot or visualize supplied data when you want a chart or calculator. Actual saved tool results can still select useful interactive components automatically. Presentation profiles change the layout of selected components, rather than turning every prompt into a dashboard.
+
 There are **18 registered component kinds**. Registry presence is not by itself a functional test: native tests exercise real data, controls, decoding, source refresh and disposal. Tables/charts read bounded samples and the complete experiment CSV remains a separate actual artifact. Units and provenance appear with results. Statistical or physical uncertainty is not manufactured when no source supplied it.
 
 | Components | Behavior |

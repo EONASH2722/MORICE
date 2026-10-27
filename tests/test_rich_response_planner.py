@@ -23,7 +23,7 @@ def test_actual_experiment_result_gets_chart_table_calculator_and_owner_controls
 
 
 def test_source_table_is_literal_user_data_and_nonfinite_values_stay_text():
-    content='Here are the actual user supplied observations for the experiment, with no independently verified instrument accuracy.\n\n| Input | Output |\n| --- | --- |\n| 1 | 2.5 |\n| 2 | 6 |\n| 3 | 9 |\n'
+    content='Plot these actual user supplied observations for the experiment, with no independently verified instrument accuracy.\n\n| Input | Output |\n| --- | --- |\n| 1 | 2.5 |\n| 2 | 6 |\n| 3 | 9 |\n'
     rows=parse_user_table(content)
     assert rows==[{'Input':1.0,'Output':2.5},{'Input':2.0,'Output':6.0},{'Input':3.0,'Output':9.0}]
     plan=ResponsePlanner().from_user_message({'role':'user','message_id':'u','content':content},'chat')
@@ -36,3 +36,19 @@ def test_source_table_is_literal_user_data_and_nonfinite_values_stay_text():
 def test_failed_tool_result_has_no_success_layout_or_download():
     result=NaturalLanguageResult('r','failed','Missing provider',executions=({'success':False,'output':{'generation_id':'not-real'}},))
     assert ResponsePlanner().from_nlui(result,ActiveContext('chat','w')) is None
+
+
+def test_input_tables_and_requested_written_comparisons_are_not_interactive_results():
+    table='\n| Parameter | Value |\n| --- | --- |\n| Motor speed | 600 rpm |\n| Battery input | 2.5 W |\n'
+    for profile in ('auto','compact','detailed','visual','technical'):
+        for request in ('Independently assess this tabletop generator. Give calculations and a comparison table.',
+                        'Explain the assumptions in this data.', 'Do not make interactive charts. Explain the losses.'):
+            assert ResponsePlanner().from_user_message({'role':'user','message_id':'u','content':request+table},'chat',profile) is None
+
+
+def test_short_explicit_plot_request_is_supported_without_arbitrary_length_threshold():
+    message={'role':'user','message_id':'u','content':'Plot these values.\nx,y\n1,2\n2,4'}
+    plan=ResponsePlanner().from_user_message(message,'chat')
+    assert plan and plan.components[0].kind=='chart'
+    message['content']='Explain this example:\n```\nPlot these values.\nx,y\n1,2\n2,4\n```'
+    assert ResponsePlanner().from_user_message(message,'chat') is None

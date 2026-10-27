@@ -11387,17 +11387,20 @@ class MoriceWindow(QWidget):
     def _handle_natural_node_control(self, user_input: str) -> bool:
         """Route explicit phone/tablet commands through the encrypted node protocol."""
 
+        from .node_intents import is_node_command, mentions_device
         lowered = " ".join(str(user_input or "").casefold().split())
         trusted = [node for node in self.runtime.trusted_nodes.list() if not node.revoked]
         if self.runtime._device_mesh is not None:
             trusted += [node for node in self.runtime._device_mesh.store.list() if not node.revoked]
-        named_matches = [node for node in trusted if node.descriptor.device_name.casefold() in lowered]
+        if not is_node_command(user_input, [node.descriptor.device_name for node in trusted]):
+            return False
+        named_matches = [node for node in trusted if mentions_device(lowered, node.descriptor.device_name)]
         if len(named_matches) > 1:
             self._append_direct_reply(user_input, "More than one device matches that name. Choose a unique device name in Devices before running this action.", address=False)
             return True
         named_node = named_matches[0] if named_matches else None
         mobile_reference = next(
-            (word for word in ("my phone", "phone", "android", "tablet") if word in lowered),
+            (word for word in ("my phone", "phone", "android", "tablet") if mentions_device(lowered, word)),
             "",
         )
         if named_node is None and not mobile_reference:

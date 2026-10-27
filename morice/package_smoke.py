@@ -61,7 +61,12 @@ def run(output):
     while window.is_busy and time.monotonic()<until:app.processEvents();QTest.qWait(10)
     assert not window.is_busy and window.active_route=='settings'
     window.navigate('chats')
-    window._append_direct_reply('Actual packaging user data for a linked chart and table; these controlled values are not physical measurements.\nx,y\n1,2\n2,4\n3,9',
+    from .ui_next.rich_response import RichResponseHost
+    analysis='Evaluate a battery-powered tabletop generator.\n| Parameter | Value |\n| --- | --- |\n| Speed | 600 rpm |\n| Input | 2.5 W |'
+    assert not window._handle_natural_node_control(analysis)
+    window._append_direct_reply(analysis,'The supplied values are assumptions for written analysis.',address=False)
+    assert not window.findChildren(RichResponseHost)
+    window._append_direct_reply('Plot this actual packaging user data in a linked chart and table; these controlled values are not physical measurements.\nx,y\n1,2\n2,4\n3,9',
         'This chart reads the actual supplied rows.',address=False)
     until=time.monotonic()+15
     while not window.findChildren(ChartView) and time.monotonic()<until:app.processEvents();QTest.qWait(10)
@@ -71,7 +76,8 @@ def run(output):
     while chart.table.model.rowCount()!=3 and time.monotonic()<until:app.processEvents();QTest.qWait(10)
     assert chart.canvas.style=='scatter' and chart.table.model.rowCount()==3
     nlui_probe={'desktop_default_off':True,'native_settings_request':True,'actual_chart_rows':3,
-        'linked_table_rows':3,'actual_style_change':True,'weights_loaded':False}
+        'linked_table_rows':3,'actual_style_change':True,'weights_loaded':False,
+        'analysis_without_prompt_data_panel':True,'tabletop_not_tablet':True}
     from .pyside_app import ChatBubble,RichContentView
     reply='# Owned packaged reply\n\n'+r'Force \(F=mg\).'+ '\n\n$$\na=\\frac{F-mg}{m}\n$$'
     before=len(window._message_rows);window.follow_latest=True

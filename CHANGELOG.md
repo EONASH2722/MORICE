@@ -6,6 +6,8 @@ All notable changes to MORICE are documented here.
 
 ## [0.10.0] — natural-language control and interactive results
 
+- Amend the existing release: keep engineering analysis and pasted input tables in the normal answer path; require requested visualization for prompt data, whole device references and explicit remote commands; recognize engineering challenge headings before selecting a simulation renderer.
+
 - Prefer an installed Qwen3.5 4B Q6_K reasoning model while preserving explicit selections and the separate fast profile. Combine initial system instructions for strict chat templates, reserve tokens for visible answers, and recover once from reasoning-only output exhaustion.
 - Parse LaTeX before Markdown escapes/emphasis; preserve fenced/inline code, currency, units and readable invalid expressions. Finalize streamed replies in their existing bubble, preserve heading boundaries after optional user addresses, and verify the bundled parser in package startup checks.
 - Guard queued activity updates after window closure and avoid rebuilding the renovated shell's hidden legacy workspace models.

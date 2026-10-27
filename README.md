@@ -27,6 +27,8 @@
 
 ## Current source: 0.10.0
 
+**0.10.0 reply-routing amendment:** engineering analysis stays a written answer, with normal tables and equations. Pasted parameter tables do not automatically create interactive panels; explicitly request a plot to explore supplied data. Device commands use whole device references, so “tabletop” cannot trigger “tablet”. Engineering challenge headings also keep incidental physics terms out of simulation renderers. Existing saved-result charts and interactive controls remain available.
+
 The [natural-language and rich-response update](docs/release-notes-0.10.0.md) connects chat and voice transcripts to the existing workspaces and verified tools. Try “Open my latest project”, “Run the project tests, then fix this project”, “Compare my latest two experiments”, “Show my latest CAD model”, or “Find the chat about the UI”. Simple navigation uses no language model. Less direct commands use the configured local model to propose typed actions, which MORICE validates before execution.
 
 Actual results can now appear as linked charts and tables, unit-aware calculators, check receipts, job controls, file collections, local previews, real STL parts and exploded assemblies. Display settings and source references survive retained-chat reopening. Short answers keep their ordinary text path. See the [usage guide and measured coverage](docs/nlui-rich-response-guide.md); missing providers, protected app controls and STEP import are explicitly unavailable.

@@ -213,7 +213,9 @@ class NaturalLanguageController:
                 resolution=IntentResolution(operations=tuple(op for step in steps for op in step.operations),route='task_graph')
                 self.last_resolution={'route':resolution.route,'capabilities':[o.capability_id for o in resolution.operations],'needs_clarification':False}
                 return resolution
-            return IntentResolution(question='One part of that sequence needs more detail. Send the actions separately so I can resolve their exact targets.',route='task_graph')
+            if any(step.matched for step in steps):
+                return IntentResolution(question='One part of that sequence needs more detail. Send the actions separately so I can resolve their exact targets.',route='task_graph')
+            return IntentResolution()
         from .spatial_domain import resolve_spatial
         resolution=resolve_spatial(clean,context)
         if not resolution.matched:

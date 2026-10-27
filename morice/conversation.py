@@ -46,10 +46,11 @@ def wants_written_analysis(text: str) -> bool:
         return False
     if re.search(r'\b(?:with|using)\s+(?:an?\s+)?(?:interactive|diagram|graph|visualization|animation)\b', lead):
         return False
-    if re.match(r'(?:please\s+)?(?:explain|discuss|audit|assess|evaluate|review|compare|critique|derive|calculate)\b', lead):
+    if re.match(r'(?:please\s+)?(?:explain|discuss|audit|assess|evaluate|review|compare|critique|derive|calculate|analy[sz]e|investigate)\b', lead):
         return True
     return len(text) > 400 and bool(re.search(
-        r'\b(?:audit|assessment|analysis|evaluation|critique|technical review)\b', lead))
+        r'\b(?:audit|assessment|analysis|evaluation|critique|technical review)\b|'
+        r'\b(?:engineering|scientific|research)\b.{0,60}\b(?:challenge|competition|feasibility|review)\b', lead))
 
 
 def _words(text: str) -> list[str]:

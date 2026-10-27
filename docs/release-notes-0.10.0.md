@@ -2,6 +2,8 @@
 
 MORICE now connects natural-language requests to its existing workspaces and verified tools, and presents actual results as interactive components in chat. This is a new desktop release. The original logo, themes, model selections and earlier duplicate-message/scrolling fixes are preserved. This release is not designated the final MORICE update.
 
+**Reply-routing amendment (27 October 2026):** this existing release is updated with a correction for engineering prompts. Input tables remain context for a written answer; they no longer automatically become interactive response panels. Request a plot or visualization to explore supplied data. Device matching uses whole references and explicit commands, so “tabletop” does not mean “tablet”. Engineering challenge headings keep incidental physics/3D terms from opening an unrelated simulation. Automatic charts for real saved tool results remain supported. See the [amendment checks](reply-routing-amendment-0.10.0.md).
+
 Download and fully extract the portable package, or keep Setup and every matching `.bin` file together before running Setup. Verify downloads against `SHA256SUMS.txt`. GGUF and generative media weights remain separate; existing installed models can be selected in Settings → Models.
 
 An installed Qwen3.5 4B Q6_K GGUF is preferred for primary reasoning while explicit choices, older weights and the separate fast profile remain available. Strict system-message templates and reasoning-only empty replies are handled by the existing adapter. Streamed answers now finalize LaTeX, tables and code in the same bubble, preserving copy text and heading boundaries. See the [reasoning and math notes](reasoning-math-0.10.0.md) for actual compatibility checks and model limitations.

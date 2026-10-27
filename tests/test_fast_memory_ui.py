@@ -257,6 +257,34 @@ def test_completed_processing_does_not_accept_delayed_generation_updates(window,
     assert '[active]' not in completed
 
 
+def test_tabletop_engineering_prompt_reaches_model_without_device_or_prompt_data_panel(window,app,tmp_path,monkeypatch):
+    from morice.ui_next.rich_response import RichResponseHost
+    prompt=('# PROJECT ARC-0.3 — Advanced engineering innovation challenge\n\n'
+        'Act as an independent engineering research team. Review a battery-powered standalone tabletop generator. '
+        'Compare six architectures using numerical reasoning, not a final product. '
+        'Discuss physics, spring suspension and numerical simulation; no final 3D-printed rotor.\n\n'
+        '| Parameter | Value |\n| --- | --- |\n| Motor speed | 600 rpm |\n| Battery input | 2.5 W |\n'
+        '| Effective flux | 0.22 T, assumed |\n\n'
+        'Do not generate final CAD, purchasing lists or assembly manuals. '
+        'Explain assumptions and provide a written comparison table. All input figures are unverified estimates.')
+    model=tmp_path/'thinking.gguf';model.write_bytes(b'GGUF')
+    window.settings.update(model_path=str(model),model_name='',automatic_model_selection='false')
+    calls=[]
+    def stream(history,text,**kwargs):
+        calls.append(text)
+        yield 'The comparison needs explicit loss assumptions.\n\n| Concept | Evidence |\n| --- | --- |\n| Axial flux | Assumed geometry |'
+    remote=Mock(side_effect=AssertionError('Engineering analysis must not call a paired device.'))
+    monkeypatch.setattr(window.runtime,'send_node_task',remote)
+    monkeypatch.setattr('morice.pyside_app.stream_chat',stream)
+    window.input.setText(prompt);window.on_send()
+    pump(app,lambda:bool(calls) and not window.is_busy)
+    assert calls==[prompt], [m['content'] for m in window.history if m['role']=='assistant']
+    remote.assert_not_called()
+    assert [m['role'] for m in window.history]==['user','assistant']
+    assert 'comparison needs' in window.history[-1]['content']
+    assert not window.findChildren(RichResponseHost)
+
+
 def test_queued_activity_after_close_does_not_refresh_retired_workspace(window,app,monkeypatch):
     from PySide6.QtCore import QTimer
     assert not window.assistant_hub.isVisible()

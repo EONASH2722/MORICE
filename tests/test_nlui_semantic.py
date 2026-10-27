@@ -62,3 +62,10 @@ def test_model_fallback_eligibility_preserves_general_answers(controller):
     for text in ('Explain why the sky is blue.','Independent engineering audit of a simulation.',
         'Compare simulation equations and derive the engineering result.','What is a research project?'):
         assert not controller.semantic_candidate(text)
+
+
+def test_prose_punctuation_does_not_create_an_unsupported_action_sequence(controller):
+    context=ActiveContext('c','w')
+    assert not controller.resolve('Explain the motor losses; compare the physical assumptions.',context).matched
+    assert not controller.resolve('Analyze the generator, then recommend two alternatives.',context).matched
+    assert controller.resolve('Open Settings; perform an unknown operation.',context).question

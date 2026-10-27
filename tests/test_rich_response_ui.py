@@ -481,7 +481,7 @@ def test_native_chart_exports_actual_png_svg_pdf_and_preserves_denial_and_existi
     from xml.etree import ElementTree
     from PySide6.QtWidgets import QPushButton
     from morice.unified_intelligence import PermissionState
-    content='These are the actual supplied observations for this owned fixture; values do not claim instrument validation.\nx,y\n1,2\n2,4\n3,9'
+    content='Plot these actual supplied observations for this owned fixture; values do not claim instrument validation.\nx,y\n1,2\n2,4\n3,9'
     window._render_chat_messages([]);window._append_direct_reply(content,'The supplied values can be explored.',address=False);window._present_user_data()
     host=next(host for host in window._rich_hosts if not host.closed);view=visible_section(window,app,host,'chart')
     window.scroll.ensureWidgetVisible(view.canvas);app.processEvents()

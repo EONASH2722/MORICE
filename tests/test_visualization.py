@@ -45,6 +45,12 @@ class VisualizationManagerTests(unittest.TestCase):
     def tearDown(self):
         self.manager.shutdown()
 
+    def test_engineering_challenge_heading_keeps_physics_terms_as_written_context(self):
+        prompt=('# PROJECT ARC — ADVANCED ENGINEERING INNOVATION CHALLENGE\n'
+            'Act as an independent engineering research team. Review battery input, spring suspension, '
+            'numerical simulation and 3D-printed rotor limitations. ' * 5)
+        self.assertIsNone(self.manager.decide(prompt))
+
     def _render(self, prompt):
         decision = self.manager.decide(prompt)
         self.assertIsNotNone(decision)

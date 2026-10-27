@@ -46,6 +46,21 @@ def numeric_columns(rows):
     return [key for key in rows[0] if all(type(row.get(key)) in (int,float) and math.isfinite(row[key]) for row in rows)]
 
 
+def wants_data_presentation(content):
+    """Prompt data supplements a reply only when its presentation is requested."""
+    if not isinstance(content,str):return False
+    # Ignore tables and code: examples and input values do not request a UI.
+    prose=re.sub(r'```.*?```|~~~.*?~~~','',content,flags=re.S)
+    lines=[line for line in prose.splitlines() if '|' not in line]
+    for line in lines:
+        clean=line.strip().casefold()
+        if re.search(r'\b(?:do not|don\'t|no|without)\b.{0,40}\b(?:interactive|chart|graph|plot|dashboard)\b',clean):continue
+        clean=re.sub(r'^(?:[-*]\s+|\d+[.)]\s+)?(?:(?:please\s+)|(?:(?:can|could|would) you\s+))*','',clean)
+        if re.match(r'^(?:plot|graph|chart|visuali[sz]e)\b',clean):return True
+        if re.match(r'^(?:show|display|present|render|make|create|give|use|add|include)\b.{0,100}\b(?:interactive|chart|graph|plot|dashboard)\b',clean):return True
+    return False
+
+
 class ResponsePlanner:
     """Layout metadata only. Source resolution, execution and policy stay with owners."""
 
@@ -114,7 +129,8 @@ class ResponsePlanner:
     def from_user_message(self,message,conversation_id,profile='auto'):
         if message.get('role')!='user' or not message.get('message_id'):return None
         content=message.get('content','')
-        if len(content)<100:return None
+        if not isinstance(content,str) or len(content)>200000:return None
+        if not wants_data_presentation(content):return None
         revision=hashlib.sha256(content.encode()).hexdigest()
         # This trigger is cheap; actual scientific parsing/recalculation stays lazy.
         if ('coil resistance' in content.casefold() and 'coupling' in content.casefold() and '|' in content):

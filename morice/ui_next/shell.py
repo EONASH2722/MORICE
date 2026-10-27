@@ -375,7 +375,7 @@ class RenovatedWindow(ExistingPresenter):
     def _present_user_data(self):
         if not self.history or self.history[-1].get('role')!='assistant':return
         user=next((m for m in reversed(self.history[:-1]) if m.get('role')=='user'),None)
-        if user is None or len(user.get('content',''))<100:return
+        if user is None:return
         import uuid
         user.setdefault('message_id',uuid.uuid4().hex)
         from ..rich_response.planner import ResponsePlanner
