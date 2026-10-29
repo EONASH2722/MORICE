@@ -25,6 +25,7 @@ DEFAULT_SETTINGS = {
     "model_path": "",
     "model_name": "",
     "automatic_model_selection": "true",
+    "thinking_level": "low",
     "generative_model_path": "",
     "generative_model_name": "",
     "chat_memory_enabled": "true",
@@ -428,6 +429,8 @@ def wake_signal_path() -> str:
 
 
 def _normalize_intelligence_settings(target, source):
+    from .thinking import normalize_thinking_level
+    target['thinking_level']=normalize_thinking_level(source.get('thinking_level','low'))
     target['generative_model_path'] = normalize_model_path(source.get('generative_model_path', ''))
     target['generative_model_name'] = normalize_model_name(source.get('generative_model_name', ''))
     for key in ('automatic_model_selection','chat_memory_enabled','personal_memory_enabled',

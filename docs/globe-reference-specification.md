@@ -1,0 +1,9 @@
+# Purple globe reference
+
+Reference: `WhatsApp Video 2026-10-29 at 4.04.42 PM.mp4`, supplied locally by the user. Inspected frames at 6.500, 6.766, 7.000, 7.266, 7.500 and 7.700 seconds; extracted frames and a contact sheet are in `output/globe-reference/`.
+
+The portrait video contains a near-square purple field between black margins. The sphere occupies about 70% of the field width. Its silhouette is spherical, with very fine broken wire lines rather than a solid surface. The brightest region is a small tangled filament core. Tilted elliptical paths cross the core and give depth; hundreds of tiny lights and radial tick marks fill the volume. Back-facing lines are dimmer. A broad, low-contrast violet haze fades into a nearly black environment. The camera is stable while individual paths and particles move. Fine labels in the reference are decorative; MORICE will show real assistant status instead of copying fictitious diagnostics.
+
+Implementation direction: original procedural 3D line and point buffers, independent orbital transforms, perspective projection, emissive shaders and an analytic halo. Default energy is pale violet `#c68bff`, with a separate deep violet atmosphere `#7d35b8`. The logo and geographic Spatial Lab remain unchanged. Home gives the globe most of the available space; chat retains a complementary interactive globe alongside a readable conversation. A deterministic three-second materialization sequence reveals the core, particles, wireframe, orbits and halo. Readiness follows successful application initialization, not the animation clock. GPU failure must be reported and leave chat usable.
+
+Validation must use actual native output, rendered frame differences, real input events and measured timings. A shader compilation or a running timer alone is not visual acceptance. No fabricated similarity or performance percentages.

@@ -25,7 +25,25 @@
   <strong>A local-first Windows AI workspace for conversation, Live Action, real visualizations, project building, and desktop assistance.</strong>
 </p>
 
-## Current source: 0.10.0
+## Current source: 0.11.0
+
+<img src="docs/assets/globe-0.11.0/pitch-black-home.png" alt="Actual native MORICE holographic home in Pitch Black" width="960">
+
+[White](docs/assets/globe-0.11.0/white-home.png) · [Glass](docs/assets/globe-0.11.0/glass-home.png) · [Chat](docs/assets/globe-0.11.0/pitch-black-chats.png) · [Voice](docs/assets/globe-0.11.0/pitch-black-voice.png)
+
+MORICE now uses one continuous holographic interface. A large purple GPU globe forms from light at startup, animates while idle, follows real work and voice activity, and remains interactive in chat. Drag to rotate with inertia, scroll to zoom, click for a surface ripple, and double-click to reset. Cursor interaction eases out of idle motion and back again; it continues during generation. The original MORICE logo and existing workspaces are preserved.
+
+**Three themes everywhere:** **White**, **Pitch Black**, and **Glass** apply to navigation, settings, menus, dialogs, scientific canvases, rich responses and the globe's atmosphere. Glass combines translucent panels with native window opacity; it does not capture the desktop. Change **Globe Color** and **Globe Glow Color** independently in Appearance or the globe's context menu, with live preview and saved choices. Reduced Motion, hidden-window throttling and on-demand model loading remain supported.
+
+**Thinking controls in chat:** select **Model thinking: Low / Medium / High / Extra high** directly in the composer. Higher levels select the thinking profile and increase the bounded reasoning/output budgets. Low retains automatic fast replies. The installed `Qwen3.5-4B-abliterated.Q6_K.gguf` remains the preferred reasoning model; weights are separate and explicit model selections remain authoritative.
+
+**Voice mode:** the globe replaces the text composer and spoken-answer overlay. Its light and geometry follow the actual speech playback level, with a smooth attack and release. Microphone/camera controls remain available; ordinary typed chat keeps its editor.
+
+**Live activity:** expand the thinking/activity view to inspect actual context preparation, source lookup, supplied-link reading, model loading, reasoning-token activity and writing. Text/HTML links are read as bounded external context, with unavailable pages reported honestly. Activity receipts describe executed steps; they do not present internal model prose as verified reasoning. The globe follows those same public states and returns to idle after delivery. Wake activation opens chat in the selected theme while preserving microphone permissions and fullscreen preferences.
+
+See the [0.11.0 release notes](docs/release-notes-0.11.0.md), [globe guide](docs/globe-interface-0.11.0.md), and [validation report](docs/globe-validation-0.11.0.md).
+
+### Earlier 0.10.0 features
 
 **0.10.0 reply-routing amendment:** engineering analysis stays a written answer, with normal tables and equations. Pasted parameter tables do not automatically create interactive panels; explicitly request a plot to explore supplied data. Device commands use whole device references, so “tabletop” cannot trigger “tablet”. Engineering challenge headings also keep incidental physics terms out of simulation renderers. Existing saved-result charts and interactive controls remain available.
 
@@ -58,30 +76,11 @@ The [0.9.4 location and image update](docs/release-notes-0.9.4.md) adds online c
 
 The [0.9.3 workspace update](docs/release-notes-0.9.3.md) makes Project navigation select the file-building workflow, keeps project updates and browser previews together, and adds a guided experiment form. See the [Projects and Experiments guide](docs/simple-workspaces.md) for creating files, reviewing changes, and running real computations.
 
-The renovated desktop uses a luminous Core, a visible message composer, authored vector icons and twelve distinct visual themes. Shapes turn, breathe, float and unfurl in continuous loops; particles follow closed paths without jumping between screen edges. LOW quality keeps inexpensive ambient motion, while Reduced Motion and hidden/minimized windows pause decoration. The original logo is unchanged and the Core contains no eyes or face.
+The current desktop uses the integrated holographic globe, a visible chat composer, authored vector icons and three visual themes. Voice replaces the composer with the speech-reactive globe. Reduced Motion and hidden/minimized windows reduce decorative work.
 
 Current source extends the existing Capability Kernel, parallel agents, verified actions, Builder, Research, Device Mesh, Ambient/Security and Media systems. It adds online place lookup with offline fallback and deterministic WGS84 Spatial tools while keeping shared permission, verification and resource-lease ownership.
 
-![Renovated MORICE Core](docs/screenshots/morice-home.png)
-
-Choose **Theme** in the top bar to preview a theme or toggle **Animate the workspace**. **Glass** adds translucent application panels, soft procedural refraction and reflective edges. Fine contours use native antialiased vectors over cached diffuse light; the field never captures desktop pixels. Core shows a bottom launcher, and workspaces show a left sidebar, so navigation appears once.
-
-| Theme | Shape and motion |
-| --- | --- |
-| MORICE | Flowing plasma ribbons and precessing orbits. |
-| Glass | Floating crystal facets and refracted light. |
-| Obsidian | Turning basalt polygon rings. |
-| Ice | Six-fold frost crystals that bloom and turn. |
-| Amethyst | Breathing layered petal rosettes. |
-| Midnight | Drifting constellations and an orbital star atlas. |
-| Neon | Angular circuits with travelling lights. |
-| Monochrome | A swaying diamond lattice. |
-| Custom | A harmonic braid in your chosen palette. |
-| Arctic | Dancing aurora curtains. |
-| Solar | Rotating corona filaments. |
-| Crimson | Soft returning resonance ripples. |
-
-![Prismatic Glass theme with a visible composer](docs/screenshots/morice-theme-glass.png)
+Choose **Theme** in the top bar to preview **White**, **Pitch Black** or **Glass**. Core shows a bottom launcher, and workspaces show a left sidebar, so navigation appears once. Historical screenshots and earlier theme details remain in the versioned validation reports.
 
 | Workspace | Purpose |
 | --- | --- |
@@ -96,7 +95,7 @@ Choose **Theme** in the top bar to preview a theme or toggle **Animate the works
 
 **Validation scope:** [0.9.4 validation](docs/spatial-media-validation-0.9.4.md) covers online places, prompt-only image requests and matching package checks. The [0.9.3 workspace validation](docs/workspace-validation-0.9.3.md) records the earlier Project and Experiment update at its own source fingerprint. The preserved [0.9.2 chat repair](docs/chat-routing-validation-0.9.2.md), [0.9.1 UI follow-up](docs/followup-audit-0.9.1.md) and [original release audit](docs/release-audit-report.md) record earlier checks. Physical audio/devices, heavy inference memory and compositor frame pacing remain scoped; compatible providers and sufficient RAM/VRAM are required.
 
-**Downloads:** [Windows 0.10.0 and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.10.0) include natural-language workspace controls, interactive results, the desktop permission toggle, and the earlier model, memory and scrolling repairs. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest release](https://github.com/EONASH2722/MORICE/releases/latest).
+**Downloads:** [Windows 0.11.0 and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.11.0) include the integrated globe, three themes, chat thinking levels, live activity, and the existing workspace, model, memory and scrolling repairs. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest release](https://github.com/EONASH2722/MORICE/releases/latest).
 
 ### Installation
 
@@ -108,7 +107,7 @@ python -m venv .venv
 
 Use Python 3.12+ for the desktop. Local media model dependencies may require a separate compatible runtime; the main app remains usable when those providers are unavailable. See [troubleshooting](docs/troubleshooting.md), [architecture](docs/architecture.md) and [the renovation report](docs/renovation-report.md).
 
-The [0.10.0 desktop release](https://github.com/EONASH2722/MORICE/releases/tag/v0.10.0) contains the updated Windows app and matching Python packages. Install `morice_ai-0.10.0-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
+The [0.11.0 desktop release](https://github.com/EONASH2722/MORICE/releases/tag/v0.11.0) contains the updated Windows app and matching Python packages. Install `morice_ai-0.11.0-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
 
 
 MORICE combines local model inference with a desktop workspace that can answer questions, build projects, operate permission-aware tools, and mount validated interactive artifacts directly in chat. Language models provide reasoning and structured proposals; MORICE validates and executes the result through its own renderers, project engine, and desktop services.

@@ -13,7 +13,7 @@ from shiboken6 import isValid
 
 from PySide6.QtCore import Qt, Signal, Slot, QObject, QTimer, QSize
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QKeySequence, QShortcut, QPalette, QColor, QFont
-from PySide6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QScrollArea, QMenu, QSizePolicy
+from PySide6.QtWidgets import QWidget, QFrame, QVBoxLayout, QHBoxLayout, QBoxLayout, QLabel, QPushButton, QStackedWidget, QToolButton, QScrollArea, QMenu, QSizePolicy, QComboBox, QApplication
 
 from ..pyside_app import MoriceWindow as ExistingPresenter, RichContentView
 from .bridge import UiBridge
@@ -34,7 +34,7 @@ from ..spatial.service import SpatialService
 from .activity_view import ActivityWorkspace
 from .responsive import FlowLayout
 from ..ui_workspace import CommandItem, DEFAULT_COMMANDS
-from .themes import PRESETS
+from .themes import PRESETS, UI_THEMES
 from .renderer_clock import RendererClockRegistry
 from ..unified_intelligence import PermissionState
 from .icons import UiIconBinder
@@ -69,7 +69,7 @@ class RenovatedWindow(ExistingPresenter):
     def __init__(self, runtime_services=None, recovery_info=None):
         self._renovated_ready = False
         super().__init__(runtime_services, recovery_info)
-        self.theme_engine = ThemeEngine(self.runtime.directory / 'renovation', {**self.settings, 'theme': self.current_theme, 'reduced_motion': str(self.reduced_motion).lower()}, self)
+        self.theme_engine = ThemeEngine(self.runtime.directory / 'renovation', {**self.settings, 'theme': self.current_theme, 'reduced_motion': str(self.reduced_motion).lower()}, self,allowed_presets=UI_THEMES)
         self.effect_policy = EffectPolicy(self.theme_engine, self)
         self.motion_director = MotionDirector(self.theme_engine, self)
         self.effect_clock = EffectClock(self.effect_policy, self)
@@ -128,11 +128,16 @@ class RenovatedWindow(ExistingPresenter):
         self.status_line = QLabel('Ready · Private local workspace'); self.status_line.setProperty('role', 'secondary'); root.addWidget(self.status_line)
         self.core_presentation.changed.connect(self._core_changed)
         self._add_route('home', self._home_view())
-        chat = QWidget(); chat_layout = QVBoxLayout(chat); chat_layout.setContentsMargins(16, 8, 16, 8); chat_layout.addWidget(self.scroll)
+        chat = QWidget(); chat_layout = QHBoxLayout(chat); chat_layout.setContentsMargins(0, 0, 0, 0); chat_layout.addWidget(self.scroll,3)
+        from .globe_input import GlobeInputSurface
+        self.chat_globe_host=GlobeInputSurface(self.globe_view);self.chat_globe_host.setMinimumWidth(180);self.chat_globe_host.setMaximumWidth(420)
+        QVBoxLayout(self.chat_globe_host).setContentsMargins(0,0,0,0);chat_layout.addWidget(self.chat_globe_host,2)
+        self.chat_body_layout=chat_layout
         self.scroll.show(); self._add_route('chats', chat)
         self._add_route('spatial', SpatialView(self.runtime, self.ui_bridge, self.theme_engine, self.effect_policy, self.effect_clock))
         self.wake_controller = WakeController(self, self.theme_engine, self.effect_policy, self.effect_clock)
         self.wake_controller.changed.connect(self.core_presentation.wake_changed)
+        self.wake_controller.changed.connect(self._wake_open_chat)
         self._add_route('settings', SettingsWorkspace(self))
         self._add_route('projects', ProjectsWorkspace(self))
         self._add_route('tools', ToolsWorkspace(self)); self._add_route('activity', ActivityWorkspace(self, self.ui_bridge))
@@ -161,6 +166,7 @@ class RenovatedWindow(ExistingPresenter):
         self.theme_engine.changed.connect(lambda *_: self.effect_clock.configure())
         self.cursor_lighting = CursorLighting(self, self.theme_engine, self.effect_policy, self.effect_clock)
         self.material_backdrop = MaterialBackdrop(self, self.theme_engine, self.effect_policy, self.effect_clock, self.core_presentation)
+        self.material_backdrop.hide()
         self.cursor_lighting.pointer_changed.connect(self.material_backdrop.pointer_changed)
         self.renderer_clocks = RendererClockRegistry(self, self.effect_policy, self.effect_clock); self.renderer_clocks.register(self)
         self.cursor_lighting.set_targets()
@@ -169,6 +175,26 @@ class RenovatedWindow(ExistingPresenter):
         self._workspace_shortcuts = []
         for key, route in (('Ctrl+1', 'home'), ('Ctrl+2', 'chats'), ('Ctrl+3', 'spatial')):
             shortcut = QShortcut(QKeySequence(key), self); shortcut.activated.connect(lambda name=route: self.navigate(name)); self._workspace_shortcuts.append(shortcut)
+        # Successful construction uses the existing, already-started runtime.
+        # Model residency remains on demand; the intro never claims weights are loaded.
+        QTimer.singleShot(0,self._check_globe_startup)
+
+    def _check_globe_startup(self):
+        if self._is_closing:return
+        if not self.runtime.started:
+            self.globe_view.services_ready('Application services have not started. Reopen MORICE to retry.');return
+        try:
+            report=self.runtime.health_report
+            if not report.checks:report=self._run_startup_health_check()
+            failures='; '.join(check.name+': '+check.detail for check in report.critical_failures)
+            self.globe_view.services_ready(failures)
+        except Exception as exc:self.globe_view.services_ready(str(exc))
+
+    def _run_startup_health_check(self):
+        report=super()._run_startup_health_check()
+        if hasattr(self,'globe_view'):
+            self.globe_view.services_ready('; '.join(check.name+': '+check.detail for check in report.critical_failures))
+        return report
 
     def _new_composer(self):
         frame = MaterialSurface(); frame.setObjectName('ComposerSurface'); frame.setMinimumWidth(0); frame.setMaximumWidth(860)
@@ -181,6 +207,14 @@ class RenovatedWindow(ExistingPresenter):
             widget.setParent(frame); widget.setText(''); widget.setToolTip(label); widget.setAccessibleName(label); widget.setProperty('morice_icon', label.casefold()); widget.setMinimumWidth(0); widget.setFixedWidth(40); widget.setFixedHeight(self.theme_engine.tokens.control_height); widget.show(); controls.addWidget(widget)
         self.composer_hint = QLabel('Your workspace'); self.composer_hint.setWordWrap(True)
         self.composer_hint.setProperty('role', 'secondary'); controls.addWidget(self.composer_hint, 1)
+        self.thinking_level=QComboBox(frame);self.thinking_level.setObjectName('ChatThinkingLevel')
+        self.thinking_level.setAccessibleName('Model thinking level')
+        for label,value in (('Low','low'),('Medium','medium'),('High','high'),('Extra high','extra_high')):
+            self.thinking_level.addItem(label,value)
+        self.thinking_level.setCurrentIndex(max(0,self.thinking_level.findData(self.settings.get('thinking_level','low'))))
+        self.thinking_level.setToolTip('Applies to the next request. Higher levels use the thinking model and allow a larger reasoning budget; they can take longer. Low preserves automatic fast reply routing.')
+        self.thinking_level.currentIndexChanged.connect(self._thinking_level_changed)
+        controls.addWidget(QLabel('Model thinking:'));controls.addWidget(self.thinking_level)
         self.composer_options = QPushButton('Context'); self.composer_options.setProperty('morice_icon', 'context'); self.composer_options.setCheckable(True); controls.addWidget(self.composer_options)
         layout.addLayout(controls)
         self.composer_details = QWidget(frame); details = FlowLayout()
@@ -195,17 +229,31 @@ class RenovatedWindow(ExistingPresenter):
 
     def _open_theme_menu(self):
         menu=QMenu(self)
+        for preset,label in UI_THEMES.items():
+            action=menu.addAction(label);action.setCheckable(True);action.setChecked(self.theme_engine.profile.preset==preset)
+            action.triggered.connect(lambda checked=False,value=preset:self.theme_engine.update(preset=value))
+        menu.addSeparator()
         motion=menu.addAction('Animate the workspace');motion.setCheckable(True);motion.setChecked(not self.theme_engine.profile.reduced_motion)
         motion.triggered.connect(lambda checked:self.theme_engine.update(reduced_motion=not checked))
-        menu.addSeparator()
-        for preset,(name,description) in SCENES.items():
-            action=menu.addAction(preset.title()+' · '+name);action.setCheckable(True);action.setChecked(self.theme_engine.profile.preset==preset);action.setToolTip(description)
-            action.triggered.connect(lambda checked=False,value=preset:self.theme_engine.update(preset=value))
         menu.addSeparator();menu.addAction('Appearance settings',lambda:self.navigate('settings'))
         menu.setAttribute(Qt.WA_DeleteOnClose);menu.popup(self.theme_button.mapToGlobal(self.theme_button.rect().bottomLeft()))
 
     def _home_view(self):
-        return CoreView(self.core_presentation, self.theme_engine, self.effect_policy, self.effect_clock)
+        self.globe_view=CoreView(self.core_presentation,self.theme_engine,self.effect_policy,self.effect_clock,
+            self.presentation_root,immersive=True)
+        self.globe_view.setGeometry(self.presentation_root.rect());self.globe_view.lower();self.globe_view.show()
+        host=QWidget();host.setAttribute(Qt.WA_TransparentForMouseEvents);return host
+
+    def _wake_open_chat(self,state):
+        if state=='LISTENING' and self.wake_controller.active:
+            self.navigate('chats')
+            if not self.wake_controller._fullscreen:
+                if self.isMinimized() or not self.isVisible():self.showNormal()
+                self.raise_();self.activateWindow();self.wake_controller.overlay.hide()
+
+    def _thinking_level_changed(self,index):
+        from ..settings import save_settings
+        self.settings['thinking_level']=self.thinking_level.itemData(index);save_settings(self.settings)
 
     def _add_route(self, key, widget):
         self.routes[key] = widget
@@ -221,10 +269,14 @@ class RenovatedWindow(ExistingPresenter):
             if key == 'projects': self._set_chat_mode('project')
             elif key in {'home', 'chats'}: self._set_chat_mode('normal')
         self.active_route = key; self.route_stack.setCurrentWidget(self.routes[key]); self.navigation.set_active(key)
+        self.route_stack.setAttribute(Qt.WA_TransparentForMouseEvents,key=='home')
+        if hasattr(self,'chat_globe_host'):self._fit_chat_globe()
         self.navigation.setVisible(key != 'home'); self.action_deck.set_active(key); self.core_button.setVisible(key != 'home')
+        if hasattr(self,'material_backdrop'):self.material_backdrop.hide()
         self.action_deck.setVisible(not self.navigation.isVisible())
         self.breadcrumb.setText(key.title() if key != 'home' else 'Core')
-        self.composer.setVisible(True)  # One natural-language entry point in every workspace.
+        self.composer.setVisible(key!='voice')
+        if key=='voice':self.live_action_workspace.show()
         self._size_renovated_composer()
         if key == 'spatial': self.routes[key].set_context(self.runtime.spatial.snapshot())
         if key == 'projects': self.project_lookup_btn.show(); self.routes[key].refresh_state()
@@ -238,17 +290,30 @@ class RenovatedWindow(ExistingPresenter):
         return self._renovated_ambient
 
     def _voice_view(self):
-        view, layout = page('Voice', 'Live conversation and explicitly enabled camera context.')
+        view, layout = page('Voice', 'Speak with MORICE. The globe follows actual microphone and speech activity.')
         row = QHBoxLayout()
         for button in (self.voice_mode_btn, self.normal_mode_btn): row.addWidget(button)
         layout.addLayout(row)
         self.normal_mode_btn.clicked.connect(lambda: self.navigate('chats'))
         self.live_action_workspace.use_shared_presentation(FlowLayout)
+        from .globe_input import GlobeInputSurface
+        self.voice_globe_input=GlobeInputSurface(self.globe_view)
+        self.live_action_workspace.enable_globe_voice(self.voice_globe_input)
         self.live_action_workspace.apply_design_tokens(self.theme_engine.tokens, reduced_motion=self.reduced_motion)
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); scroll.setWidget(self.live_action_workspace)
         layout.addWidget(scroll, 1)
         return view
+
+    def _set_chat_mode(self,mode,*args,**kwargs):
+        result=super()._set_chat_mode(mode,*args,**kwargs)
+        if getattr(self,'_renovated_ready',False) and not getattr(self,'_routing_voice_mode',False):
+            target='voice' if self.chat_mode=='voice' and not self.wake_controller.active else 'chats' if self.active_route=='voice' and self.chat_mode!='voice' else None
+            if target and self.active_route!=target:
+                self._routing_voice_mode=True
+                try:self.navigate(target)
+                finally:self._routing_voice_mode=False
+        return result
 
     def _artifacts_view(self):
         view, layout = page('Artifacts', 'Interactive graphs, physics, chemistry, diagrams and scientific documents.')
@@ -405,8 +470,46 @@ class RenovatedWindow(ExistingPresenter):
 
     def _on_thinking_update(self, detail):
         super()._on_thinking_update(detail)
+        self._globe_activity(detail)
         if getattr(self, '_project_presentation_active', False):
             self.routes['projects'].feedback.setText(detail)
+
+    def _globe_activity(self,detail):
+        text=str(detail).casefold()
+        self._globe_reply_phase=('Opening link' if text.startswith('opening link:') else 'Reading page' if text.startswith('reading page:')
+            else 'Thinking' if text.startswith('thinking:') else 'Writing reply' if text.startswith('writing reply')
+            else 'Searching' if any(word in text for word in ('searching','looking up','retrieving'))
+            else 'Preparing context' if any(word in text for word in ('context','reading','memory','gathering'))
+            else 'Generating reply' if any(word in text for word in ('generating','qwen','model','composing'))
+            else 'Working on your request')
+        if hasattr(self,'core_presentation'):self.core_presentation.sample()
+
+    def _show_thinking(self,detail):
+        super()._show_thinking(detail)
+        if getattr(self,'_renovated_ready',False):self._globe_activity(detail)
+
+    def _set_busy(self,is_busy):
+        super()._set_busy(is_busy)
+        if not is_busy:self._globe_reply_phase=''
+        if hasattr(self,'core_presentation'):self.core_presentation.sample()
+
+    def _on_assistant_stream_delta(self,request_id,delta):
+        activity=None
+        if delta and self.thinking_bubble is not None and self._stream_bubble is None and self.chat_mode!='voice':
+            activity=self.thinking_bubble;self.chat_list_layout.removeWidget(activity)
+            self.thinking_bubble=None;self._stream_activity=activity
+            activity._visible=False;activity.detail_label.hide();activity.toggle.setText('Thinking · Show activity')
+        super()._on_assistant_stream_delta(request_id,delta)
+        if activity is not None and self._stream_bubble is not None:
+            self._stream_bubble.layout().insertWidget(0,activity);activity.show()
+        if delta and getattr(self,'_renovated_ready',False):
+            self._globe_reply_phase='Writing reply';self.core_presentation.sample()
+
+    def _on_assistant_stream_finished(self,request_id,reply):
+        activity=getattr(self,'_stream_activity',None)
+        if activity is not None and isValid(activity):activity.finish()
+        self._stream_activity=None
+        super()._on_assistant_stream_finished(request_id,reply)
 
     def _on_project_changes_ready(self, summary, diff_html):
         super()._on_project_changes_ready(summary, diff_html)
@@ -505,7 +608,7 @@ class RenovatedWindow(ExistingPresenter):
     def _renovation_commands(self):
         routes = tuple(CommandItem('renovation:route:'+key, 'Open '+button.accessibleName(), 'Workspace', key)
             for key, button in self.navigation.buttons.items())
-        themes = tuple(CommandItem('renovation:theme:'+key, key+' theme', 'Appearance', 'theme color appearance '+key) for key in PRESETS)
+        themes = tuple(CommandItem('renovation:theme:'+key,label+' theme','Appearance','theme color appearance '+label) for key,label in UI_THEMES.items())
         return routes + themes
 
     def _refresh_plugin_commands(self):
@@ -538,11 +641,17 @@ class RenovatedWindow(ExistingPresenter):
 
     def _apply_renovated_theme(self, *_):
         style = stylesheet(self.theme_engine.tokens)
+        # Dialogs and menus outside the content root inherit the same theme.
+        if self.styleSheet()!=style:self.setStyleSheet(style)
         if self.presentation_root.styleSheet() != style:self.presentation_root.setStyleSheet(style)
         for name in ('command_palette', 'notification_toast', 'diagnostics_dialog'):
             widget = getattr(self, name, None)
             if widget is not None and widget.styleSheet() != style: widget.setStyleSheet(style)
         palette = self.palette(); palette.setColor(QPalette.Window, QColor(self.theme_engine.tokens['background'])); self.setPalette(palette)
+        # Native compositor opacity gives Glass real translucency without
+        # desktop capture or layered-window readback on every OpenGL frame.
+        glass=self.theme_engine.profile.preset=='GLASS' and not self.theme_engine.profile.high_contrast
+        self.setWindowOpacity(.94 if glass else 1.)
         self.reduced_motion = self.theme_engine.profile.reduced_motion
         self._refresh_rich_appearance()
         if getattr(self.live_action_workspace, '_shared_presentation', False):
@@ -565,7 +674,7 @@ class RenovatedWindow(ExistingPresenter):
     def _set_theme(self, theme, notify=True):
         if not getattr(self, '_renovated_ready', False): return super()._set_theme(theme, notify=notify)
         requested = normalize_theme(theme)
-        self.theme_engine.update(preset={'light': 'ICE', 'midnight': 'MIDNIGHT', 'glass':'GLASS', 'custom': 'CUSTOM'}.get(requested, 'MORICE'))
+        self.theme_engine.update(preset={'light':'ICE','glass':'GLASS'}.get(requested,'MORICE'))
         return super()._set_theme(requested, notify=notify)
 
     def _apply_experience_preferences(self, data):
@@ -912,6 +1021,7 @@ class RenovatedWindow(ExistingPresenter):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if getattr(self, '_renovated_ready', False): self._size_renovated_composer()
+        if getattr(self,'_renovated_ready',False):self._fit_chat_globe()
         if getattr(self, '_renovated_ready', False) and self.width() < 1020 and self.navigation.expanded:
             self.navigation.set_expanded(False)
         if hasattr(self, 'material_backdrop'): self.material_backdrop.resize(self.size()); self.material_backdrop.lower()
@@ -924,6 +1034,22 @@ class RenovatedWindow(ExistingPresenter):
         available = self.width() - rail - 72
         self.composer.setFixedWidth(min(780, max(300, available)))
         self._fit_renovated_composer()
+
+    def _fit_chat_globe(self):
+        if not hasattr(self,'chat_body_layout'):return
+        compact=self.width()<1050
+        self.chat_body_layout.setDirection(QBoxLayout.BottomToTop if compact else QBoxLayout.LeftToRight)
+        self.chat_globe_host.setMaximumWidth(16777215 if compact else 420)
+        self.chat_globe_host.setMinimumHeight(130 if compact else 0)
+        self.chat_globe_host.setMaximumHeight(170 if compact else 16777215)
+        self.globe_view.eyebrow.hide()
+        self.globe_view.present_route=self.active_route;self.globe_view.refresh(self.core_presentation.snapshot)
+        self.globe_view.nodes.setVisible(self.active_route=='home' and bool(self.core_presentation.snapshot.nodes))
+        self.globe_view.setGeometry(self.presentation_root.rect());self.globe_view.lower()
+        if hasattr(self.globe_view.canvas,'set_presentation'):
+            self.globe_view.canvas.set_presentation(self.active_route,compact=compact)
+        if hasattr(self,'thinking_level'):
+            self.composer_hint.setVisible(self.width()>=1000)
 
     @Slot()
     def _fit_renovated_composer(self, *_):
@@ -955,6 +1081,7 @@ class RenovatedWindow(ExistingPresenter):
             if token is not None:token.cancel('Target MORICE window closed.')
             self.wake_controller.close()
             self.core_presentation.close(); self.action_deck.dispose()
+            self.globe_view.dispose()
             for view in set(self.routes.values()):
                 if hasattr(view, 'dispose'): view.dispose()
             self.cursor_lighting.close()

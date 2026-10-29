@@ -187,7 +187,9 @@ def test_long_rich_message_reflows_and_wheel_scrolls_the_conversation(window, ap
     from morice.pyside_app import RichContentView
     old_size = window.size(); window.navigate('chats'); window.resize(1366,840)
     message = '\n\n'.join(f'### Calculation {index}\nUse \\(x^2+1\\) and keep all intermediate terms in the analysis. '
-        'This long paragraph must wrap when the conversation becomes narrower.' for index in range(100))
+        'This long paragraph must wrap when the conversation becomes narrower. '
+        'Check the coordinate assumptions, units, boundary conditions and numerical limits before comparing results. '
+        'Retain the original measurements and explain what the model actually establishes.' for index in range(100))
     window.append_message('MORICE',message,force_scroll=True)
     rich = window._message_rows[-1].findChild(RichContentView)
     try:
@@ -235,7 +237,9 @@ def test_live_action_uses_the_shared_composer_and_current_theme(window, app):
     from PySide6.QtGui import QPalette
     window.navigate('voice'); live = window.live_action_workspace; old = window.theme_engine.profile
     try:
-        assert window.composer.isVisible() and not live.input.isVisible()
+        assert not window.composer.isVisible() and not live.input.isVisible()
+        assert window.voice_globe_input.isVisible() and not live.overlay.isVisible()
+        live.show_response('A speech-only response fixture.');assert not live.overlay.isVisible()
         for preset in ('ICE','AMETHYST'):
             window.theme_engine.update(preset=preset,persist=False); live.show(); app.processEvents()
             assert live.camera_button.palette().color(QPalette.Button).name() == window.theme_engine.tokens['accent_primary']
@@ -257,7 +261,9 @@ def test_chat_and_live_action_show_pipeline_results_and_endpoint_errors(window, 
             pump(app,lambda: not window.is_busy and any(row['role']=='assistant' for row in window.history[start:]),timeout=15)
             expected = 'Controlled endpoint unavailable' if fails else 'Controlled reply: organize by topic.'
             assert expected in window._message_rows[-1].findChild(ChatBubble).message
-            if mode=='voice': assert expected in window.live_action_workspace.overlay._text
+            if mode=='voice':
+                assert not window.live_action_workspace.overlay.isVisible()
+                assert not window.composer.isVisible() and not window.live_action_workspace.input.isVisible()
         finally: window._set_busy(False); window._set_chat_mode(previous_mode); window.navigate('home')
 
 
@@ -523,7 +529,8 @@ def test_palette_exposes_every_route_and_theme_preserving_existing_commands(wind
     window._refresh_renovation_commands()
     keys = {row.key for row in window.command_palette.commands}
     assert {f'renovation:route:{route.key}' for route in ROUTES} <= keys
-    assert {f'renovation:theme:{preset}' for preset in PRESETS} <= keys
+    from morice.ui_next.themes import UI_THEMES
+    assert {key for key in keys if key.startswith('renovation:theme:')} == {f'renovation:theme:{preset}' for preset in UI_THEMES}
     window._execute_palette_command('renovation:theme:ICE')
     assert window.theme_engine.profile.preset == 'ICE'
     window._execute_palette_command('renovation:route:spatial'); assert window.active_route == 'spatial'
@@ -548,7 +555,7 @@ def test_unicode_font_family_is_data_but_stylesheet_syntax_still_rejected():
     with pytest.raises(ValueError): AppearanceProfile(font_family='Arial";image:url(secret)')
 
 
-def test_reduced_motion_stops_material_particles_and_idle_clock(window, app):
+def test_reduced_motion_stops_globe_and_retired_backdrop_stays_inactive(window, app):
     window.navigate('home'); old = window.theme_engine.profile
     try:
         window.activateWindow(); app.processEvents()
@@ -557,10 +564,12 @@ def test_reduced_motion_stops_material_particles_and_idle_clock(window, app):
             # forces LOW and therefore cannot be assumed to produce particles.
             window.effect_policy.set_load('NORMAL', source='power')
             window.theme_engine.update(background_effects=True, particles='NORMAL', quality='HIGH', reduced_motion=False)
+            canvas=window.globe_view.canvas;phase=canvas._phase
             window.effect_clock.request(); QTest.qWait(90)
-            assert 0 < len(window.material_backdrop._points) <= 36
-            assert window.material_backdrop.material() is not None
+            assert canvas._phase!=phase
+            assert not window.material_backdrop.isVisible() and not window.material_backdrop._points
             window.theme_engine.update(reduced_motion=True); QTest.qWait(100)
+            phase=canvas._phase;QTest.qWait(100);assert canvas._phase==phase
             assert not window.material_backdrop._points and not window.effect_clock.timer.isActive()
     finally: window.theme_engine.apply_profile(old)
 
@@ -672,13 +681,17 @@ def test_named_profiles_keep_new_appearance_and_existing_workspace_authority(win
     old=window.theme_engine.profile;old_preset=window.workspace_preset;old_mode=window.chat_mode
     profiles=window.routes['settings'].categories['Profiles']
     try:
-        window.theme_engine.update(preset='ARCTIC',field_palette='VIOLET',core_brightness=.8,orbital_complexity=5)
+        window.theme_engine.update(preset='GLASS',field_palette='VIOLET',core_brightness=.8,orbital_complexity=5)
         profiles.select.setCurrentText('Owned cinematic fixture');profiles.save()
         saved=window.experience_profiles.get('Owned cinematic fixture')
         assert saved is not None and saved.appearance['orbital_complexity']==5
-        window.theme_engine.update(preset='SOLAR',core_brightness=.2)
+        window.theme_engine.update(preset='MORICE',core_brightness=.2)
         profiles.apply();app.processEvents()
-        assert window.theme_engine.profile.preset=='ARCTIC' and window.theme_engine.profile.core_brightness==.8
+        assert window.theme_engine.profile.preset=='GLASS' and window.theme_engine.profile.core_brightness==.8
+        # Historical color-scene files stay readable but do not reintroduce a
+        # fourth selectable theme into the new three-theme application.
+        window.theme_engine.apply_profile(replace(window.theme_engine.profile,preset='ARCTIC'))
+        assert window.theme_engine.profile.preset=='MORICE' and window.theme_engine.profile.core_brightness==.8
         window._apply_workspace_preset('research',notify=False);assert window.active_route=='research'
         profiles.select.setCurrentText('Owned cinematic fixture');profiles.delete();assert window.experience_profiles.get('Owned cinematic fixture') is None
     finally:

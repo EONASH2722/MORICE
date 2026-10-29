@@ -35,7 +35,7 @@ def run(output):
             screen_bounds=QRect(widget.mapToGlobal(QPoint()),widget.size())
             row['controls'][name]={'visible':widget.isVisible(),'inside_window':window.rect().contains(bounds),'inside_screen':window.screen().availableGeometry().contains(screen_bounds)}
         geometry.append(row)
-    from .ui_next.theme_scenes import SCENES
+    from .ui_next.themes import UI_THEMES
     # Exercise the new production imports, same-database migration and controls
     # from the isolated frozen profile without downloading/loading model weights.
     memory_rows=[{'role':'user','content':'Use the name Project Orion.'},
@@ -100,13 +100,20 @@ def run(output):
     assert math_state.get('equations')==2 and math_state.get('errors')==0,math_state
     math_probe={**math_state,'same_stream_bubble':True,'copy_text_preserved':bubble.message==reply,'bundled_assets':True}
     scenes=[]
-    for preset in SCENES:
+    for preset in UI_THEMES:
         window.theme_engine.update(preset=preset,persist=False)
         field=window.material_backdrop.material()
         scenes.append({'preset':preset,'scene':window.material_backdrop.diagnostics()['scene'],'raster_present':field is not None})
     window.theme_engine.update(preset='GLASS',reduced_motion=False,persist=False)
-    window.activateWindow();app.processEvents();initial_phase=window.material_backdrop._phase
+    window.navigate('home');window.activateWindow();app.processEvents();canvas=window.globe_view.canvas
+    assert hasattr(canvas,'dynamics'),'The native package requires the actual OpenGL globe.'
+    initial_phase=tuple(canvas._orbit_phases)
     ticks=[];timer=QTimer();timer.timeout.connect(lambda:ticks.append(time.perf_counter()));timer.start(25)
+    # QApplication.quit closes native windows and releases their GL contexts.
+    # Capture the live renderer before that teardown, rather than reporting a
+    # correctly released shader program as a startup failure.
+    live_globe=[]
+    QTimer.singleShot(2900,lambda:live_globe.append(canvas.diagnostics()))
     QTimer.singleShot(3000,app.quit);app.exec()
     result={"frozen":bool(getattr(sys,"frozen",False)),"cwd":os.getcwd(),"startup_and_probe_ms":(time.perf_counter()-started)*1000,
         "window_created":True,"ui_ticks":len(ticks),"critical_failures":len(runtime.health_report.critical_failures),
@@ -117,10 +124,12 @@ def run(output):
     result['nlui_rich_response']=nlui_probe
     result['reply_math']=math_probe
     result['composer_geometry']=geometry;result['theme_scenes']=scenes
-    result['ambient_animation']={'phase_advanced':window.material_backdrop._phase!=initial_phase,'raster_count':window.material_backdrop.render_count,'reduced_motion':window.theme_engine.profile.reduced_motion}
+    result['ambient_animation']={'phase_advanced':tuple(canvas._orbit_phases)!=initial_phase,'reduced_motion':window.theme_engine.profile.reduced_motion}
+    result['globe']=live_globe[-1] if live_globe else canvas.diagnostics();result['three_themes']=list(UI_THEMES.values())
+    result['thinking_levels']=[window.thinking_level.itemData(i) for i in range(window.thinking_level.count())]
     if spatial is not None:result['spatial_result']=spatial
     window.close();runtime.shutdown();result["shutdown"]=runtime.shutdown_report
     result["leases_after"]=len(runtime.kernel.resources.snapshot())
     Path(output).write_text(json.dumps(result,indent=2),encoding="utf-8")
     geometry_ok=all(all(control.values()) for row in geometry for control in row['controls'].values())
-    return 0 if result["critical_failures"]==result["leases_after"]==0 and result["ui_ticks"]>10 and result["shutdown"]["clean"] and geometry_ok and all(row['raster_present'] for row in scenes) and result['ambient_animation']['phase_advanced'] else 1
+    return 0 if result["critical_failures"]==result["leases_after"]==0 and result["ui_ticks"]>10 and result["shutdown"]["clean"] and geometry_ok and all(row['raster_present'] for row in scenes) and result['ambient_animation']['phase_advanced'] and result['globe']['gpu'] and result['globe']['gl']['last_gl_error']==0 else 1

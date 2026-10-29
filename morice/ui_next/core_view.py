@@ -6,9 +6,9 @@ from functools import lru_cache
 import math
 import time
 
-from PySide6.QtCore import Qt, QPointF, QRectF, QSize
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QRadialGradient, QBrush
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy
+from PySide6.QtCore import Qt, QPointF, QRectF, QSize, QTimer
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QRadialGradient, QBrush, QKeySequence, QShortcut
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy, QApplication, QPushButton
 
 from .core_state import CoreState, CoreSnapshot
 from .theme_scenes import LOOP_SECONDS, loop_angle, scene_points
@@ -140,20 +140,85 @@ class CoreCanvas(QWidget):
 
 
 class CoreView(QWidget):
-    def __init__(self, model, theme, policy, clock, parent=None):
-        super().__init__(parent);self.model=model
-        self.setObjectName('CoreView');layout=QVBoxLayout(self);layout.setContentsMargins(12,12,12,12);layout.setSpacing(8)
+    def __init__(self, model, theme, policy, clock, parent=None, *, immersive=False):
+        super().__init__(parent);self.model=model;self._immersive=immersive
+        self.setObjectName('CoreView');layout=QVBoxLayout(self);layout.setContentsMargins(0,0,0,0);layout.setSpacing(4)
         self.eyebrow=QLabel('M O R I C E   /   P R I V A T E   I N T E L L I G E N C E');self.eyebrow.setProperty('role','secondary');self.eyebrow.setAlignment(Qt.AlignCenter);self.eyebrow.setWordWrap(True)
-        layout.addWidget(self.eyebrow);self.canvas=CoreCanvas(model,theme,policy,clock);layout.addWidget(self.canvas,1)
+        self.eyebrow.hide()
+        from .globe_state import GlobeBoot
+        self.boot=GlobeBoot();self.fallback_reason='';self._theme=theme;self._policy=policy;self._clock=clock
+        if QApplication.platformName() in {'offscreen','minimal'}:
+            self.canvas=CoreCanvas(model,theme,policy,clock)
+            self.fallback_reason='GPU globe unavailable on the '+QApplication.platformName()+' platform; reduced-quality preview.'
+        else:
+            from .globe_renderer import HolographicGlobe
+            self.canvas=HolographicGlobe(model,theme,policy,clock,boot=self.boot)
+            self.canvas.rendering_failed.connect(self._render_failed)
+            self.canvas.boot_changed.connect(lambda *_:self.refresh(model.snapshot))
+        layout.addWidget(self.canvas,1)
         self.title=QLabel();self.title.setProperty('role','title');self.title.setWordWrap(True);self.title.setAlignment(Qt.AlignCenter);layout.addWidget(self.title)
-        from .effects import AuthoredMark
-        self.state_mark=AuthoredMark('core',theme);layout.addWidget(self.state_mark,0,Qt.AlignHCenter)
+        self.state_mark=QLabel();self.state_mark.hide()  # Retained presentation binding, not another identity mark.
         self.detail=QLabel();self.detail.setProperty('role','secondary');self.detail.setWordWrap(True);self.detail.setAlignment(Qt.AlignCenter);layout.addWidget(self.detail)
         self.nodes=QLabel();self.nodes.setProperty('role','secondary');self.nodes.setWordWrap(True);self.nodes.setAlignment(Qt.AlignCenter);layout.addWidget(self.nodes)
+        self.skip_button=QPushButton('Skip introduction');self.skip_button.clicked.connect(self.skip_intro)
+        self.skip_button.setParent(self)
+        self.skip_shortcut=QShortcut(QKeySequence('Escape'),self);self.skip_shortcut.setContext(Qt.WindowShortcut);self.skip_shortcut.activated.connect(self.skip_intro)
+        if theme.profile.reduced_motion:self.boot.skip()
         model.changed.connect(self.refresh);self.refresh(model.snapshot)
+        if immersive:
+            for widget in (self.canvas,self.eyebrow,self.title,self.detail,self.nodes):
+                layout.removeWidget(widget);widget.setParent(self)
+            self.title.setProperty('role','secondary');self._position_immersive()
+
+    def _position_immersive(self):
+        if not self._immersive:return
+        self.canvas.setGeometry(self.rect());self.canvas.lower()
+        chat=getattr(self,'present_route','home')=='chats'
+        width=min(360 if chat else 650,max(200,self.width()-80));left=round(self.width()*(.81 if chat and self.width()>1000 else .5)-width/2)
+        top=round(self.height()*.66) if chat and self.width()>1000 else 64
+        self.title.setGeometry(left,top,width,28);self.detail.setGeometry(left,top+28,width,30)
+        self.nodes.setGeometry(left,120,width,24)
+        self.title.raise_();self.detail.raise_();self.nodes.raise_()
+
+    def skip_intro(self):
+        self.boot.skip();self.canvas.update();self._clock.request();self.refresh(self.model.snapshot)
+
+    def services_ready(self, error=''):
+        if error:self.boot.fail(error)
+        else:self.boot.ready=True
+        self.refresh(self.model.snapshot)
+
+    def _render_failed(self,reason):
+        self.fallback_reason=reason
+        QTimer.singleShot(0,self._install_fallback)
+
+    def _install_fallback(self):
+        old=self.canvas;old.dispose()
+        self.canvas=CoreCanvas(self.model,self._theme,self._policy,self._clock)
+        if self._immersive:self.canvas.setParent(self);self._position_immersive();self.canvas.show()
+        else:self.layout().replaceWidget(old,self.canvas)
+        old.hide();old.deleteLater()
+        self.refresh(self.model.snapshot)
 
     def refresh(self,snapshot):
         self.title.setText(snapshot.title);self.detail.setText(snapshot.detail)
+        from .globe_state import BootStage
+        stage=self.boot.stage
+        if self.fallback_reason:self.detail.setText(self.fallback_reason)
+        if stage==BootStage.FAILED:self.title.setText('Startup needs attention');self.detail.setText(self.boot.error)
+        elif stage!=BootStage.READY_IDLE and not self.fallback_reason:
+            self.title.setText({'DORMANT':'MORICE is starting','IGNITING':'Core ignition',
+                'PARTICLES_FORMING':'Assembling light','WIREFRAME_FORMING':'Forming the globe',
+                'ORBITS_SYNCHRONIZING':'Synchronizing orbits','GLOW_ACTIVATING':'Coming online',
+                'WAITING_FOR_SERVICES':'Waiting for application services'}.get(stage.value,'Starting'))
+            self.detail.setText('Preparing your private workspace.')
+        self.skip_button.setVisible(self.boot.progress<1 and not self.fallback_reason)
+        if self._immersive:
+            route=getattr(self,'present_route','home')
+            busy=snapshot.state in {CoreState.THINKING,CoreState.UNDERSTANDING,CoreState.WORKING,CoreState.RESEARCH_RUNNING,CoreState.MEDIA_GENERATING,CoreState.SPEAKING,CoreState.LISTENING,CoreState.ERROR}
+            visible=route in {'home','chats'} and (busy or stage!=BootStage.READY_IDLE or bool(self.fallback_reason))
+            self.title.setVisible(visible);self.detail.setVisible(visible and (stage!=BootStage.READY_IDLE or bool(self.fallback_reason)))
+            self._position_immersive()
         self.state_mark.name={CoreState.ARMED:'voice',CoreState.LISTENING:'voice',CoreState.SPEAKING:'voice',CoreState.SECURITY_ALERT:'security',CoreState.MEDIA_GENERATING:'media',CoreState.RESEARCH_RUNNING:'research',CoreState.ERROR:'warning',CoreState.WARNING:'warning',CoreState.SUCCESS:'check',CoreState.WAITING_FOR_USER:'activity'}.get(snapshot.state,'core');self.state_mark.update()
         names=[]
         for node in snapshot.nodes:
@@ -166,3 +231,8 @@ class CoreView(QWidget):
         self.nodes.setText(' · '.join(dict.fromkeys(names)));self.nodes.setVisible(bool(snapshot.nodes))
 
     def dispose(self):self.canvas.dispose()
+
+    def resizeEvent(self,event):
+        super().resizeEvent(event)
+        self._position_immersive()
+        self.skip_button.adjustSize();self.skip_button.move(max(4,self.width()-self.skip_button.width()-12),12);self.skip_button.raise_()

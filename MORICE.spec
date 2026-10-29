@@ -115,6 +115,14 @@ source_digest = hashlib.sha256()
 for source_path in sorted((Path(project_dir) / 'morice').rglob('*.py')):
     source_digest.update(str(source_path.relative_to(project_dir)).encode())
     source_digest.update(source_path.read_bytes())
+# Analysis may retain older module-graph code objects after an incremental
+# build. Compile application modules from the current checkout even when the
+# dependency graph itself is reused. Final archive parity remains mandatory.
+application_code_cache = CONF['code_cache'].get(id(a.pure))
+if application_code_cache is not None:
+    for module_name, module_path, module_type in a.pure:
+        if module_name == 'morice' or module_name.startswith('morice.'):
+            application_code_cache[module_name] = compile(Path(module_path).read_bytes(), module_path, 'exec', dont_inherit=True, optimize=0)
 pyz = PYZ(a.pure, name=os.path.join(CONF['workpath'], 'PYZ-' + source_digest.hexdigest()[:16] + '.pyz'))
 
 exe = EXE(

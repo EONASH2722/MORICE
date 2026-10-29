@@ -181,7 +181,11 @@ class WakeController(QObject):
         self.set_state(WakeState.UNDERSTANDING, 'Understanding…', self.preferences.processing_timeout)
         self.owner.input.setText(self._pending_text)
         if self.runtime.speech_input.config.auto_send: self.submit_reviewed()
-        else: self.overlay.run.show(); self.overlay.state_label.setText('Review the transcript, then send.')
+        else:
+            self.overlay.run.show();self.overlay.state_label.setText('Review the transcript, then send.')
+            # Manual transcript review needs its real Send/Cancel controls even
+            # when the main chat replaced the optional listening orb.
+            self.overlay.show()
         return True
 
     def submit_reviewed(self):

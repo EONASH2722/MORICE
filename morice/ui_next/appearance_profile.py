@@ -4,10 +4,10 @@ import math
 import re
 
 PRESETS = {
-    'MORICE': ('#060b13', '#101a28', '#19283a', '#80daed', '#b1a1ed'),
+    'MORICE': ('#000000', '#0b0b10', '#16161e', '#c4a1fa', '#b1a1ed'),
     'GLASS': ('#0b1424', '#23334a', '#2f4560', '#abecff', '#c5b7ff'),
     'OBSIDIAN': ('#0c0e12', '#171a20', '#232730', '#99c8db', '#b5b5cc'),
-    'ICE': ('#eef4fa', '#ffffff', '#e1ebf5', '#176987', '#64539b'),
+    'ICE': ('#ffffff', '#ffffff', '#f3f3f6', '#654196', '#64539b'),
     'AMETHYST': ('#100d20', '#1d1832', '#2a2442', '#b9a2ff', '#87dff2'),
     'MIDNIGHT': ('#060a13', '#0e1524', '#192338', '#7cbbff', '#b49aff'),
     'NEON': ('#0c111b', '#141f2e', '#1d2b3e', '#83efcf', '#caa8ff'),
@@ -52,6 +52,8 @@ class AppearanceProfile:
     core_brightness: float = .7
     core_scale: float = 1.0
     orbital_complexity: int = 3
+    globe_color: str = '#c68bff'
+    globe_glow_color: str = '#7d35b8'
     particles: str = 'OFF'
     reduced_motion: bool = False
     high_contrast: bool = False
@@ -60,6 +62,8 @@ class AppearanceProfile:
     def __post_init__(self):
         if type(self.schema) is not int or self.schema != 1 or not isinstance(self.preset, str) or self.preset not in PRESETS:
             raise ValueError('Unknown appearance schema or preset.')
+        for key in ('globe_color', 'globe_glow_color'):
+            color(getattr(self, key))
         for key in ('primary_accent', 'secondary_accent', 'background_tone', 'surface_tone'):
             if not isinstance(getattr(self, key), str): raise ValueError('Appearance colors must be string data.')
             if getattr(self, key): color(getattr(self, key))

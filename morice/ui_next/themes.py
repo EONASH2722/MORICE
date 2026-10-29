@@ -14,6 +14,9 @@ from .theme_scenes import SCENES
 COLORS = {'success': '#73d7ad', 'warning': '#efc47b', 'error': '#f7939d', 'info': '#94cfff',
     'research': '#a49ce9', 'builder': '#86cfc4', 'device': '#8cb8f1', 'security': '#efbd7c', 'media': '#bca2ef', 'spatial': '#79cedc'}
 
+# The public appearance choices. Historical profiles remain readable.
+UI_THEMES = {'ICE':'White','MORICE':'Pitch Black','GLASS':'Glass'}
+
 
 def luminance(value):
     channels = [int(color(value)[i:i + 2], 16) / 255 for i in (1, 3, 5)]
@@ -144,6 +147,9 @@ def stylesheet(t):
     QProgressBar {{ background: {t['surface_elevated']}; border: 1px solid {t['border']}; border-radius: {t.radius_small}px; text-align: center; }}
     QProgressBar::chunk {{ background: {t['accent_primary']}; border-radius: {t.radius_small}px; }}
     QToolTip, QMenu {{ background: {t['surface_elevated']}; color: {t['text_primary']}; border: 1px solid {t['border']}; padding: 6px; }}
+    QDialog, QMessageBox, QFileDialog, QInputDialog {{ background: {t['background']}; color: {t['text_background']}; }}
+    QAbstractItemView {{ background: {t['surface']}; color: {t['text_primary']}; alternate-background-color: {t['surface_elevated']}; selection-background-color: {t['surface_selected']}; selection-color: {t['text_primary']}; }}
+    QComboBox QAbstractItemView {{ background: {t['surface_elevated']}; color: {t['text_primary']}; }}
     QMenu::item:selected {{ background: {t['surface_pressed']}; }}
     QCheckBox, QRadioButton {{ spacing: 9px; }}
     QCheckBox::indicator, QRadioButton::indicator {{ width: 20px; height: 20px; }}
@@ -186,22 +192,36 @@ class AppearanceStore:
 
 class ThemeEngine(QObject):
     changed = Signal(object)
+    globe_changed = Signal(object)
 
-    def __init__(self, directory, legacy=None, parent=None):
+    def __init__(self, directory, legacy=None, parent=None, *, allowed_presets=None):
         super().__init__(parent)
+        self.allowed_presets=tuple(allowed_presets) if allowed_presets is not None else None
         self.store = AppearanceStore(directory); self.profile = self.store.load(legacy)
+        self.profile=self._canonical_profile(self.profile)
         self.tokens = tokens(self.profile)
 
+    def _canonical_profile(self,profile):
+        if self.allowed_presets is not None and profile.preset not in self.allowed_presets:
+            return replace(profile,preset='MORICE',background_tone='',surface_tone='')
+        return profile
+
     def update(self, *, persist=True, **changes):
-        updated = replace(self.profile, **changes)
+        if self.allowed_presets is not None and 'preset' in changes and changes['preset']!=self.profile.preset:
+            changes.setdefault('background_tone','');changes.setdefault('surface_tone','')
+        updated = self._canonical_profile(replace(self.profile, **changes))
         if updated == self.profile:
             if persist:self.store.save(updated)
             return
+        if changes and set(changes)<= {'globe_color','globe_glow_color'}:
+            self.profile=updated
+            if persist:self.store.save(updated)
+            self.globe_changed.emit(updated);return
         self.profile = updated; self.tokens = tokens(updated)
         if persist: self.store.save(updated)
         self.changed.emit(self.tokens)
 
     def apply_profile(self, profile, *, persist=True):
-        self.profile = AppearanceProfile.from_dict(profile.to_dict()); self.tokens = tokens(self.profile)
+        self.profile = self._canonical_profile(AppearanceProfile.from_dict(profile.to_dict())); self.tokens = tokens(self.profile)
         if persist: self.store.save(self.profile)
         self.changed.emit(self.tokens)

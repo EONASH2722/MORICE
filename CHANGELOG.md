@@ -4,6 +4,16 @@ All notable changes to MORICE are documented here.
 
 ## [Unreleased]
 
+## [0.11.0] — holographic interface and chat thinking controls
+
+- Replace the separate home orb with one native GPU globe across the interface: layered 3D wireframe, independent orbits, moving particles, energy filaments, radial markers and an independently colored halo.
+- Add deterministic cold-start materialization, honest readiness/failure states, skip, pointer proximity, click ripples, drag inertia, smooth bounded wheel/touchpad zoom and reset. Idle, cursor and real work states transition without resetting orbital angles.
+- Offer White, Pitch Black and Glass throughout the app, including native dialogs, scientific canvases and rich mathematical/chart responses. Preserve historical profile readability and the original logo.
+- Add independent live-preview globe/glow color selectors and persistence. Keep reduced motion, visibility/load-aware refresh and bounded GPU buffers.
+- Put Low, Medium, High and Extra high thinking effort directly in chat. Snapshot the selected level for each request and apply actual backend reasoning/output budgets.
+- Show expandable public activity receipts for real preparation, search, reading, model readiness, reasoning-token activity and writing. Read explicitly supplied text/HTML links as bounded untrusted source data; report unreadable sources rather than inventing their contents.
+- Open chat on ordinary wake activation without changing the selected theme or granting new microphone/automation permissions. Preserve existing fullscreen preferences and manual transcript review.
+
 ## [0.10.0] — natural-language control and interactive results
 
 - Amend the existing release: keep engineering analysis and pasted input tables in the normal answer path; require requested visualization for prompt data, whole device references and explicit remote commands; recognize engineering challenge headings before selecting a simulation renderer.

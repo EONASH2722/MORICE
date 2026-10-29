@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFormLayout, QComboBox, QSlider, QCheckBox, QPushButton, QColorDialog, QFileDialog, QMessageBox, QScrollArea
 
-from .themes import PRESETS, AppearanceProfile, AppearanceStore
+from .themes import PRESETS, UI_THEMES, AppearanceProfile, AppearanceStore
 from ..media_lab.storage import atomic_json
 from .theme_scenes import SCENES
 from .file_access import require_selected_file
@@ -19,25 +19,35 @@ class AppearanceView(QWidget):
         self.save_timer.timeout.connect(lambda: theme.store.save(theme.profile))
         layout = QVBoxLayout(self); layout.setContentsMargins(24, 20, 24, 20)
         title = QLabel('Appearance'); title.setProperty('role', 'title'); layout.addWidget(title)
-        description = QLabel('Every theme has its own shapes, materials and seamless motion. Changes preview immediately.'); description.setProperty('role', 'secondary'); description.setWordWrap(True); layout.addWidget(description)
+        description = QLabel('One integrated globe across White, Pitch Black and Glass. Color changes preview immediately.'); description.setProperty('role', 'secondary'); description.setWordWrap(True); layout.addWidget(description)
         self.scene_description=QLabel();self.scene_description.setWordWrap(True);layout.addWidget(self.scene_description)
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         host = QWidget(); content = QVBoxLayout(host); form = QFormLayout(); form.setVerticalSpacing(14); form.setRowWrapPolicy(QFormLayout.WrapLongRows); content.addLayout(form)
         self.advanced_toggle = QPushButton('Advanced appearance'); self.advanced_toggle.setProperty('morice_icon', 'settings'); self.advanced_toggle.setCheckable(True); content.addWidget(self.advanced_toggle)
         self.advanced = QWidget(); advanced_form = QFormLayout(self.advanced); advanced_form.setVerticalSpacing(14); advanced_form.setRowWrapPolicy(QFormLayout.WrapLongRows); content.addWidget(self.advanced); self.advanced.hide()
         self.advanced_toggle.toggled.connect(self.advanced.setVisible); content.addStretch(1); scroll.setWidget(host); layout.addWidget(scroll, 1)
-        basic = {'preset', 'density', 'font_scale', 'cursor_glow', 'cursor_light', 'reduced_motion', 'high_contrast'}
+        basic = {'preset', 'density', 'font_scale', 'cursor_glow', 'cursor_light', 'reduced_motion', 'high_contrast', 'globe_color', 'globe_glow_color'}
         def add_field(key, label, field):
             target = form if key in basic else advanced_form
             self.fields[key] = field; field.setAccessibleName(label); field.setMinimumWidth(0)
             target.addRow(label, field); self.field_rows[key] = (field, target.labelForField(field), key not in basic)
-        for key, label, values in (('preset', 'Theme', list(PRESETS)), ('quality', 'Effect quality', ['LOW', 'BALANCED', 'HIGH', 'ULTRA']),
+        for key, label, values in (('preset', 'Theme', list(UI_THEMES)), ('quality', 'Effect quality', ['LOW', 'BALANCED', 'HIGH', 'ULTRA']),
             ('density', 'UI density', ['compact', 'comfortable', 'spacious']), ('cursor_glow', 'Cursor glow', ['OFF', 'MINIMAL', 'NORMAL', 'HIGH']), ('particles', 'Particles', ['OFF', 'LOW', 'NORMAL']),
             ('field_palette', 'Energy field palette', ['STATE', 'CYAN', 'VIOLET', 'THEME'])):
-            field = QComboBox(); field.addItems(values); field.setCurrentText(getattr(theme.profile, key)); field.setAccessibleName(label)
-            field.currentTextChanged.connect(lambda value, name=key: self.update(name, value)); add_field(key, label, field)
+            field = QComboBox();field.setAccessibleName(label)
+            if key=='preset':
+                for value in values:field.addItem(UI_THEMES[value],value)
+                field.setCurrentIndex(max(0,field.findData(theme.profile.preset)))
+                field.currentIndexChanged.connect(lambda index,widget=field:self.update('preset',widget.itemData(index)))
+            else:
+                field.addItems(values);field.setCurrentText(getattr(theme.profile,key))
+                field.currentTextChanged.connect(lambda value,name=key:self.update(name,value))
+            add_field(key,label,field)
         for key, label in (('primary_accent', 'Primary accent'), ('secondary_accent', 'Secondary accent'), ('background_tone', 'Background tone'), ('surface_tone', 'Surface tone')):
             field = QPushButton(getattr(theme.profile, key) or 'Use preset'); field.setProperty('morice_icon', 'appearance'); field.clicked.connect(lambda checked=False, name=key: self.choose_color(name)); add_field(key, label, field)
+        for key,label in (('globe_color','Globe Color'),('globe_glow_color','Globe Glow Color')):
+            field=QPushButton(getattr(theme.profile,key));field.clicked.connect(lambda checked=False,name=key:self.choose_color(name))
+            field.setToolTip('Live preview; saved independently without restarting the globe.');add_field(key,label,field)
         for key, label, minimum, maximum, factor in (
             ('glow', 'Glow intensity', 0, 100, .01), ('glass', 'Glass intensity', 0, 100, .01), ('blur', 'Blur amount', 0, 100, .01),
             ('border_brightness', 'Border brightness', 0, 100, .01), ('radius', 'Corner radius', 0, 32, 1),
@@ -58,6 +68,7 @@ class AppearanceView(QWidget):
         for label, action in (('Import theme', self.import_theme), ('Export theme', self.export_theme), ('Reset appearance', self.reset)):
             button = QPushButton(label); button.clicked.connect(action); row.addWidget(button)
         layout.addLayout(row); policy.changed.connect(self.refresh_status); theme.changed.connect(self.sync); self.refresh_status()
+        theme.globe_changed.connect(self.sync)
 
     def filter(self, query):
         query = query.strip().casefold(); show_advanced = False
@@ -75,7 +86,9 @@ class AppearanceView(QWidget):
         profile = self.theme.profile
         for key, field in self.fields.items():
             field.blockSignals(True); value = getattr(profile, key)
-            if isinstance(field, QComboBox): field.setCurrentText(value)
+            if isinstance(field, QComboBox):
+                if key=='preset':field.setCurrentIndex(max(0,field.findData(value)))
+                else:field.setCurrentText(value)
             elif isinstance(field, QCheckBox): field.setChecked(value)
             elif isinstance(field, QSlider): field.setValue(value if key in {'radius', 'orbital_complexity'} else round(value * 100))
             else: field.setText(value or 'Use preset')
@@ -84,10 +97,15 @@ class AppearanceView(QWidget):
 
     def refresh_status(self, *_):
         budget = self.policy.budget
-        name,description=SCENES[self.theme.profile.preset];self.scene_description.setText(name+' · '+description)
+        description={'ICE':'White surfaces with readable violet light.','MORICE':'Pitch-black surfaces with luminous violet energy.',
+            'GLASS':'Translucent materials over the same live globe.'}.get(self.theme.profile.preset,'Historical appearance profile.')
+        self.scene_description.setText(description)
         self.status.setText(f'Selected {budget.selected} · Active {budget.effective}' + (' · ' + budget.reason if budget.reason else '') + (' · Reduced Motion' if self.theme.profile.reduced_motion else ''))
 
     def choose_color(self, name):
+        if name in {'globe_color','globe_glow_color'}:
+            from .globe_colors import choose_globe_color
+            choose_globe_color(self.theme,name,self);return
         selected = QColorDialog.getColor(QColor(getattr(self.theme.profile, name) or self.theme.tokens['accent_primary']), self, 'Choose appearance color')
         if selected.isValid(): self.update(name, selected.name())
 

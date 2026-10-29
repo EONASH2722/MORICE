@@ -147,7 +147,7 @@ class EffectClock(QObject):
     """Weak visible subscribers; all scene/cursor/voice effects share this clock."""
     def __init__(self, policy, parent=None):
         super().__init__(parent)
-        self.policy = policy; self._subscribers = {}; self._last = 0.; self.frame_samples = []; self._closed = False
+        self.policy = policy; self._subscribers = {}; self._rate_hints = {}; self._last = 0.; self.frame_samples = []; self._closed = False
         self.timer = QTimer(self); self.timer.timeout.connect(self._tick); self.timer.setInterval(max(16, round(1000 / policy.budget.fps)))
         self.policy.changed.connect(self.configure)
 
@@ -166,7 +166,15 @@ class EffectClock(QObject):
 
     def unsubscribe_id(self, identifier):
         self._subscribers.pop(identifier, None)
+        self._rate_hints.pop(identifier,None);self.configure()
         if not self._subscribers and isValid(self.timer): self.timer.stop()
+
+    def set_rate_hint(self,widget,fps):
+        identifier=id(widget);fps=max(0,min(60,int(fps)))
+        if fps==self._rate_hints.get(identifier,0):return
+        if fps:self._rate_hints[identifier]=fps
+        else:self._rate_hints.pop(identifier,None)
+        self.configure()
 
     def request(self):
         if self._closed or not self._subscribers: return
@@ -174,7 +182,8 @@ class EffectClock(QObject):
 
     def configure(self, *_):
         if self._closed: return
-        self.timer.setInterval(max(16, round(1000 / self.policy.budget.fps)))
+        fps=max(self.policy.budget.fps,*[value for key,value in self._rate_hints.items() if key in self._subscribers],0)
+        self.timer.setInterval(max(16, round(1000 / fps)))
         self.request()
 
     def _tick(self):
@@ -194,7 +203,7 @@ class EffectClock(QObject):
         if not active: self.timer.stop()
 
     def close(self):
-        self._closed = True; self.timer.stop(); self._subscribers.clear()
+        self._closed = True; self.timer.stop(); self._subscribers.clear(); self._rate_hints.clear()
 
     def diagnostics(self):
         ordered = sorted(self.frame_samples)

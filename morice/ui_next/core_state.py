@@ -169,6 +169,8 @@ class CorePresentation(QObject):
         elif voice.active or voice.queued: state = CoreState.WORKING; detail = 'Preparing spoken reply'
         elif notice is not None: state = notice[0]
         title, default = LABELS[state]
+        if state in {CoreState.THINKING,CoreState.WORKING} and getattr(self.owner,'is_busy',False):
+            title=getattr(self.owner,'_globe_reply_phase','') or title
         updated = CoreSnapshot(state, title, detail or default, nodes, audio)
         if updated != self.snapshot: self.snapshot = updated; self.changed.emit(updated)
         return state != CoreState.IDLE or self._outcome is not None

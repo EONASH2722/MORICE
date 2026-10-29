@@ -231,7 +231,7 @@ class LiveActionWorkspace(QWidget):
         self.camera_button = QPushButton("Turn camera on")
         self.camera_button.setObjectName("LivePrimaryControl")
         self.camera_button.clicked.connect(self._toggle_camera)
-        self.mic_button = QPushButton("Pause microphone")
+        self.mic_button = QPushButton("Resume microphone")
         self.mic_button.setObjectName("LiveControl")
         self.mic_button.clicked.connect(self._toggle_microphone)
         analyze_button = QPushButton("Analyze view")
@@ -306,6 +306,7 @@ class LiveActionWorkspace(QWidget):
         self.overlay._motion_enabled = not reduced_motion
         if reduced_motion:
             self.overlay._animation.stop()
+
             if self.overlay.isVisible(): self.overlay._opacity.setOpacity(1.0)
         self.setStyleSheet(f'''
             #LiveActionTitle, #LiveGlassState {{ color: {tokens['accent_primary']}; font-weight: 600; }}
@@ -316,6 +317,14 @@ class LiveActionWorkspace(QWidget):
             #LivePrimaryControl {{ background: {tokens['accent_primary']}; color: {tokens['accent_text']}; font-weight: 600; }}
             #LiveTranscript {{ color: {tokens['text_secondary']}; background: {tokens['surface']}; border-radius: {tokens.radius_small}px; padding: 8px; }}
         ''')
+
+    def enable_globe_voice(self, input_surface):
+        """Voice presentation uses the existing speech owners, with no editor."""
+        self._globe_voice=True
+        self.layout().insertWidget(2,input_surface,1)
+        self.stage.setMaximumHeight(260);self.stage.setVisible(self._camera_active)
+        self.overlay.hide();self.overlay._animation.stop()
+        self.transcript_label.setText('Microphone off' if not self._microphone_active else 'Listening')
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -385,14 +394,16 @@ class LiveActionWorkspace(QWidget):
     def set_camera_state(self, state: str, message: str) -> None:
         active = state == "active"
         self._camera_active = active
+        if getattr(self,'_globe_voice',False):self.stage.setVisible(active)
         self.camera_button.setText("Turn camera off" if active else "Turn camera on")
         self.privacy_label.setText(
             "● CAMERA LIVE · memory only" if active else "● CAMERA OFF · no frames stored"
         )
         if not active and state in {"off", "unavailable", "error"}:
             self.preview.clear_frame(message)
-        if state in {"unavailable", "error"}:
+        if state in {"unavailable", "error"} and not getattr(self,'_globe_voice',False):
             self.overlay.set_status(message, state="camera")
+        elif state in {'unavailable','error'}:self.transcript_label.setText(message)
 
     def set_microphone_state(self, active: bool, message: str = "") -> None:
         self._microphone_active = bool(active)
@@ -401,16 +412,20 @@ class LiveActionWorkspace(QWidget):
             self.transcript_label.setText(message)
 
     def set_transcript(self, text: str, *, partial: bool = False) -> None:
+        if getattr(self,'_globe_voice',False):
+            self.transcript_label.setText('Listening' if partial else 'Preparing a reply');return
         clean = str(text or "").strip()
         if clean:
             prefix = "Hearing" if partial else "You said"
             self.transcript_label.setText(f"{prefix}: {clean}")
 
     def show_response(self, text: str, *, streaming: bool = False, state: str = "MORICE") -> None:
+        if getattr(self,'_globe_voice',False):return
         self.overlay.set_response(text, streaming=streaming, state=state)
         self._layout_overlay()
 
     def finish_response(self, text: str = "") -> None:
+        if getattr(self,'_globe_voice',False):return
         self.overlay.finish_stream(text)
 
     def set_regions(self, regions: tuple[object, ...]) -> None:

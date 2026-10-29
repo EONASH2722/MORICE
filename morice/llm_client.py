@@ -599,6 +599,7 @@ def _try_openai_chat_stream(
     running_payload["stream"] = True
     emitted = False
     useful_emitted = False
+    reasoning_notified = False
     for attempt in range(2):
         reasoning_only=False;finish_reason=''
         for event in _post_stream_json(openai_url,running_payload,timeout,cancel_event,telemetry):
@@ -606,6 +607,8 @@ def _try_openai_chat_stream(
             choice = (event.get("choices") or [{}])[0]
             delta = choice.get("delta") or {}
             reasoning_only=reasoning_only or bool(delta.get('reasoning_content'))
+            if delta.get('reasoning_content') and not reasoning_notified:
+                reasoning_notified=True;_report_telemetry(telemetry,'model_reasoning_started')
             finish_reason=choice.get('finish_reason') or finish_reason
             text = delta.get("content") or choice.get("text") or ""
             if text:
@@ -936,12 +939,16 @@ def stream_chat(
     telemetry=None,
     response_schema: dict | None = None,
     intent_mode: bool = False,
+    thinking_level: str | None = None,
 ):
     """Yield response text while a local GGUF or Ollama backend is generating."""
 
     explicit_model = bool((model or "").strip())
     context_limit = max(1024, int(context_tokens or DEFAULT_CTX))
     output_limit = max(32, min(context_limit-768,int(max_tokens or DEFAULT_MAX_TOKENS)))
+    from .thinking import reasoning_tokens
+    reasoning_limit=(reasoning_tokens(thinking_level,output_limit) if thinking_level is not None
+                     else min(1024,max(1,output_limit//3))) if enable_reasoning else 0
     model = (model or DEFAULT_MODEL).strip()
     sampling = sampling_settings(precision_mode, _needs_precision(user_message))
     temperature, top_p = sampling.temperature, sampling.top_p
@@ -992,7 +999,7 @@ def stream_chat(
                 # hidden reasoning_content before the first visible token.
                 # Deep/project requests opt back in through the tier router.
                 "reasoning_budget": -1 if enable_reasoning else 0,
-                "reasoning_budget_tokens": min(1024,max(1,output_limit//3)) if enable_reasoning else 0,
+                "reasoning_budget_tokens": reasoning_limit,
                 "reasoning_budget_message": _REASONING_BUDGET_MESSAGE if enable_reasoning else '',
                 "chat_template_kwargs": {
                     "enable_thinking": bool(enable_reasoning),

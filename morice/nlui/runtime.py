@@ -41,9 +41,10 @@ def object_schema(properties,required=()):
 
 
 def appearance_schema():
-    from ..ui_next.appearance_profile import AppearanceProfile,PRESETS
+    from ..ui_next.appearance_profile import AppearanceProfile
+    from ..ui_next.themes import UI_THEMES
     fields={};defaults=AppearanceProfile().to_dict()
-    enums={'preset':list(PRESETS),'density':['compact','comfortable','spacious'],
+    enums={'preset':list(UI_THEMES),'density':['compact','comfortable','spacious'],
         'quality':['LOW','BALANCED','HIGH','ULTRA'],'cursor_glow':['OFF','MINIMAL','NORMAL','HIGH'],
         'particles':['OFF','LOW','NORMAL'],'field_palette':['STATE','CYAN','VIOLET','THEME']}
     ranges={'font_scale':(.8,1.8),'core_scale':(.5,1.5),'motion_speed':(.5,2),'radius':(0,32),'orbital_complexity':(1,6)}
@@ -396,8 +397,9 @@ class NaturalLanguageController:
             changes['primary_accent']=COLORS.get(color[1],color[1])
         theme=re.fullmatch(r'(?:set|change|switch|use) (?:the )?theme(?: to)? (.+)',clean)
         if theme:
-            preset={'ice blue':'ICE','purple':'AMETHYST','violet':'AMETHYST','default':'MORICE'}.get(theme[1],theme[1].upper())
-            if preset in {'MORICE','GLASS','OBSIDIAN','ICE','AMETHYST','MIDNIGHT','NEON','MONOCHROME','CUSTOM','ARCTIC','SOLAR','CRIMSON'}:changes['preset']=preset
+            preset={'white':'ICE','light':'ICE','ice blue':'ICE','dark':'MORICE','black':'MORICE',
+                'pitch black':'MORICE','default':'MORICE','transparent':'GLASS','glass transparency':'GLASS'}.get(theme[1],theme[1].upper())
+            if preset in {'MORICE','GLASS','ICE'}:changes['preset']=preset
         if re.fullmatch(r'(?:turn off|disable|stop) (?:the )?particles',clean):changes['particles']='OFF'
         if re.fullmatch(r'(?:reduce|turn down|use less|decrease) (?:the )?particles',clean):changes['particles']='LOW'
         if re.fullmatch(r'(?:enable|turn on|use) reduced motion',clean):changes['reduced_motion']=True

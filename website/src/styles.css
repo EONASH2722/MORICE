@@ -12,13 +12,13 @@ a { color: inherit; text-decoration: none; }
 button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
 img { max-width: 100%; display: block; }
 .site-shell {
-  --bg: #080d15; --surface: #101a28; --raised: #182536; --ink: #ecf2fa;
+  --bg: #000000; --surface: #0b0b10; --raised: #16161e; --ink: #ecf2fa;
   --muted: #a4b3c7; --accent: #7bd4ed; --violet: #9d8bd3;
   --line: #a7c3e326; --glow: #67c9dd22;
   background: var(--bg); color: var(--ink); overflow: hidden; transition: background .3s, color .3s;
 }
 .site-shell.ice {
-  --bg: #edf4f7; --surface: #fff; --raised: #e0ebf0; --ink: #152b3b;
+  --bg: #ffffff; --surface: #fff; --raised: #f3f3f6; --ink: #152b3b;
   --muted: #4a6173; --accent: #14677c; --violet: #75629c;
   --line: #23435e26; --glow: #47829c20; color-scheme: light;
 }

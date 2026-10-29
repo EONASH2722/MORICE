@@ -14,7 +14,7 @@ class MaterialSurface(QFrame):
         rect=QRectF(self.rect()).adjusted(1,1,-1,-1)
         path=QPainterPath();path.addRoundedRect(rect,theme.tokens.radius_medium,theme.tokens.radius_medium);painter.setClipPath(path)
         field=getattr(owner,'material_backdrop',None)
-        if field is not None and profile.glass>0:
+        if field is not None and field.isVisible() and profile.glass>0:
             raster=field.material()
             if raster is not None:
                 top=self.mapTo(owner,QPoint())

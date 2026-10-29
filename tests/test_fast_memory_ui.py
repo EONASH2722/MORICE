@@ -88,6 +88,22 @@ def test_model_controls_and_real_chat_route_use_selected_fast_provider(window,ap
     assert not calls and '11' in window.history[-1]['content']
 
 
+def test_chat_thinking_level_reaches_provider_and_is_not_a_settings_control(window,app,tmp_path,monkeypatch):
+    model=tmp_path/'owned-thinking.gguf';model.write_bytes(b'GGUF')
+    window.settings.update(model_path=str(model),automatic_model_selection='true')
+    window.model_path=str(model);calls=[]
+    def stream(history,text,**kwargs):calls.append(kwargs);yield 'An owned streamed reply.'
+    monkeypatch.setattr('morice.pyside_app.stream_chat',stream)
+    assert window.thinking_level.parentWidget() is window.composer
+    assert window.thinking_level.count()==4
+    window.thinking_level.setCurrentIndex(window.thinking_level.findData('extra_high'))
+    window.input.setText('Explain a simple everyday idea in one sentence.');window.on_send()
+    pump(app,lambda:bool(calls) and not window.is_busy)
+    assert calls[0]['gguf_path']==str(model) and calls[0]['enable_reasoning']
+    assert calls[0]['thinking_level']=='extra_high' and calls[0]['max_tokens']>=8192
+    window.thinking_level.setCurrentIndex(0)
+
+
 def test_memory_controls_approve_correct_forget_and_chat_navigation(window,app):
     panel=window.routes['settings'].memory_settings
     panel.flags['personal_memory_enabled'].setChecked(True)

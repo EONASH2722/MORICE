@@ -182,6 +182,32 @@ class RichResponseHost(QFrame):
             window._history_scroll_epoch+=1;window.follow_latest=False
             window._user_scroll_guard_until=max(window._user_scroll_guard_until,time.monotonic()+.5)
         self._reading_anchor=None;self._requested_section=identifier
+        if window is not None and isValid(window):
+            epoch=window._history_scroll_epoch
+            # A compact chat can reflow after a theme/size change or mounting
+            # the response. Resolve the explicit target after that layout work,
+            # while allowing subsequent user scrolling to cancel the request.
+            for delay in (0,60):
+                QTimer.singleShot(delay,lambda cid=identifier,e=epoch:self._show_selected_section(cid,e))
+
+    def _show_selected_section(self,identifier,epoch):
+        if not isValid(self) or self.closed:return
+        window=self.window()
+        if (window is None or not isValid(window) or window._is_closing or
+            window.active_route!='chats' or window._chat_id!=self.plan.conversation_id or
+            window._history_scroll_epoch!=epoch or self._requested_section!=identifier):return
+        state=self.sections[identifier]
+        if not state['toggle'].isChecked():return
+        parent=state['section']
+        while parent is not None:
+            if parent.layout() is not None:parent.layout().activate()
+            if parent is window.scroll.widget():break
+            parent=parent.parentWidget()
+        target=state['toggle'];viewport=window.scroll.viewport()
+        y=target.mapTo(viewport,QPoint()).y()
+        if y<0 or y+target.height()>viewport.height():
+            window.scroll.ensureWidgetVisible(target,20,20)
+        self.schedule_visibility()
 
     def _capture_reading_anchor(self):
         window=self.window()
