@@ -14,7 +14,7 @@ The supplied `WhatsApp Video 2026-10-29 at 4.04.42 PM.mp4` was decoded locally. 
 | Appearance | White, Pitch Black and Glass use the same palette authority across all 17 routes, native menus/dialogs, scientific neutral backgrounds and rich responses. Historical profiles remain readable and map into the three current modes. |
 | Independent colors | Globe Color and Globe Glow Color preview separately without rebuilding geometry or resetting orbital time. Existing atomic appearance storage persists both; cancellation restores the selected channel. |
 | Boot state machine | DORMANT → IGNITING → PARTICLES_FORMING → WIREFRAME_FORMING → ORBITS_SYNCHRONIZING → GLOW_ACTIVATING → READY_IDLE, with separate WAITING_FOR_SERVICES and FAILED states. Skip finishes visuals without declaring services ready. |
-| Actual boot sample | Native captured stages: ignition 0.292 s, particles 0.541 s, wireframe 1.106 s, orbits 1.908 s, halo 2.662 s and ready 2.952 s. These timings describe the owned test profile, not model loading. |
+| Actual boot sample | Native captured stages: ignition 0.221 s, particles 0.570 s, wireframe 1.115 s, orbits 1.848 s, halo 2.494 s and ready 2.946 s. These timings describe the owned test profile, not model loading. |
 | Startup/readiness | Existing runtime construction and health checks control readiness. Model loading stays on demand. Navigation, minimize/restore, theme changes and wake activity do not restart the cold intro. |
 | Pointer input | Local proximity/velocity illumination, hover distortion, surface-position click ripple, drag yaw/pitch with damped inertia, double-click reset, bounded interpolated wheel/touchpad zoom and context-menu colors. Chat owns its own wheel scrolling. |
 | Continuous animation | Orbital angles advance continuously. Idle motion eases into pointer control and real work states, avoiding angle jumps when generation starts or finishes. Input remains active during generation. |
@@ -32,7 +32,7 @@ The owned-window recording shows boot, orbital motion, hover, click, drag/inerti
 
 In a six-second native idle sample after recording stopped, the renderer averaged **21.33 paint frames/s**, with **62.66 ms p95 paint interval**, **0.41% whole-machine CPU**, and approximately **707 MB process RSS** after opening all workspaces. These are paint/timer and process measurements, not GPU timestamp queries or a guaranteed 60 FPS presentation rate. Interaction targets a higher cadence; idle and model/media pressure are deliberately throttled.
 
-The whole-device counter sample reported an NVIDIA GeForce RTX 3050 6GB Laptop GPU, 308 MB used and 0% utilization at that instant. Other applications share that device; this does **not** attribute 308 MB to MORICE. Vertex-buffer allocation is measured directly; complete per-process graphics VRAM is not certified.
+The whole-device counter sample reported an NVIDIA GeForce RTX 3050 6GB Laptop GPU, 275 MB used and 0% utilization at that instant. Other applications share that device; this does **not** attribute 275 MB to MORICE. Vertex-buffer allocation is measured directly; complete per-process graphics VRAM is not certified.
 
 An actual Qwen3.5 4B Q6_K native chat request completed in **46.66 seconds**, while the globe rendered **725 frames** and accepted pointer input. The owned model process was stopped afterward and runtime shutdown reported no remaining leases. This validates delivery and coexistence for one request, not general answer quality or scientific correctness.
 
