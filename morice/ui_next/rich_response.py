@@ -206,7 +206,15 @@ class RichResponseHost(QFrame):
         target=state['toggle'];viewport=window.scroll.viewport()
         y=target.mapTo(viewport,QPoint()).y()
         if y<0 or y+target.height()>viewport.height():
-            window.scroll.ensureWidgetVisible(target,20,20)
+            previous=window._auto_scrolling;window._auto_scrolling=True
+            try:window.scroll.ensureWidgetVisible(target,20,20)
+            finally:window._auto_scrolling=previous
+        # Older source deliveries may already have scheduled anchor restores.
+        # Replace their anchor with the explicit selection, so they cannot pull
+        # the viewport back to a previously visible section after this scroll.
+        window.follow_latest=False
+        self._reading_anchor={'id':identifier,'widget':weakref.ref(target),
+            'offset':target.mapTo(viewport,QPoint()).y(),'epoch':epoch,'expires':time.monotonic()+.3}
         self.schedule_visibility()
 
     def _capture_reading_anchor(self):
