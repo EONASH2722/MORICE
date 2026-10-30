@@ -377,18 +377,27 @@ class RenovatedWindow(ExistingPresenter):
         from .rich_response import RichResponseHost
         bubble=row.findChild(ChatBubble)
         if bubble is None or bubble.is_user:return
+        if getattr(bubble,'_response_failure_id',None)==plan['id']:return
         existing=getattr(bubble,'_response_host',None)
         if existing is not None and isValid(existing):
             if existing.plan.id==plan['id']:return
             existing.dispose();bubble.layout().removeWidget(existing);existing.deleteLater()
         chat_id=self._chat_id
+        previous_hosts=set(bubble.findChildren(RichResponseHost))
         def changed(value):
             self._cache_response_plan(chat_id,identifier,value.to_dict())
             if self._session_enabled:self.runtime.chat_history.set_response_plan(chat_id,identifier,value)
         try:
             host=RichResponseHost(plan,self,bubble,on_changed=changed);bubble.layout().addWidget(host)
             bubble._response_host=host;self._rich_hosts.add(host)
-        except (ValueError,TypeError) as exc:self.runtime.logs.log('WARNING','Rich response unavailable: '+str(exc),category='ui')
+        except Exception as exc:
+            from .rich_primitives import plain
+            bubble._response_failure_id=plan['id']
+            for failed_host in set(bubble.findChildren(RichResponseHost))-previous_hosts:
+                failed_host.hide();failed_host.deleteLater()
+            summary=plan.get('summary','') if isinstance(plan,dict) else plan.summary
+            bubble.layout().addWidget(plain('The interactive reply failed, so I’m keeping the answer in text.\n'+summary))
+            self.runtime.logs.log('WARNING','Rich response unavailable; text answer retained.',category='ui')
 
     def _present_response_plan(self,plan,*,source_values=None):
         if plan is None or not self.history or not self._message_rows:return
@@ -439,6 +448,7 @@ class RenovatedWindow(ExistingPresenter):
 
     def _present_user_data(self):
         if not self.history or self.history[-1].get('role')!='assistant':return
+        if self.history[-1].get('text_only'):return
         user=next((m for m in reversed(self.history[:-1]) if m.get('role')=='user'),None)
         if user is None:return
         import uuid

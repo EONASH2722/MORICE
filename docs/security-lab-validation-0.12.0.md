@@ -105,6 +105,12 @@ Each frozen candidate must match the current Python module code and bundled asse
 
 Public packages exclude the local private answer/content override, model weights, credentials and runtime receipts. The existing local model selections/data are preserved during dist promotion. The override does not change a model's learned behavior or remove action authorization, integrity verification, resource budgets or Android pairing.
 
+## 0.12.0 reply amendment
+
+Additional regressions exercise renderer and widget-construction failures through the real chat pipeline, preserving the original prompt exactly once, unsent drafts, cancellation and conversation isolation. Failed rich components retain actual source values or report an unavailable source. A failed formatted reply retains its original selectable/copyable text. Frozen and installed-wheel probes force a renderer failure with a labelled model transport stub, then verify the text handoff and source-backed component fallback; this is separate from real inference.
+
+Three actual local `Qwen3.5-4B-abliterated.Q6_K.gguf` samples checked the car-wash example, a follow-up correcting earlier walking advice, and collection of an already-parked car. The first two used model-extracted object movements and a host set-membership check to produce a consistent prerequisite verdict; the third used normal model synthesis. Initial prompt-only trials still failed, which is why the explicit prerequisite check was added. The host checks consistency of model-supplied objects, not the truth of every inferred physical fact. Broader model accuracy remains unproven. Exact-source regression totals and package fingerprints for this amendment are in the distributed Validation.json.
+
 ## Reference contracts
 
 - [Security Lab guide and exact API mapping](security-lab-guide.md)

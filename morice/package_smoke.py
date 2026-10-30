@@ -99,6 +99,43 @@ def run(output):
         app.processEvents();QTest.qWait(20)
     assert math_state.get('equations')==2 and math_state.get('errors')==0,math_state
     math_probe={**math_state,'same_stream_bubble':True,'copy_text_preserved':bubble.message==reply,'bundled_assets':True}
+    # Force an actual renderer failure through the production send pipeline.
+    # Only model transport is stubbed; no model weights are loaded by this probe.
+    from . import pyside_app
+    original_stream=pyside_app.stream_chat;original_settings=dict(window.settings);calls=[]
+    owned_model=Path(runtime.directory)/'packaging-stub.gguf';owned_model.write_bytes(b'GGUF')
+    def written_reply(history,prompt,**options):
+        calls.append(prompt);yield 'The original request can still be answered as a written comparison.'
+    try:
+        window.settings.update(model_path=str(owned_model),model_name='',automatic_model_selection='false')
+        pyside_app.stream_chat=written_reply
+        before=len(window.history);prompt='Graph tradeoffs between walking and driving'
+        window.input.setText(prompt);window.on_send()
+        until=time.monotonic()+30
+        while (window.is_busy or len(window.history)<before+2) and time.monotonic()<until:app.processEvents();QTest.qWait(10)
+        assert not window.is_busy and calls==[prompt]
+        assert len(window.history)==before+2 and window.history[-1]['text_only']
+        assert 'failed' in window.history[-1]['content'] and 'written comparison' in window.history[-1]['content']
+    finally:
+        pyside_app.stream_chat=original_stream;window.settings=original_settings;owned_model.unlink(missing_ok=True)
+    # A failed native component retains its actual source values as selectable text.
+    from .rich_response import Component,ResponsePlan,SourceRef
+    from .rich_response.sources import SourceSnapshot
+    from .rich_response.registry import ResponseComponentRegistry
+    component=Component('chart',SourceRef('research_record','owned-packaged-record',scope=window._chat_id),'Owned source')
+    registry=ResponseComponentRegistry()
+    def failed_view(component,context):raise RuntimeError('Owned packaging renderer failure')
+    registry.register('chart',failed_view)
+    host=RichResponseHost(ResponsePlan(window._chat_id,(component,)),window,registry=registry)
+    snapshot=SourceSnapshot(component.source,'Owned source values','USER_DATA','owned-revision',{'result':42.5},verified=True)
+    host.sources.resolve=lambda source:snapshot
+    host.load(component.id)
+    until=time.monotonic()+15
+    while not host.sections[component.id]['error'] and time.monotonic()<until:app.processEvents();QTest.qWait(10)
+    state=host.sections[component.id];assert state['error'] and '42.5' in state['plain_text']
+    host.dispose();host.close();host.deleteLater()
+    text_fallback_probe={'failed_renderer_to_original_text':True,'one_user_and_one_reply':True,
+        'actual_source_text_after_component_failure':True,'model_transport_stubbed':True,'weights_loaded':False}
     scenes=[]
     for preset in UI_THEMES:
         window.theme_engine.update(preset=preset,persist=False)
@@ -125,6 +162,7 @@ def run(output):
     result['fast_memory']=memory_probe
     result['nlui_rich_response']=nlui_probe
     result['reply_math']=math_probe
+    result['text_fallback']=text_fallback_probe
     result['security_lab']=security_probe
     result['composer_geometry']=geometry;result['theme_scenes']=scenes
     result['ambient_animation']={'phase_advanced':tuple(canvas._orbit_phases)!=initial_phase,'reduced_motion':window.theme_engine.profile.reduced_motion}

@@ -146,6 +146,7 @@ class RichResponseHost(QFrame):
         self._requested_section='';self._reading_anchor=None
         self.setObjectName('RichResponse');self.setProperty('role','surface');self.setAccessibleName('Interactive result with actual sources')
         layout=QVBoxLayout(self);layout.setContentsMargins(8,8,8,8);layout.addWidget(plain('Interactive result',role='title'))
+        self.fallback_notice=plain('The interactive reply failed, so I’m showing the available result in text instead.');self.fallback_notice.hide();layout.addWidget(self.fallback_notice)
         report=QPushButton('Export response report as PDF…');layout.addWidget(report);self.report_status=plain('',role='secondary');layout.addWidget(self.report_status)
         report.clicked.connect(lambda:RichRenderContext(self,next(iter(self.sections.values()))['component'],None).action(report,'export_report',{'format':'pdf'},
             done=lambda result:self.report_status.setText(result.message),failed=lambda error:self.report_status.setText(str(error))))
@@ -296,16 +297,18 @@ class RichResponseHost(QFrame):
             state['loading']=False
             if token.cancelled or not self._visible or not state['toggle'].isChecked():return
             if not envelope['ok']:
-                state['error']=True;state['placeholder'].setText(envelope.get('error','Source unavailable.'));return
+                self._text_fallback(state,envelope.get('error','Source unavailable.'));return
             self._capture_reading_anchor()
             try:
                 snapshot=envelope['value'];context=RichRenderContext(self,component,snapshot)
-                view=self.registry.create(component,context);state['view']=view;state['layout'].addWidget(view)
+                view=self.registry.create(component,context)
+                if not isinstance(view,QWidget):raise ValueError('The interactive renderer returned no usable view.')
+                state['view']=view;state['layout'].addWidget(view)
                 state['placeholder'].hide();state['placeholder'].setMinimumHeight(0)
                 if snapshot is not None:
                     note=plain(snapshot.provenance+' · '+snapshot.limitation,role='secondary');state['layout'].addWidget(note);state['note']=note
             except Exception as exc:
-                state['error']=True;state['placeholder'].setText(str(exc));state['placeholder'].show()
+                self._text_fallback(state,str(exc),snapshot)
             # Each source delivery starts fresh layout work. Keep a shared
             # reading anchor through this batch, even if a previous source's
             # restoration window was about to expire.
@@ -315,6 +318,19 @@ class RichResponseHost(QFrame):
             with self.sources.using_cancellation(token):return self.sources.resolve(component.source) if component.source else None
         try:self.bridge.submit('Load response source',execute,completed,priority='background')
         except Exception as exc:completed({'ok':False,'error':str(exc)})
+
+    def _text_fallback(self,state,error,snapshot=None):
+        from ..rich_response.fallback import source_text
+        if state['view'] is not None:self.release(state,preserve_height=False)
+        self.fallback_notice.show();state['error']=True;state['loading']=False
+        if snapshot is None and state['component'].source:
+            text='The result source could not be read: '+str(error)[:500]+'.\n'+self.plan.summary
+        else:
+            try:text=source_text(snapshot,state['component'])
+            except Exception:text='The available source could not be converted to text. '+self.plan.summary
+        state['plain_text']=text;state['placeholder'].setMinimumHeight(0);state['placeholder'].setText(text);state['placeholder'].show()
+        window=self.window()
+        if window is not None:window.runtime.logs.log('WARNING','Interactive response failed; text fallback displayed.',category='ui')
 
     def release(self,state,*,preserve_height=True):
         state['epoch']+=1
@@ -329,7 +345,7 @@ class RichResponseHost(QFrame):
             if preserve_height:state['placeholder'].setMinimumHeight(max(0,height))
         note=state.pop('note',None)
         if note is not None:state['layout'].removeWidget(note);note.deleteLater()
-        state['placeholder'].setText('Result paused while outside the visible chat.');state['placeholder'].setVisible(state['toggle'].isChecked())
+        state['placeholder'].setText(state.get('plain_text','Result paused while outside the visible chat.'));state['placeholder'].setVisible(state['toggle'].isChecked())
 
     def release_views(self):
         if self.closed:return
@@ -360,7 +376,7 @@ class RichResponseHost(QFrame):
             if envelope['ok']:ready(envelope['value'])
             else:
                 for state in self.sections.values():
-                    if state['component'].source==source:state['placeholder'].setText(envelope.get('error','Source unavailable.'));state['placeholder'].show()
+                    if state['component'].source==source:self._text_fallback(state,envelope.get('error','Source unavailable.'))
         def execute():
             with self.sources.using_cancellation(token):return self.sources.resolve(unpinned)
         self.bridge.submit('Refresh response source',execute,completed)

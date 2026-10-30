@@ -81,6 +81,8 @@ The preferred installed reasoning model is **`Qwen3.5-4B-abliterated.Q6_K.gguf`*
 
 Ordinary questions and engineering prompts stay written replies. An explicit visualization request or a relevant saved/tool result can create a rich response. Markdown, tables, code and inline/display LaTeX finish in the same streamed message bubble. Retained chat search, incremental older-message loading and reading-position preservation remain available.
 
+**0.12.0 reply fix:** if a visualization cannot be rendered, MORICE says it failed and answers the original request in text in the same conversation. Failed interactive panels retain readable source values; failed formatted replies retain the original answer. Practical choices also check the stated goal and which objects must physically be present before recommending an option. The car-wash and already-parked-car cases were tested with the installed reasoning model; this does not guarantee every model answer is correct.
+
 ![Actual voice workspace](docs/assets/security-lab-0.12.0/voice.png)
 
 **Voice mode has no text composer or spoken-answer text overlay.** Its globe follows actual speech playback levels with smooth attack and release; microphone and camera controls remain available. Typed chat keeps its editor. Optional background wake, magic words and double-clap activation retain explicit microphone access. Hardware latency depends on the audio provider and device.

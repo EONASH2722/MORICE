@@ -17,6 +17,10 @@ MORICE adds a local Security Lab inside the existing Security workspace. It perf
 
 ## Fixed and preserved
 
+This existing 0.12.0 publication is amended with a reply fix; there is no new version. A failed visualization now announces the failure and continues with a normal written answer to the original prompt, without adding another user message or discarding an unsent draft. Interactive component failures show available source data as text, while formatted-page failures preserve the original answer and copy text. Missing sources and a second model failure are reported explicitly.
+
+Practical either/or questions use a bounded model-assisted prerequisite check. The check tracks which objects each option actually brings to the destination, so an option that leaves a required object behind cannot win merely on travel convenience. Local-model samples covered bringing a car to be washed, correcting prior walking advice, and walking to collect a car already there. These samples are not a general intelligence benchmark.
+
 Lab completion waits for Kernel verification and physical resource release before another job starts. Recovery preserves originals, rejects unsafe archive names and clears invalid partial output. The Lab scrolls at small sizes, advanced sources are collapsed and result history refreshes correctly.
 
 Public and local private builds remain separate. The local private answer/content override is not included in public packages. Action authorization, integrity checks, resource limits and device pairing remain in both.

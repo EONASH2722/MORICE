@@ -541,7 +541,9 @@ class TieredModelRouter:
         r"research deeply|deep research|50[,\s]?000|"
         r"build (?:a |an )?(?:complete |full )?(?:application|app|backend)|"
         r"complicated technical|multi.step|difficult debugging|"
-        r"research and compare|analy[sz]e (?:the )?full history"
+        r"research and compare|analy[sz]e (?:the )?full history|"
+        r"physical.world assumptions|reason logically|play out logically|think (?:this|it) through|"
+        r"(?:should|do) i\b[^?\n]{0,160}\bor\b|but if\b"
         r")\b",
         re.IGNORECASE,
     )

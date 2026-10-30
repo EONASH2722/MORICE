@@ -1493,8 +1493,11 @@ def _needs_web_rich_text(message: str) -> bool:
 
 
 class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget):
+    render_failed = Signal(str)
+
     def __init__(self, message: str, parent=None):
         super().__init__(parent)
+        self._render_failed_once=False
         self.setObjectName("RichContentView")
         self.setFixedHeight(80)
         self._content_height_limit = 32768
@@ -1516,6 +1519,7 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
         self.page().setBackgroundColor(QColor(0, 0, 0, 0))
         self.page().contentsSizeChanged.connect(lambda *_: self._measure_timer.start(30))
         self.loadFinished.connect(self._rich_loaded)
+        self.renderProcessTerminated.connect(lambda *_:self._formatting_failed())
         source = json.dumps(message or "", ensure_ascii=False).replace("</", "<\\/")
         tokens = THEMES[normalize_theme(_ACTIVE_UI_THEME)]
         font_family = normalize_font_family(_ACTIVE_UI_FONT_FAMILY)
@@ -1633,9 +1637,18 @@ class RichContentView(QWebEngineView if QWebEngineView is not None else QWidget)
 
     @Slot(bool)
     def _rich_loaded(self, ok):
-        if not ok:return
+        if not ok:self._formatting_failed();return
         if self._appearance_values:self._apply_rich_values(self._appearance_values)
+        self.page().runJavaScript("Boolean(document.getElementById('content') && document.getElementById('content').textContent.trim())",self._rich_ready)
         QTimer.singleShot(0,self._measure_content)
+
+    def _rich_ready(self,ready):
+        from shiboken6 import isValid
+        if isValid(self) and not ready:self._formatting_failed()
+
+    def _formatting_failed(self):
+        if not self._render_failed_once:
+            self._render_failed_once=True;self.render_failed.emit('Formatted reply failed; showing the original answer as text.')
 
     def _measure_content(self):
         if QWebEngineView is None:
@@ -1829,6 +1842,7 @@ class ChatBubble(QFrame):
         layout.addLayout(header)
         if not streaming and QWebEngineView is not None and _needs_web_rich_text(self.message):
             self._rich_view = RichContentView(self.message, self)
+            self._rich_view.render_failed.connect(self._rich_text_failed)
             layout.addWidget(self._rich_view)
         else:
             message_label = QLabel(self.message)
@@ -1852,8 +1866,9 @@ class ChatBubble(QFrame):
         self.message = str(message or "")
         if final:
             self._streaming = False
-            if self._rich_view is None and QWebEngineView is not None and _needs_web_rich_text(self.message):
+            if self._rich_view is None and not getattr(self,'_rich_disabled',False) and QWebEngineView is not None and _needs_web_rich_text(self.message):
                 view = RichContentView(self.message, self)
+                view.render_failed.connect(self._rich_text_failed)
                 theme = getattr(self.window(), 'theme_engine', None)
                 if theme is not None:view.apply_design_tokens(theme.tokens)
                 if self._message_label is not None:
@@ -1862,9 +1877,17 @@ class ChatBubble(QFrame):
                 else:self.layout().addWidget(view)
                 self._rich_view = view
         if self._message_label is not None:
-            self._message_label.setTextFormat(Qt.PlainText if self._streaming else Qt.RichText)
-            self._message_label.setText(self.message if self._streaming else _message_to_rich_text(self.message))
+            as_text=self._streaming or getattr(self,'_rich_disabled',False)
+            self._message_label.setTextFormat(Qt.PlainText if as_text else Qt.RichText)
+            self._message_label.setText(('Formatted reply failed; showing the original answer as text.\n\n' if getattr(self,'_rich_disabled',False) else '')+(self.message if as_text else _message_to_rich_text(self.message)))
             self._message_label.adjustSize()
+
+    def _rich_text_failed(self,message):
+        if self._rich_view is None:return
+        view=self._rich_view;self._rich_view=None;self._rich_disabled=True
+        label=QLabel(message+'\n\n'+self.message,self);label.setObjectName('MessageLabel');label.setWordWrap(True)
+        label.setTextFormat(Qt.PlainText);label.setTextInteractionFlags(Qt.TextSelectableByMouse|Qt.TextSelectableByKeyboard)
+        self.layout().replaceWidget(view,label);view.hide();view.deleteLater();self._message_label=label
 
     @staticmethod
     def _action_button(icon: QIcon, tooltip: str, callback) -> QPushButton:
@@ -6340,6 +6363,7 @@ class MoriceWindow(QWidget):
         )
         self.visualization_cards: dict[str, VisualizationGenerationCard] = {}
         self.visualization_futures: dict[str, object] = {}
+        self._visualization_contexts = {}
         self.active_workspace_kind = "graph"
         self.last_project_request = ""
         self._active_agent_request_id = ""
@@ -14089,6 +14113,8 @@ class MoriceWindow(QWidget):
         renderer_label = self._visualization_renderer_label(decision.renderer_id)
         card = VisualizationGenerationCard(renderer_label)
         self.visualization_cards[request.job_id] = card
+        active=self.runtime.realtime.active_request
+        self._visualization_contexts[request.job_id] = (self._chat_id,user_input,active.cancellation if active else None,len(self.user_messages))
         self._insert_chat_widget(card)
         self._ensure_history_user(user_input)
 
@@ -14139,8 +14165,12 @@ class MoriceWindow(QWidget):
     def _on_visualization_finished(self, result: VisualizationResult):
         card = self.visualization_cards.pop(result.job_id, None)
         self.visualization_futures.pop(result.job_id, None)
+        origin = self._visualization_contexts.pop(result.job_id, None)
         if card is None:
             return
+        from shiboken6 import isValid
+        if isinstance(card,QWidget) and not isValid(card):return
+        if origin is not None and origin[0]!=self._chat_id:return
         self.runtime.plugins.publish_event(
             "visualization.finished",
             {
@@ -14163,20 +14193,10 @@ class MoriceWindow(QWidget):
         )
         if not result.ok or result.artifact is None:
             message = result.error or "The renderer did not produce a validated visualization."
-            card.set_error(message)
-            reply = (
-                f"I could not render that visual. {message} "
-                "Nothing was displayed, and I will not substitute a fake placeholder."
-            )
-            self.history.append({"role": "assistant", "content": reply})
-            visible_reply = self._address(reply)
-            self.append_message(MORICE_NAME, visible_reply)
-            self._speak_assistant_text(visible_reply)
             self._record_activity(
                 "Visualization failed", message, category="visualization"
             )
-            self._complete_agent_ui(response_present=True, successful=False)
-            self._save_workspace_session()
+            self._fallback_from_visualization(card,origin,message)
             return
 
         artifact = result.artifact
@@ -14189,7 +14209,24 @@ class MoriceWindow(QWidget):
                 "title": artifact.title,
             },
         )
+        try:
+            workspace = self._create_science_workspace(artifact)
+        except Exception as exc:
+            self._record_activity('Visualization failed',str(exc),category='visualization')
+            self._fallback_from_visualization(card,origin,str(exc))
+            return
         self._add_science_artifact(artifact)
+        self._replace_chat_widget(card, workspace)
+        reply = self._science_ready_reply(artifact, result)
+        self.history.append({"role": "assistant", "content": reply})
+        visible_reply = self._address(reply)
+        self.append_message(MORICE_NAME, visible_reply)
+        self._speak_assistant_text(visible_reply)
+        self._record_activity("Visualization rendered",f"{artifact.kind}: {artifact.title}",category="visualization")
+        self._complete_agent_ui(response_present=True)
+        self._save_workspace_session()
+
+    def _create_science_workspace(self,artifact):
         if artifact.kind == "graph" and artifact.graph:
             workspace = InlineGraphWorkspace(artifact.graph)
         elif artifact.kind == "physics" and artifact.physics:
@@ -14213,32 +14250,26 @@ class MoriceWindow(QWidget):
         ):
             workspace = InlineDocumentWorkspace(artifact.document)
         else:
-            message = "The renderer returned an unsupported artifact type, so nothing was displayed."
-            card.set_error(message)
-            self.history.append({"role": "assistant", "content": message})
-            visible_message = self._address(message)
-            self.append_message(MORICE_NAME, visible_message)
-            self._speak_assistant_text(visible_message)
-            self._record_activity(
-                "Visualization rejected", message, category="visualization"
-            )
-            self._complete_agent_ui(response_present=True, successful=False)
-            self._save_workspace_session()
-            return
+            raise ValueError("The renderer returned an unsupported artifact type.")
+        return workspace
 
-        self._replace_chat_widget(card, workspace)
-        reply = self._science_ready_reply(artifact, result)
-        self.history.append({"role": "assistant", "content": reply})
-        visible_reply = self._address(reply)
-        self.append_message(MORICE_NAME, visible_reply)
-        self._speak_assistant_text(visible_reply)
-        self._record_activity(
-            "Visualization rendered",
-            f"{artifact.kind}: {artifact.title}",
-            category="visualization",
-        )
-        self._complete_agent_ui(response_present=True)
-        self._save_workspace_session()
+    def _fallback_from_visualization(self,card,origin,error):
+        notice="The visualization failed. I could not render it, so I’ll answer in text instead."
+        card.set_error(notice)
+        if origin is None:
+            # Old/restored cards may lack an original request. Never guess one.
+            self.append_message(MORICE_NAME,self._address(notice+' The original request is unavailable; please resend it.'))
+            self._complete_agent_ui(response_present=True,successful=False)
+            return
+        conversation,prompt,cancellation,turn=origin
+        if conversation!=self._chat_id or self._is_closing:return
+        if self.is_busy or turn!=len(self.user_messages) or cancellation is not None and cancellation.cancelled:
+            card.set_error('The visualization failed. Resend that request for a text answer; the current reply will continue.')
+            return
+        from shiboken6 import isValid
+        if isValid(card):
+            self.chat_list_layout.removeWidget(card);card.deleteLater()
+        self._send_request(prompt,text_only=True,continuation=True,notice=notice)
 
     def _science_ready_reply(
         self,
@@ -15448,11 +15479,13 @@ class MoriceWindow(QWidget):
             self.animation_engine.window_opacity(self, 1.0, duration=150)
 
     def on_send(self):
+        self._send_request(self.input.text().strip())
+
+    def _send_request(self,user_input,*,text_only=False,continuation=False,notice=''):
         ui_received_ns = time.perf_counter_ns()
         self.runtime.voice.interrupt("new-user-request")
         self.runtime.speech_input.cancel("transcript-submitted")
         self.runtime.live_vision.cancel("new-user-request")
-        user_input = self.input.text().strip()
         if self._project_build_id:
             if re.fullmatch(r"(?:stop|cancel|stop build|cancel build)[.!? ]*", user_input.casefold()):
                 self._project_build_token.cancel("User stopped the project build.")
@@ -15520,7 +15553,7 @@ class MoriceWindow(QWidget):
         live_vision_waiting = False
         live_vision_result: VisionResult | None = None
         live_vision_timing: tuple[int, int] | None = None
-        if self.chat_mode == "voice":
+        if self.chat_mode == "voice" and not text_only:
             live_vision_waiting, live_vision_result, live_vision_timing = (
                 self._prepare_live_vision_request(user_input)
             )
@@ -15528,12 +15561,12 @@ class MoriceWindow(QWidget):
                 return
         submitted_ns = time.perf_counter_ns()
         self.follow_latest = True
-        self.input.clear()
+        if not continuation:self.input.clear()
         self._prompt_history_index = -1
         self._dock_composer()
-        self.append_message(resolve_user_address(self._identity_profile()) or "You", user_input, is_user=True, force_scroll=True)
-        transcript = self._pending_transcript
-        self._pending_transcript = None
+        if not continuation:self.append_message(resolve_user_address(self._identity_profile()) or "You", user_input, is_user=True, force_scroll=True)
+        transcript = None if continuation else self._pending_transcript
+        if not continuation:self._pending_transcript = None
         initial_marks = {}
         request_started_ns = (
             live_vision_timing[0] if live_vision_timing is not None else ui_received_ns
@@ -15572,6 +15605,7 @@ class MoriceWindow(QWidget):
                 "source": request_source,
                 "visionUsed": live_vision_result is not None,
                 "modelUsed": False,
+                "textOnly": text_only,
             },
             input_event="input_received",
         )
@@ -15614,9 +15648,9 @@ class MoriceWindow(QWidget):
                     "speechEndToFinalMs": transcript.speech_end_to_final_ms,
                 },
             )
-        self.user_messages.append(user_input)
+        if not continuation:self.user_messages.append(user_input)
         self._last_memory_sources=[]
-        self.history.append({'role':'user','content':user_input})
+        if not continuation:self.history.append({'role':'user','content':user_input})
         self._persist_chat_history()
         realtime_request.trace.annotate(replyProfile=reply_selection['role'],modelFallback=reply_selection['fallback'],residency=reply_selection['residency'])
         self.workspace_state.add_recent_chat(user_input)
@@ -15653,7 +15687,7 @@ class MoriceWindow(QWidget):
         )
         if not self.first_user_message:
             self.first_user_message = user_input
-        image_path = self.pending_image_path
+        image_path = '' if text_only else self.pending_image_path
         if image_path:
             self.pending_image_path = ""
             self.append_message(resolve_user_address(self._identity_profile()) or "You", f"Attached image: {os.path.basename(image_path)}", is_user=True)
@@ -15693,15 +15727,15 @@ class MoriceWindow(QWidget):
             self._append_direct_reply(user_input, harmful_reply, address=False)
             return
 
-        if self._handle_memory_request(user_input):
+        if not text_only and self._handle_memory_request(user_input):
             return
 
         # Resolve explicit project work before keyword shortcuts, research and science.
         # A simulator application is still a build request, not a lab experiment.
-        retry_project_request = self._project_submission_action() != "ask" and self._is_project_retry_request(user_input)
+        retry_project_request = not text_only and self._project_submission_action() != "ask" and self._is_project_retry_request(user_input)
         project_source_input = self.last_project_request if retry_project_request else user_input
-        project_build_request = retry_project_request or self._is_project_build_request(user_input)
-        if not project_build_request:
+        project_build_request = not text_only and (retry_project_request or self._is_project_build_request(user_input))
+        if not project_build_request and not text_only:
             if self._handle_desktop_command(user_input):
                 realtime_request.trace.mark_event("first_visible_token")
                 realtime_request.trace.mark_event("fast_response_visible")
@@ -16076,6 +16110,24 @@ class MoriceWindow(QWidget):
                     emoji_preference_instruction(self.emoji_level),
                     maturity_preference_instruction(self.maturity_level),
                 )
+                if text_only:
+                    extra_system+='\n\nThe host visualization failed. Answer the original request with useful text/Markdown, equations or a written comparison. No interactive output is available. Do not claim anything was rendered or any unavailable data was verified; explain missing inputs when necessary.'
+                from .reasoning_support import needs_prerequisites,prerequisites
+                goal_verdict=''
+                goal_check_ms=0
+                if not project_build_request and needs_prerequisites(user_input):
+                    self._emit_background('thinking_update','Checking the goal and what must be physically present.')
+                    realtime_request.trace.mark_event('prerequisite_check_started')
+                    goal_started=time.perf_counter()
+                    try:
+                        goal_context=prerequisites(model_history,user_input,reply_selection,stream_chat,cancel_event=realtime_request.cancellation.event,
+                            context_tokens=max(16384,realtime_request.route.context_tokens) if request_thinking_level!='low' else realtime_request.route.context_tokens)
+                        if goal_context:extra_system+='\n\n'+goal_context.text;goal_verdict=goal_context.verdict
+                    except Exception:
+                        goal_context=''
+                    realtime_request.trace.mark_event('prerequisite_check_finished',metadata={'contextAvailable':bool(goal_context)})
+                    goal_check_ms=(time.perf_counter()-goal_started)*1000
+                    if goal_verdict:realtime_request.trace.annotate(hostFormattedGoalVerdict=True)
                 reference_instruction = conversation_reference_instruction(
                     user_input,
                     model_history,
@@ -16288,15 +16340,20 @@ class MoriceWindow(QWidget):
                         realtime_request.trace.increment("ttsChunksQueued")
 
                 reply_parts: list[str] = []
+                answer_parts: list[str] = []
                 visible_model_text_started = False
                 try:
+                    if notice:
+                        prefix=notice+'\n\n';reply_parts.append(prefix)
+                        submit_voice_chunks(self.runtime.realtime.accept_delta(realtime_request.epoch,prefix))
+                        self._emit_background('assistant_stream_delta',realtime_request.request_id,prefix)
                     if calculated_prefix:
                         prefix=calculated_prefix+'\n\nEngineering interpretation (model-generated; hardware performance remains unverified)\n\n'
                         reply_parts.append(prefix)
                         submit_voice_chunks(self.runtime.realtime.accept_delta(realtime_request.epoch,prefix))
                         self._emit_background('assistant_stream_delta',realtime_request.request_id,prefix)
                     with self.runtime.profiler.measure("completion", "model"):
-                        for delta in self.runtime.agent.model_router.stream_reply(
+                        for delta in ((goal_verdict,) if goal_verdict else self.runtime.agent.model_router.stream_reply(
                             reply_selection,
                             model_history,
                             model_user_input,
@@ -16321,7 +16378,7 @@ class MoriceWindow(QWidget):
                             ),
                             thinking_level=request_thinking_level,
                             telemetry=model_telemetry,
-                        ):
+                        )):
                             if not self.runtime.realtime.is_current(
                                 realtime_request.epoch
                             ):
@@ -16330,6 +16387,7 @@ class MoriceWindow(QWidget):
                             if not clean_delta:
                                 continue
                             reply_parts.append(clean_delta)
+                            answer_parts.append(clean_delta)
                             speech_chunks = self.runtime.realtime.accept_delta(
                                 realtime_request.epoch,
                                 clean_delta,
@@ -16429,11 +16487,13 @@ class MoriceWindow(QWidget):
                     )
 
                 reply = "".join(reply_parts)
-                model_returned_text = bool(str(reply or "").strip()) and not backend_failed and not str(reply).startswith(('(MORICE)','(No response)'))
+                answer_text=''.join(answer_parts).strip()
+                model_returned_text = bool(answer_text) and not backend_failed and not answer_text.startswith(('(MORICE)','(No response)'))
+                if notice and not answer_text:reply+='\n\nThe selected model did not return a text answer. Please retry or choose another model.'
                 reply = ensure_visible_response(reply)
-                completion_ms = (time.perf_counter() - completion_started) * 1000
+                completion_ms = (time.perf_counter() - completion_started) * 1000+(goal_check_ms if goal_verdict else 0)
                 estimated_tps = self.runtime.profiler.record_model_completion(
-                    len(reply),
+                    0 if goal_verdict else len(reply),
                     completion_ms,
                 )
                 self.runtime.logs.log(
@@ -16454,7 +16514,7 @@ class MoriceWindow(QWidget):
                         success=model_returned_text,
                         latency_ms=completion_ms,
                         prompt_tokens=int(model_usage_values.get('prompt_tokens') or max(1, len(model_user_input) // 4)),
-                        generated_tokens=int(model_usage_values.get('completion_tokens') or max(1, len(reply) // 4)),
+                        generated_tokens=0 if goal_verdict else int(model_usage_values.get('completion_tokens') or max(1, len(reply) // 4)),
                         gpu_layers=int(os.environ['MORICE_GPU_LAYERS']) if os.getenv('MORICE_GPU_LAYERS','').isdigit() else None,
                         model_id=actual_model_id,
                         error="" if model_returned_text else "The selected model returned an empty completion.",
@@ -16573,8 +16633,8 @@ class MoriceWindow(QWidget):
                     self.runtime.realtime.finish_speech(
                         realtime_request.epoch
                     )
-                self._ensure_history_user(user_input)
-                self.history.append({"role": "assistant", "content": visible_reply})
+                if not continuation:self._ensure_history_user(user_input)
+                self.history.append({"role": "assistant", "content": visible_reply,**({'text_only':True} if text_only else {})})
                 # ChatHistory owns transcript persistence. Only explicitly
                 # approved preferences enter the existing personal-memory store.
                 if project_build_request:
@@ -16610,7 +16670,7 @@ class MoriceWindow(QWidget):
                     category="model",
                 )
                 self._complete_agent_ui(response_present=False, successful=False)
-                error_reply = self._address(f"I hit an app error: {exc}")
+                error_reply = self._address((notice+'\n\n' if notice else '')+f"I hit an app error: {exc}")
                 self._remember_conversation_turn(user_input, error_reply)
                 self._emit_background(
                     "assistant_stream_finished",
