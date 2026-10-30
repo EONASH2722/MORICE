@@ -2,6 +2,16 @@
 
 All notable changes to MORICE are documented here.
 
+## [0.12.0] — UNLEASHED Security Lab
+
+- Add bounded file classification, reversible decoding and actual supplied-password/key recovery with authentication/readback hashes, feasibility, progress and cancellation.
+- Add official ADB diagnostics, Windows Bluetooth metadata, static source review, scoped header checks and explicit two-identity VOX API mapping.
+- Verify a localhost messaging challenge, patch its generated authorization source through the existing Verified Action Runtime and repeat the HTTP regression.
+- Integrate existing Kernel/resources/workers/NLUI/rich responses; preserve source files, transient secrets, action permissions and no-overwrite exports.
+- Keep completion busy through independent verification and physical resource release; correct small-window layout and result history.
+- Rewrite the README, move badges directly below the logo/links, refresh all its screenshots and update website downloads.
+- Retain the three themes, globe, voice and reasoning/fast-model profiles. Document owned-fixture coverage and untested physical/live-service boundaries.
+
 ## [Unreleased]
 
 ## [0.11.0] — holographic interface and chat thinking controls

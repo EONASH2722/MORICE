@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 
 const repo = 'https://github.com/EONASH2722/MORICE'
-const sourceVersion = '0.11.0'
+const sourceVersion = '0.12.0'
 const workspaces = [
   { name: 'Core', icon: 'core', image: `morice-home.png?v=${sourceVersion}`, title: 'One living interface.', copy: 'A native GPU globe, White / Pitch Black / Glass themes, real activity, and thinking levels directly in chat.' },
+  { name: 'Security Lab', icon: 'shield', image: `morice-security-lab.png?v=${sourceVersion}`, title: 'Evidence you can inspect.', copy: 'Analyze local files, estimate and verify password recovery, review code and run an owned messaging challenge with an actual source repair. Physical devices and live services remain separately scoped.' },
   { name: 'Projects', icon: 'code', image: `morice-projects.png?v=${sourceVersion}`, title: 'From a request to real files.', copy: 'Choose a folder, describe a change, review the proposal and save the files. Keep updates, checks and the existing browser preview together.' },
   { name: 'Spatial', icon: 'globe', image: `morice-spatial.png?v=${sourceVersion}`, title: 'Find your place in the world.', copy: 'Search cities, states and countries online, with offline fallback. Choose ambiguous places explicitly and compare WGS84 distances between verified coordinates.' },
   { name: 'Research', icon: 'research', image: `morice-research.png?v=${sourceVersion}`, title: 'A clearer path to an experiment.', copy: 'Describe a supported model or enter values in a form. Review the plan, run real computations, and inspect stored results.' },

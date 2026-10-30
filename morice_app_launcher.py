@@ -81,6 +81,10 @@ configure_process_temp_dir()
 _configure_local_model_defaults()
 _fix_pyside_paths()
 
+if "--morice-security-worker" in sys.argv:
+    from morice.security_lab.worker import main as run_security_worker
+    raise SystemExit(run_security_worker())
+
 if "--morice-smoke-test" in sys.argv:
     from morice.package_smoke import run as run_package_smoke
     index = sys.argv.index("--morice-smoke-test")

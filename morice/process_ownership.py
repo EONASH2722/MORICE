@@ -67,9 +67,13 @@ if os.name == 'nt':
         finally:_api.CloseHandle(thread)
 
     class _WindowsJob:
-        def __init__(self):
+        def __init__(self, memory_limit_bytes=None):
+            if memory_limit_bytes is not None and (type(memory_limit_bytes) is not int or memory_limit_bytes<16*1024**2):raise ValueError('Invalid owned process memory budget.')
             self.lock=threading.RLock();self.handle=_checked(_api.CreateJobObjectW(None,None))
             limits=_ExtendedLimits();limits.basic.flags=0x2000  # KILL_ON_JOB_CLOSE
+            if memory_limit_bytes is not None:
+                limits.basic.flags|=0x100|0x200
+                limits.process_memory=memory_limit_bytes;limits.job_memory=memory_limit_bytes
             try:_checked(_api.SetInformationJobObject(self.handle,9,ctypes.byref(limits),ctypes.sizeof(limits)))
             except BaseException:self.close();raise
 
@@ -104,8 +108,13 @@ if os.name == 'nt':
 
 def spawn_owned_process(*arguments,**options):
     """Return a normal Popen with Windows family ownership established first."""
-    if os.name!='nt':return subprocess.Popen(*arguments,**options)
-    job=_WindowsJob();process=None
+    memory_limit=options.pop('memory_limit_bytes',None)
+    if memory_limit is not None and (type(memory_limit) is not int or memory_limit<16*1024**2):raise ValueError('Invalid owned process memory budget.')
+    if os.name!='nt':
+        if memory_limit is not None:
+            options['env']={**options.get('env',os.environ),'MORICE_WORKER_MEMORY_LIMIT':str(memory_limit)}
+        return subprocess.Popen(*arguments,**options)
+    job=_WindowsJob(memory_limit);process=None
     try:
         options['creationflags']=options.get('creationflags',0)|4  # CREATE_SUSPENDED
         process=subprocess.Popen(*arguments,**options)

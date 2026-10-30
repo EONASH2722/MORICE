@@ -103,6 +103,8 @@ class NaturalLanguageController:
         register_response_domain(self)
         from .device_security_domains import register_device_security
         register_device_security(self)
+        from ..security_lab.nlui import register as register_security_lab
+        register_security_lab(self)
 
     def attach_window(self,port):
         with self._lock:self._ports[port.window_id]=weakref.ref(port)
@@ -205,6 +207,9 @@ class NaturalLanguageController:
     def resolve(self,text,context:ActiveContext):
         clean=self._clean(text)
         if not clean or len(clean)>12000:return IntentResolution()
+        from ..security_lab.nlui import resolve as resolve_security_lab
+        lab_resolution=resolve_security_lab(clean,context)
+        if lab_resolution.matched:return lab_resolution
         # Resolve explicit sequences before greedy domain patterns can consume
         # the following action as a project name or part of a build goal.
         parts=re.split(r'\s*(?:;|\band then\b|\bthen\b)\s*(?=(?:[^"]*"[^"]*")*[^"]*$)',str(text),flags=re.I)

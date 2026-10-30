@@ -38,9 +38,14 @@ The [current location and image validation](spatial-media-validation-0.9.4.md) r
 | [Developer guide](developer-guide.md) | Environment setup, code map, checks, pull requests, and renderer development |
 | [Package distribution](package-distribution.md) | Release artifacts, Python package, channel status, checksums, and signing |
 
+## Security Lab 0.12.0 (UNLEASHED)
+
+- [Usage, supported formats and exact API mapping](security-lab-guide.md)
+- [Validation and coverage](security-lab-validation-0.12.0.md)
+
 ## Project Information
 
-- [Current release notes](release-notes-0.11.0.md)
+- [Current release notes](release-notes-0.12.0.md)
 - [Natural-language and rich-response guide](nlui-rich-response-guide.md)
 - [Natural-language architecture audit](nlui-rich-response-audit.md)
 - [Rich-response capability inventory](rich-response-capabilities.md)

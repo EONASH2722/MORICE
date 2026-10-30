@@ -1,0 +1,90 @@
+{
+  "version": "0.12.0",
+  "scope": "Actual native production window; owned fixtures; no real external account or physical device is certified.",
+  "screenshots": [
+    {
+      "file": "pitch-black-home.png",
+      "sha256": "25232411275396a6657c1108977e4d14c5d1afc03706dd528cd87000342041e6"
+    },
+    {
+      "file": "white-home.png",
+      "sha256": "df2db5b1bd18690008976bc787e5b82cebaf99311a12797b26104b4e7c193ddf"
+    },
+    {
+      "file": "glass-home.png",
+      "sha256": "145b4c49040af92ebbe8922726b57e81e2f1b0b76c9a48f5bc38278a1921e78b"
+    },
+    {
+      "file": "security-lab.png",
+      "sha256": "7c4e3915bf11f9a27972e43f8ef84b41f35e413969ca129823fd69c6222efa64"
+    },
+    {
+      "file": "file-analysis.png",
+      "sha256": "241c32dcc22a5eb00f311320746c03b773daca7bf1dbcc30eaa82e9ca8cadf1b"
+    },
+    {
+      "file": "recovery-estimate.png",
+      "sha256": "f7eafb311f62ff8c6f0bf71e2239b0f76341624652fc6b5e0c079f188a272028"
+    },
+    {
+      "file": "recovery-result.png",
+      "sha256": "087a1521c61d4d11406f4f76e0ba10c950f9f37ee31b9be96b740ff0f878f860"
+    },
+    {
+      "file": "challenge-result.png",
+      "sha256": "f8d21a0657d3207d7323e9df8a2b3fe255ffbd154e8b151d436c413003470d18"
+    },
+    {
+      "file": "code-audit.png",
+      "sha256": "7d5dc5b881ba136233d011920946bea0aa7d473ec03cf28e4d759752b42342f5"
+    },
+    {
+      "file": "chat.png",
+      "sha256": "a6217622127ee481a82be353f9c156a99312280a1b908d148e8de8a23cf1f499"
+    },
+    {
+      "file": "voice.png",
+      "sha256": "80d0f0c0ea81558600e2ce5f2110a3a35fe4a27886a497e8ffddc15ad52832af"
+    },
+    {
+      "file": "projects.png",
+      "sha256": "0b4fc1230a35621fd87fcd58d551304f14c3c44f1bcd777e4354f251512f562a"
+    },
+    {
+      "file": "research.png",
+      "sha256": "c6ef893d1d2ac38147001fc3ad058589969954ac7f32185a7f676343141d83c7"
+    },
+    {
+      "file": "spatial.png",
+      "sha256": "28c8fb3e2751e0ec8809336e234004270b70f215b27bc1df575daf27796fd20f"
+    },
+    {
+      "file": "media.png",
+      "sha256": "e0430c0f96c43af5902305652429096d869510bb12ccc8f49ee4592bcd481409"
+    },
+    {
+      "file": "settings.png",
+      "sha256": "7b7cbb11fa5af4a4a35caf63f2bde288104a5e8b58654791b932e85cb1d70bca"
+    },
+    {
+      "file": "devices.png",
+      "sha256": "0475d708f122cf3c7a28bdbc842427ba2fa7a82de7536aacedaef3fb73e98652"
+    },
+    {
+      "file": "white-lab.png",
+      "sha256": "73f9c017fd1571b5b26ab13d964a0ec2aa9ba25bc1da3788eea2932d64325c8a"
+    },
+    {
+      "file": "pitch-black-lab.png",
+      "sha256": "2cdc5b057f5ddb6604ad116b4f6f02853bfbd8942b0f8b22656488c95fa2e77f"
+    },
+    {
+      "file": "glass-lab.png",
+      "sha256": "2d907841e79ea234bd673bcec19dd4d04cd359b216133569c0887acc0e758ecc"
+    },
+    {
+      "file": "lab-720.png",
+      "sha256": "68c3db613265a0d525c08c39a9ce1c2b8ab44ece09bde471d3f449c514a2ea2c"
+    }
+  ]
+}

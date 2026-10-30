@@ -9,7 +9,7 @@ import uuid
 
 SOURCE_KINDS=frozenset({'experiment','research_project','research_record','media_generation',
     'build_session','workspace','chat_calculation','chat_metadata','personal_memory','spatial',
-    'research_catalog','experiment_catalog','media_catalog','experiment_comparison','chat_dataset'})
+    'research_catalog','experiment_catalog','media_catalog','experiment_comparison','chat_dataset','security_lab'})
 COMPONENTS={
     'metrics':{'fields','columns'},'status':{'fields'},'validation':{'fields'},
     'table':{'columns','filter','sort','page_size'},'chart':{'x','ys','style','x_label','y_label','unit','table','table_expanded','table_filter','table_sort','selected'},

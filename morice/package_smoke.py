@@ -108,6 +108,8 @@ def run(output):
     window.navigate('home');window.activateWindow();app.processEvents();canvas=window.globe_view.canvas
     assert hasattr(canvas,'dynamics'),'The native package requires the actual OpenGL globe.'
     initial_phase=tuple(canvas._orbit_phases)
+    from .security_lab.package_probe import probe as probe_security_lab
+    security_probe=probe_security_lab(runtime,app)
     ticks=[];timer=QTimer();timer.timeout.connect(lambda:ticks.append(time.perf_counter()));timer.start(25)
     # QApplication.quit closes native windows and releases their GL contexts.
     # Capture the live renderer before that teardown, rather than reporting a
@@ -123,6 +125,7 @@ def run(output):
     result['fast_memory']=memory_probe
     result['nlui_rich_response']=nlui_probe
     result['reply_math']=math_probe
+    result['security_lab']=security_probe
     result['composer_geometry']=geometry;result['theme_scenes']=scenes
     result['ambient_animation']={'phase_advanced':tuple(canvas._orbit_phases)!=initial_phase,'reduced_motion':window.theme_engine.profile.reduced_motion}
     result['globe']=live_globe[-1] if live_globe else canvas.diagnostics();result['three_themes']=list(UI_THEMES.values())

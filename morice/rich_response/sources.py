@@ -75,6 +75,18 @@ class ResponseSources:
         if source.revision and source.revision!=value.revision:raise StaleSourceError('The source changed since this response. Refresh the result before acting on it.')
         return value
 
+    def _security_lab(self,source):
+        lab=self.runtime.security_lab;job=lab.snapshot(source.id,self.conversation_id);result=job.get('result',{})
+        rows=result.get('attempts') or result.get('findings') or result.get('tests') or result.get('members') or []
+        artifacts=[self._artifact(str(index),Path(a['path']).name,a['path'],a['sha256'],lab.directory,strict=False,
+            cancellation=self.current_cancellation()) for index,a in enumerate(job.get('artifacts',[]))]
+        data={'status':job['status'],'operation':job['action'],'tested_candidates':result.get('tested',0),
+            'candidate_count':result.get('total_candidates',result.get('candidate_count',0)),
+            'seconds':job.get('seconds',0),'progress':job.get('progress',{}),'verification':result.get('verification',''),
+            'encryption':result.get('encryption',{}),'feasibility':result if job['action']=='estimate' else {},'rows':rows}
+        return SourceSnapshot(source,'Security Lab · '+job['action'],'COMPUTED',digest(job),data,rows,artifacts=artifacts,
+            verified=job['state']=='COMPLETED',limitation=lab.describe(job))
+
     @staticmethod
     def _artifact(identifier,name,path,expected_hash,root,unit='',*,strict=True,cancellation=None):
         from ..media_lab.storage import file_hash

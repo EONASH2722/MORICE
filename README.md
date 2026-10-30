@@ -1,15 +1,9 @@
 <p align="center">
-  <a href="https://eonash2722.github.io/MORICE/" title="Open the MORICE website">
-    <img src="morice/assets/morice-logo-rgb.png" alt="MORICE logo" width="148">
-  </a>
+  <a href="https://eonash2722.github.io/MORICE/"><img src="morice/assets/morice-logo-rgb.png" alt="MORICE logo" width="148"></a>
 </p>
-
 <p align="center">
-  <a href="https://eonash2722.github.io/MORICE/"><strong>Website</strong></a> ·
-  <a href="docs/README.md">Documentation</a> ·
-  <a href="https://github.com/EONASH2722/MORICE/releases/latest">Releases</a>
+  <a href="https://eonash2722.github.io/MORICE/"><strong>Website</strong></a> · <a href="docs/README.md">Documentation</a> · <a href="https://github.com/EONASH2722/MORICE/releases/latest">Releases</a>
 </p>
-
 <p align="center">
   <a href="https://github.com/EONASH2722/MORICE/releases/latest"><img src="https://img.shields.io/github/v/release/EONASH2722/MORICE?label=latest" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4" alt="Windows 10 and 11">
@@ -20,350 +14,147 @@
 </p>
 
 <h1 align="center">MORICE</h1>
+<p align="center"><strong>A local-first Windows AI workspace for conversation, project building, research, real visualizations, desktop assistance and local security work.</strong></p>
 
-<p align="center">
-  <strong>A local-first Windows AI workspace for conversation, Live Action, real visualizations, project building, and desktop assistance.</strong>
-</p>
+## 0.12.0 (UNLEASHED)
 
-## Current source: 0.11.0
+![Actual native MORICE home in Pitch Black](docs/assets/security-lab-0.12.0/pitch-black-home.png)
 
-<img src="docs/assets/globe-0.11.0/pitch-black-home.png" alt="Actual native MORICE holographic home in Pitch Black" width="960">
+**New: Security → Security Lab.** Inspect an unknown file, distinguish encoding from encryption, estimate password recovery, and test supplied passwords or an authorized recovery key. Results come from bounded local cryptographic operations, complete readback and hashes. The same workspace adds Android diagnostics, source review, scoped HTTP checks and an owned messaging challenge with an actual source repair and before/after regression.
 
-[White](docs/assets/globe-0.11.0/white-home.png) · [Glass](docs/assets/globe-0.11.0/glass-home.png) · [Chat](docs/assets/globe-0.11.0/pitch-black-chats.png) · [Voice](docs/assets/globe-0.11.0/pitch-black-voice.png)
+The release keeps MORICE's continuous purple globe, three complete themes, voice mode, natural-language controls, rich responses and existing workspaces. **UNLEASHED is the release name; it does not mean arbitrary encryption can be broken or that untested integrations are certified.**
 
-MORICE now uses one continuous holographic interface. A large purple GPU globe forms from light at startup, animates while idle, follows real work and voice activity, and remains interactive in chat. Drag to rotate with inertia, scroll to zoom, click for a surface ripple, and double-click to reset. Cursor interaction eases out of idle motion and back again; it continues during generation. The original MORICE logo and existing workspaces are preserved.
+[Download 0.12.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.12.0) · [Release notes](docs/release-notes-0.12.0.md) · [Security Lab guide](docs/security-lab-guide.md) · [Validation and limits](docs/security-lab-validation-0.12.0.md)
 
-**Three themes everywhere:** **White**, **Pitch Black**, and **Glass** apply to navigation, settings, menus, dialogs, scientific canvases, rich responses and the globe's atmosphere. Glass combines translucent panels with native window opacity; it does not capture the desktop. Change **Globe Color** and **Globe Glow Color** independently in Appearance or the globe's context menu, with live preview and saved choices. Reduced Motion, hidden-window throttling and on-demand model loading remain supported.
+## Security Lab
 
-**Thinking controls in chat:** select **Model thinking: Low / Medium / High / Extra high** directly in the composer. Higher levels select the thinking profile and increase the bounded reasoning/output budgets. Low retains automatic fast replies. The installed `Qwen3.5-4B-abliterated.Q6_K.gguf` remains the preferred reasoning model; weights are separate and explicit model selections remain authoritative.
+![Actual Security Lab file controls](docs/assets/security-lab-0.12.0/security-lab.png)
 
-**Voice mode:** the globe replaces the text composer and spoken-answer overlay. Its light and geometry follow the actual speech playback level, with a smooth attack and release. Microphone/camera controls remain available; ordinary typed chat keeps its editor.
+Select a local file and use **Analyze**, **Decode**, **Estimate recovery**, or **Recover**. A password field, explicit candidate list, owner-supplied hint documents, optional conventions and named recovery keys provide the evidence. Secrets stay outside the model, conversation history and saved reports. Recovery keys can be stored explicitly through the Windows DPAPI vault.
 
-**Live activity:** expand the thinking/activity view to inspect actual context preparation, source lookup, supplied-link reading, model loading, reasoning-token activity and writing. Text/HTML links are read as bounded external context, with unavailable pages reported honestly. Activity receipts describe executed steps; they do not present internal model prose as verified reasoning. The globe follows those same public states and returns to idle after delivery. Wake activation opens chat in the selected theme while preserving microphone permissions and fullscreen preferences.
-
-See the [0.11.0 release notes](docs/release-notes-0.11.0.md), [globe guide](docs/globe-interface-0.11.0.md), and [validation report](docs/globe-validation-0.11.0.md).
-
-### Earlier 0.10.0 features
-
-**0.10.0 reply-routing amendment:** engineering analysis stays a written answer, with normal tables and equations. Pasted parameter tables do not automatically create interactive panels; explicitly request a plot to explore supplied data. Device commands use whole device references, so “tabletop” cannot trigger “tablet”. Engineering challenge headings also keep incidental physics terms out of simulation renderers. Existing saved-result charts and interactive controls remain available.
-
-The [natural-language and rich-response update](docs/release-notes-0.10.0.md) connects chat and voice transcripts to the existing workspaces and verified tools. Try “Open my latest project”, “Run the project tests, then fix this project”, “Compare my latest two experiments”, “Show my latest CAD model”, or “Find the chat about the UI”. Simple navigation uses no language model. Less direct commands use the configured local model to propose typed actions, which MORICE validates before execution.
-
-Actual results can now appear as linked charts and tables, unit-aware calculators, check receipts, job controls, file collections, local previews, real STL parts and exploded assemblies. Display settings and source references survive retained-chat reopening. Short answers keep their ordinary text path. See the [usage guide and measured coverage](docs/nlui-rich-response-guide.md); missing providers, protected app controls and STEP import are explicitly unavailable.
-
-**Reasoning model and equations:** an installed `Qwen3.5-4B-abliterated.Q6_K.gguf` is now preferred for the reasoning profile. Explicit model choices still win, older models remain available, and Qwen3 4B remains the separate fast profile. Change either selection in Settings → Models. Streamed answers now finish with correctly parsed inline/display LaTeX, Markdown tables and code in the same message bubble. See the [model and rendering notes](docs/reasoning-math-0.10.0.md) for setup, actual checks and limits. Model weights are separate downloads or user-provided files.
-
-The new conversational controls cover these existing workspaces:
-
-- **Projects:** select saved folders, prepare and review real changes, run discovered tests/builds, inspect saved results and use actual failures to guide repairs.
-- **Research:** open saved projects, run/pause/cancel experiments, compare results, inspect calculations and show actual CAD artifacts.
-- **Media and files:** generate with installed providers, edit/vary/animate actual sources, inspect history and previews, and export verified artifacts to a chosen destination.
-- **Connected tools:** manage watches and installed plugins, transfer checked files through Device Mesh, and use scoped GitHub and security operations with their existing permissions.
-- **Chat and presentation:** find retained conversations, resolve saved targets and ambiguous dates, change supported settings/themes/layout controls, and reopen saved interactive responses.
-- **Rich results:** explore 18 native component kinds, linked charts/tables, unit-aware calculators, actual progress, file previews, STL parts/assemblies and geography; export actual chart images, data samples and PDF reports.
-
-Desktop control is explicitly opt-in, actions retain their existing confirmations, and unavailable providers or unsupported controls report their actual limits. Rich sections load near the viewport and release hidden work; delayed source results preserve the reading position.
-
-**Desktop automation permission:** the integration update adds **Settings → Permissions & control → Desktop automation**, off by default. Enable it to let MORICE operate requested third-party app windows and supported Windows accessibility controls. When it is off, MORICE explains where to enable it and asks you to resend the request. Turning it off revokes access and pending approvals; enabling it preserves existing confirmations for consequential actions. MORICE's own workspace navigation and tools do not require PC control. Custom/protected controls without a supported accessibility interface remain unavailable.
-
-The earlier [0.9.5 fast replies and memory update](docs/release-notes-0.9.5.md) added automatic fast/thinking model routing, a separate **Fast Reply Model** setting, indexed recall across the entire retained current chat, and optional approved personal preferences. Chat scrolling loads earlier messages without losing the reading position or snapping to each streamed token. See the [setup and privacy guide](docs/fast-memory-guide.md) and [implementation and validation report](docs/fast-memory-report-0.9.5.md).
-
-The existing 0.9.5 downloads are amended with a fix for duplicate assistant bubbles during history scrolling and returning to the latest reply. Informal date questions now use the system clock.
-
-The same publication also repairs long technical analysis: incidental science terms no longer open an empty Research project or a visual renderer, the installed thinking model remains available without a custom selection, and detailed prompts retain their full text and answer budget. A unit-aware electromagnetic harvester model supplies checked conditional calculations for complete labelled parameter tables. See the [technical reply amendment](docs/technical-replies-0.9.5.md) for its assumptions and limits.
-
-The [0.9.4 location and image update](docs/release-notes-0.9.4.md) adds online city/state/country lookup, understands distance questions, and makes prompt-only image generation explicit. See [the new guide](docs/spatial-media-0.9.4.md).
-
-The [0.9.3 workspace update](docs/release-notes-0.9.3.md) makes Project navigation select the file-building workflow, keeps project updates and browser previews together, and adds a guided experiment form. See the [Projects and Experiments guide](docs/simple-workspaces.md) for creating files, reviewing changes, and running real computations.
-
-The current desktop uses the integrated holographic globe, a visible chat composer, authored vector icons and three visual themes. Voice replaces the composer with the speech-reactive globe. Reduced Motion and hidden/minimized windows reduce decorative work.
-
-Current source extends the existing Capability Kernel, parallel agents, verified actions, Builder, Research, Device Mesh, Ambient/Security and Media systems. It adds online place lookup with offline fallback and deterministic WGS84 Spatial tools while keeping shared permission, verification and resource-lease ownership.
-
-Choose **Theme** in the top bar to preview **White**, **Pitch Black** or **Glass**. Core shows a bottom launcher, and workspaces show a left sidebar, so navigation appears once. Historical screenshots and earlier theme details remain in the versioned validation reports.
-
-| Workspace | Purpose |
+| Capability | Implemented scope |
 | --- | --- |
-| Projects | Plan, build, test and review with existing Builder authority. |
-| Research | Inspect provenance, controlled computations and resumable experiments. |
-| Spatial | Find cities, states and countries online with offline fallback; compare geodesic/chord distances, bearings and paths. |
-| Media | Generate images from prompts with installed models; use optional references for edits and inspect verified outputs. |
-| Activity | Inspect real public task/events and cancel owned work. |
-| Settings | Search preferences, preview themes/profiles and configure explicit voice/wake access. |
+| File forensics | Signature, claimed extension, SHA-256, entropy sample, Unicode encoding/script detection and bounded structural checks |
+| Reversible decoding | Validated Base64, Base32, hexadecimal, URL/HTML entities and GZIP chains; decoding is labelled separately from decryption |
+| ZIP recovery | Supplied candidates against WinZip AES or legacy ZipCrypto, complete member reads, HMAC or CRC checks and output hashes |
+| PDF recovery | Password decrypt/rewrite/readback through optional `pypdf`; readability is not AEAD authentication |
+| Direct-key recovery | AES-GCM and ChaCha20-Poly1305 for the documented MORICE manifest envelope; requires its actual key or password |
+| Source review | File/line/hash findings labelled **POSSIBLE**, plus dependency inventory without invented CVEs |
+| Messaging challenge | Owned localhost identities, authenticated send/store/recipient readback, a source patch through the existing Verified Action Runtime and repeated authorization checks |
+| Scoped web/API checks | One explicit origin; observed headers and owner-mapped VOX delivery with two authorized test identities |
+| Device diagnostics | Official ADB discovery, Android USB/wireless authorization, exact-device read-only diagnostics and Windows Bluetooth metadata |
 
-![Deterministic Spatial workspace](docs/screenshots/morice-spatial.png)
+![Actual verified owned ZIP recovery](docs/assets/security-lab-0.12.0/recovery-result.png)
 
-**Validation scope:** [0.9.4 validation](docs/spatial-media-validation-0.9.4.md) covers online places, prompt-only image requests and matching package checks. The [0.9.3 workspace validation](docs/workspace-validation-0.9.3.md) records the earlier Project and Experiment update at its own source fingerprint. The preserved [0.9.2 chat repair](docs/chat-routing-validation-0.9.2.md), [0.9.1 UI follow-up](docs/followup-audit-0.9.1.md) and [original release audit](docs/release-audit-report.md) record earlier checks. Physical audio/devices, heavy inference memory and compositor frame pacing remain scoped; compatible providers and sufficient RAM/VRAM are required.
+Results show actual attempts, remaining workload, elapsed time, artifacts and export receipts. Cancel interrupts the owned worker. Export uses a new destination and independent hash readback; the original encrypted file is preserved. Failure states include `WRONG_KEY`, `MISSING_KEY`, `CANDIDATES_EXHAUSTED`, `UNSUPPORTED_FORMAT`, `RESOURCE_LIMIT_REACHED`, `CANCELLED` and `INTEGRITY_CHECK_FAILED`.
 
-**Downloads:** [Windows 0.11.0 and matching packages](https://github.com/EONASH2722/MORICE/releases/tag/v0.11.0) include the integrated globe, three themes, chat thinking levels, live activity, and the existing workspace, model, memory and scrolling repairs. Large model weights are installed separately. [Windows 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) and [Android 0.8.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) remain earlier releases. [Latest release](https://github.com/EONASH2722/MORICE/releases/latest).
+Try these after selecting the relevant file or source:
 
-### Installation
+- “Analyze this encrypted archive.”
+- “Try the recovery hints I provided.”
+- “Check whether I have a matching recovery key.”
+- “Estimate whether password recovery is feasible.”
+- “Cancel recovery.” / “Show what has been tested.”
+- “Export the recovered files.”
+
+![Actual owned challenge after source repair](docs/assets/security-lab-0.12.0/challenge-result.png)
+
+The owned challenge is a reproducible fixture, not a test of a live service. Real VOX delivery requires the actual source repository, exact API mapping and both authorized identities; MORICE does not guess a recipient or silently substitute a fixture. Physical Android/Bluetooth hardware and a live VOX deployment were not certified. ZIP64, 7z/RAR/Office password recovery, arbitrary raw encrypted streams, online password guessing and Bluetooth GATT control are unavailable. Strong random encryption without its secret is reported as impractical to exhaust.
+
+## One interface, three themes
+
+| White | Glass |
+| --- | --- |
+| ![Actual White home](docs/assets/security-lab-0.12.0/white-home.png) | ![Actual Glass home](docs/assets/security-lab-0.12.0/glass-home.png) |
+
+**White, Pitch Black and Glass** apply across navigation, settings, dialogs, scientific canvases, rich responses and the globe's atmosphere. Globe Color and Globe Glow Color are independently adjustable. Glass uses translucent panels and native window opacity; it does not capture the desktop.
+
+The GPU globe forms at startup, animates while idle and follows actual work. Drag to rotate with inertia, scroll to zoom, click for a ripple and double-click to reset. Cursor interaction smoothly takes over idle movement and remains available during generation. Reduced Motion and hidden-window throttling remain supported. Wake activation opens chat in the selected theme with existing microphone permissions.
+
+## Chat, reasoning and voice
+
+![Actual chat with a source-backed Security Lab result](docs/assets/security-lab-0.12.0/chat.png)
+
+**Model thinking: Low / Medium / High / Extra high** is in the chat composer. Higher levels select the reasoning profile and increase bounded reasoning/output budgets; Low retains automatic fast replies. Expand the activity view for actual context preparation, link reading, model loading, reasoning-token activity and writing. These are execution summaries, not a claim to expose verified internal reasoning.
+
+The preferred installed reasoning model is **`Qwen3.5-4B-abliterated.Q6_K.gguf`**. **Qwen3 4B Instruct 2507 Q4_K_M** remains a separate fast profile. Choose either in **Settings → Models**; explicit selections take precedence. GGUF weights are separate, are not bundled in the release and must fit available RAM/VRAM. A model's name or quantization does not establish answer quality.
+
+Ordinary questions and engineering prompts stay written replies. An explicit visualization request or a relevant saved/tool result can create a rich response. Markdown, tables, code and inline/display LaTeX finish in the same streamed message bubble. Retained chat search, incremental older-message loading and reading-position preservation remain available.
+
+![Actual voice workspace](docs/assets/security-lab-0.12.0/voice.png)
+
+**Voice mode has no text composer or spoken-answer text overlay.** Its globe follows actual speech playback levels with smooth attack and release; microphone and camera controls remain available. Typed chat keeps its editor. Optional background wake, magic words and double-clap activation retain explicit microphone access. Hardware latency depends on the audio provider and device.
+
+## Workspaces and natural-language control
+
+Typed requests and voice transcripts use the existing Capability Kernel, domain owners and Verified Action Runtime. Simple navigation avoids loading a model; less direct requests can use the configured local model to propose typed, validated actions. Missing targets receive a clarification.
+
+| Workspace | Examples and scope |
+| --- | --- |
+| Projects | “Open my latest project”; prepare/review changes, apply checked files, run discovered tests/builds, retain failure evidence and undo supported changes |
+| Research | Saved projects, hashed evidence, bounded unit-aware calculations, actual experiments and existing CAD artifacts |
+| Spatial | Supported places, ambiguous-match resolution, WGS84 distances and verified coordinates |
+| Media | Generate/edit/vary/animate through installed providers, inspect real artifacts and export verified files |
+| Devices | Paired Device Mesh tasks/file transfers; separate Lab diagnostics use official ADB authorization |
+| Tools | Notes, tasks, watches, plugins, supported GitHub operations, system information and observed app controls |
+| Rich responses | Linked charts/tables, calculators, receipts, job controls, file collections, local previews, STL parts/assemblies and geography |
+
+| Projects | Research |
+| --- | --- |
+| ![Actual Projects workspace](docs/assets/security-lab-0.12.0/projects.png) | ![Actual Research workspace](docs/assets/security-lab-0.12.0/research.png) |
+
+| Spatial | Media |
+| --- | --- |
+| ![Actual Spatial workspace](docs/assets/security-lab-0.12.0/spatial.png) | ![Actual Media workspace](docs/assets/security-lab-0.12.0/media.png) |
+
+**Desktop automation** is an opt-in toggle under **Settings → Permissions & control**, off by default. Enable it for requested third-party Windows app control through supported accessibility interfaces. With it off, MORICE explains where to enable it. Revocation stops access and pending approvals; consequential actions keep their existing confirmations. Protected/custom controls can remain unsupported.
+
+Research results, files and plots are tied to actual inputs and stored evidence. MORICE does not certify scientific correctness, invent measurements or promise a universal CAD/solver backend. See the [feature matrix](docs/feature-matrix.md), [research guide](docs/research-core.md) and [NLUI/rich-response guide](docs/nlui-rich-response-guide.md).
+
+## Installation
+
+Use matching assets from [MORICE 0.12.0 (UNLEASHED)](https://github.com/EONASH2722/MORICE/releases/tag/v0.12.0). Verify downloads with `SHA256SUMS.txt` or `checksums.json`.
+
+- **Windows installer:** download setup and all matching numbered `.bin` slices into one folder, then run setup. Installation is per-user.
+- **Portable:** extract `MORICE-Windows-v0.12.0-Portable.zip` and launch `MORICE.exe`. Keep `_internal` beside it.
+- **Python:** Python 3.12+ and the model-free wheel below; PDF/research adapters require the research extra.
+- **Android:** the [separate 0.8.0 companion APK](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android) supports Android 9+. It is not a new 0.12.0 Android build.
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e ".[dev,research]"
-.\.venv\Scripts\python.exe morice_app_launcher.py
-```
-
-Use Python 3.12+ for the desktop. Local media model dependencies may require a separate compatible runtime; the main app remains usable when those providers are unavailable. See [troubleshooting](docs/troubleshooting.md), [architecture](docs/architecture.md) and [the renovation report](docs/renovation-report.md).
-
-The [0.11.0 desktop release](https://github.com/EONASH2722/MORICE/releases/tag/v0.11.0) contains the updated Windows app and matching Python packages. Install `morice_ai-0.11.0-py3-none-any.whl` for the Python package. Provider and physical-hardware limits are documented in the release notes.
-
-
-MORICE combines local model inference with a desktop workspace that can answer questions, build projects, operate permission-aware tools, and mount validated interactive artifacts directly in chat. Language models provide reasoning and structured proposals; MORICE validates and executes the result through its own renderers, project engine, and desktop services.
-
-![Current Research workspace](docs/screenshots/morice-research.png)
-
-**Current-source previews:** the scientific research core, named chat history,
-and desktop companions described below are not guaranteed to be present in older
-release downloads. See the [research audit](docs/research-core-audit.md) for what
-was tested and what remains unimplemented.
-
-## Highlights
-
-- **Local model support:** use a GGUF model through the bundled llama runtime or connect to a local Ollama model.
-- **Conversation memory:** contextual follow-ups can reference earlier messages, saved preferences, selected notes, and the active workspace.
-- **Real visualizations:** interactive graphs, simulations, molecules, biology models, data structures, charts, diagrams, schematics, and file previews render inside Normal Chat and Live Action.
-- **Project Mode:** turn a prompt into validated files and diffs inside a chosen work folder; folder-limited mode stages review while Full access applies routine project writes atomically.
-- **General project workflows:** detect Unity, Unreal, Roblox, Godot, Visual Studio/.NET, Android, Node, Python, Java, Rust, Go, and web markers; run available declared builds/tests and retain exact evidence.
-- **Desktop assistance:** permission-aware file search, system information, clipboard actions, media controls, workspace tools, tasks, notes, and diagnostics.
-- **Live Action:** a separate camera-centered voice workspace that retains Chat, Lab, Tools, graphs, attachments, desktop control, and Project builds; camera access is explicit and exiting stops camera, STT, TTS, and visual work.
-- **Automatic context:** relevant local notes are selected without special commands; freshness-sensitive questions use source-linked web context when online and fall back locally when offline.
-- **Local background wake (opt-in):** when explicitly enabled, the listener recognizes MORICE, configured magic words, or a double-clap, releases the microphone while Live Action owns it, and opens without stealing foreground focus.
-- **Adaptive execution:** goal state, capability discovery, device context, network/Bluetooth observation, and platform adapters keep execution grounded in verified host abilities.
-- **Model manager:** inspect detected GPU/VRAM, compare run plans, validate GGUF files, and switch models without editing configuration files.
-- **Extensible platform:** isolated plugins, permission manifests, renderer contributions, lifecycle controls, diagnostics, and package validation.
-- **Recovery and updates:** bounded workspace state, backups, verified update staging, rollback protection, activity history, and resumable tasks.
-- **Personalization:** optional preferred name and title, live updates for text and spoken replies, wake-line preferences, dark/light themes, custom fonts, emoji amount, response maturity, motion, opacity, contrast, and text sizing. New users receive neutral replies with no assumed name or title.
-- **Living desktop launcher:** six animated desktop companions distinguish clicks from DPI-aware drags, react immediately, hide completely over fullscreen apps, and restore or launch exactly one MORICE window without invoking the model pipeline.
-- **Android companion:** unified chat, opt-in voice, on-demand Live Vision, and encrypted device-scoped PC/phone tasks without copying desktop Project Mode onto the phone.
-
-## Desktop Companions
-
-Click a pet to restore and focus MORICE, or drag it to interact without opening the app. Iron Man patrols the whole desktop, removes and recalls his Mark 42 armor, and fights rogue drones; Spider-Man pendulum-swings, temporarily meets a symbiote, and webs masked tech raiders. Dog fetch, cat deep-sleep/stretch, horse graze/rear/gallop, and skeleton collapse/scatter/reform scenes use persistent randomized cooldowns. The behavior loop is local and deterministic; it does not load a model, use the network, or wait for an agent.
-
-The characters currently use procedural artwork and still need visual refinement;
-movie-accurate Mark 42 detail and fully polished animation are not claimed.
-The [desktop-pet guide](docs/desktop-pets.md) explains behavior and settings.
-
-## Scientific Research Core — Preview
-
-Attach research files in ordinary chat to preserve hashed evidence, profile CSV/XLSX
-datasets, and maintain a persistent research project. Explicit calculation blocks
-support physical units and bounded parameter sweeps. Export actual JSON records,
-CSV statistics, sampled SVG plots, Markdown summaries, and original evidence with
-checksums. Selected local-model interpretations are labeled **unverified inference**.
-
-The **Chat history** action supports named, searchable, compressed conversations,
-reopening their research projects, archive, protection, and per-chat retention.
-The default is **Never delete**.
-
-This is not the completed Universal Scientific Research Core: automated literature
-retrieval, research-image interpretation, general solver integrations, formal
-hypothesis testing, and scientific validation remain unavailable. Read the
-[workflow, examples, and limits](docs/research-core.md).
-
-## Interactive Rendering
-
-MORICE never treats prose such as `[a graph appears]` as a successful render. Every completed visual artifact is parsed, typed, rendered, and validated by the host application. Unsupported input receives a visible failure state instead of an imaginary result.
-
-Graph replies explain computed mathematical properties before render status. Bounded
-SymPy analysis covers real roots and multiplicities, quadratic vertices and symmetry,
-polynomial extrema and end behavior, rational holes and asymptotes, and supported
-trigonometric, exponential, and logarithmic transforms. General expressions retain
-explicitly approximate, viewport-limited evidence; unknown global properties stay
-unknown. Axis labels show ordinary values such as **1,000** and **1,000,000** in decimal
-form, reserving scientific notation for extreme magnitudes.
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/reviewer-images/morice-graph.png" alt="Computed quadratic analysis in MORICE"></td>
-    <td width="50%"><img src="docs/reviewer-images/morice-simulation.png" alt="Particle simulation in MORICE"></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>Graphs</strong><br>Pan, zoom, inspect, reset, and export</td>
-    <td align="center"><strong>Simulations</strong><br>Playback, time controls, replay, and state export</td>
-  </tr>
-</table>
-
-### Available renderer families
-
-| Family | Current scope |
-| --- | --- |
-| Mathematics | Cartesian, piecewise, polar, parametric and implicit graphs, linked 2D/3D surfaces, and Mandelbrot views |
-| Physics | Particles, projectile motion, pendulums, springs, waves, circular/orbital motion, and Lorenz attractors |
-| Chemistry | Supported molecular structures and VSEPR geometries with shared 2D/3D atom and bond state |
-| Biology | DNA, neuron, and cell models with labels and switchable 2D/3D views |
-| Computer science | BST, AVL, graph, linked list, queue, stack, and hash-table operations with complexity displays |
-| Data and diagrams | Bar, line, pie, scatter and histogram charts plus structured flows, timelines, networks, circuits, UML, and domain diagrams |
-| Files | Inline previews for local text, source, Markdown, JSON, CSV, images, and PDFs |
-
-The [feature matrix](docs/feature-matrix.md) contains the exact supported inputs and limitations.
-
-## Agent And Tool Runtime
-
-MORICE includes a host-managed agent pipeline rather than sending every request through one undifferentiated prompt.
-
-- Intent routing and ordered multi-task decomposition.
-- Context selection, history compression, project indexing, and model health tracking.
-- Specialized conversation, coding, research, visualization, and desktop workflows.
-- Explicit permission grants for sensitive tools and workspace mutations.
-- Patch previews, stale-file protection, transactional apply, and verified undo.
-- Background task progress, cancellation, retry, activity history, and recovery.
-- Honest completion rules: a tool, render, or project task cannot report success without a validated result.
-
-## Project Mode
-
-Project Mode is a development workspace for generating and editing real files.
-
-1. Open **Projects** and select **Choose folder**. Builder mode is automatic.
-2. Keep **Build or edit files** selected, describe the changes, and select **Build files**.
-3. Under **Review**, inspect the proposal and select **Save reviewed files**. Discard or undo remain available.
-4. Inspect real files under **Files**, verification and errors under **Output**, and responses under **Updates**. Web previews stay in Projects.
-
-Use **Ask about this project** for an explanation. Access and local/online controls are under **Build settings**. See the [Projects and Experiments guide](docs/simple-workspaces.md) for the guided experiment form and concrete remaining limits.
-
-The process panel preserves an expandable observed-action trace after completion. It shows selected
-routes, detected tools, files written, commands executed, and verification results, excluding private
-model chain-of-thought. MORICE reports file, build, test, editor, and playtest status separately.
-
-## Live Action
-
-Choose **Voice > Live Action**, or use the microphone button beside the composer, to enter and wake the camera-centered workspace; no second wake phrase is required. Live Action uses offline Vosk speech-to-text for user turns and interruptible ElevenLabs streaming speech for MORICE replies. Its live transcript, glass response overlay, and typed composer retain attachments, graphs, Lab, Tools, desktop actions, and project-building. The camera remains off until explicitly enabled, frames stay in memory, and visual inference runs on demand rather than on every preview frame.
-
-Choose **Normal Chat** or **Project**, press the active speaker button again, or use **Exit Live Action** to exit. MORICE immediately stops the camera, cancels microphone capture, reply playback, and vision inference, clears temporary frames/visual memory, and ignores late callbacks. Background wake is now opt-in: explicitly set `MORICE_ENABLE_ALWAYS_ON_WAKE=1` before running the listener. It never activates the camera and yields the microphone to Live Action. The installer no longer enables it by default.
-
-![Current Projects workspace](docs/screenshots/morice-projects.png)
-
-MORICE can work with text-based languages supported by the selected model and installed toolchain. See the [Project Mode guide](docs/project-mode.md) for access boundaries and workflow details.
-
-## Models And Hardware
-
-The model browser detects available GPU memory and presents a practical run plan before a model is selected.
-
-| Dedicated VRAM | Conservative starting guidance; not benchmark results |
-| ---: | --- |
-| 0-3 GB | CPU-first or small partial offload; use sufficient system RAM |
-| 4 GB | Conservative context and partial GPU offload |
-| 6 GB | Check the selected model's run plan and available memory before offloading |
-| 8 GB | Comfortable offload with additional context headroom |
-| 12 GB+ | Headroom for longer contexts or a larger replacement model |
-
-Actual performance depends on quantization, context length, GPU layers, drivers, system RAM, and other workloads. Use **Settings > Models** or **Context > Model** to choose a GGUF or local Ollama model that fits the machine.
-
-The VRAM table is configuration guidance, not a measured RTX 3050 performance claim.
-No new model comparison or throughput result is published by this fix. The earlier
-local latency tool in `scripts/benchmark_latency.py` labels its character-based
-throughput estimate; it must not be presented as a backend token measurement.
-
-<table>
-  <tr>
-    <td width="50%"><img src="docs/reviewer-images/morice-project.png" alt="Current MORICE model settings"></td>
-    <td width="50%"><img src="docs/reviewer-images/morice-personalization.png" alt="MORICE personalization settings"></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>Model and Project controls</strong><br>Hardware-aware model selection</td>
-    <td align="center"><strong>Settings</strong><br>Appearance, voice, behavior, and accessibility</td>
-  </tr>
-</table>
-
-## Composer Controls
-
-**Files**, **Voice**, **Model**, **Project**, and **Tools** show text labels when space
-allows, with tooltips and accessible names for their icons. Files uses a document
-icon; Project uses a folder icon. In compact layouts, **Tools** remains available
-and contains the hidden controls, Precision, and personalization settings.
-
-**Personalization: Off** means no custom name, title, style, or wake line is active.
-Set an optional preferred name or title in the panel, check the preview, then save.
-A title takes precedence over a name; clearing personalization restores neutral
-replies. Previously saved titles are preserved, including an intentionally chosen
-"All Father".
-
-**Precision: On** uses temperature **0.1** and top-p **0.85**, asks the model to be
-exact and avoid guesses, and persists across restarts. Its tooltip explains that
-this reduces sampling randomness; it does not guarantee correctness or run a
-separate verification pass. Deterministic graph calculations run independently
-of this switch. See the [reviewer-fix guide](docs/reviewer-fixes.md) for coverage
-and limits.
-
-## Install
-
-Download the newest verified build from [GitHub Releases](https://github.com/EONASH2722/MORICE/releases/latest).
-
-### Windows installer
-
-Download the setup executable and every adjacent numbered `.bin` slice into one folder, then run the setup executable. Installation is per-user and includes a Start menu shortcut with an optional desktop shortcut.
-
-### Portable build
-
-Download all portable `.part*` files, the `.parts.json` manifest, and the matching reassembly script from the [MORICE Portable Plug-and-Play Release](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-portable) into one folder. Run the script from PowerShell, extract the verified ZIP, and launch `MORICE.exe` without separating it from `_internal`.
-
-### Android companion
-
-Download the signed APK from the [MORICE Android Release](https://github.com/EONASH2722/MORICE/releases/tag/v0.8.0-android), verify its SHA-256 manifest, install it on Android 9 or newer, then pair it through **Panel > Pair a device** on MORICE Desktop. See the [Android companion guide](docs/android-companion.md).
-
-### Python package
-
-Advanced users can install the model-free wheel included with the release:
-
-```powershell
-python -m pip install .\morice_ai-0.9.4-py3-none-any.whl
+python -m pip install ".\morice_ai-0.12.0-py3-none-any.whl[research]"
 morice
 ```
 
-Select a local GGUF or Ollama model after launch. Verify every downloaded asset with `SHA256SUMS.txt` or `checksums.json`.
+Inference needs compatible local runtimes and installed weights. Media, voice and Android diagnostics need their respective providers/tools. Missing providers leave other workspaces usable. Windows downloads are preview builds; signing status and exact checks are recorded in the release audit.
 
-## Run From Source
+## Run from source
 
 ```powershell
 git clone https://github.com/EONASH2722/MORICE.git
 cd MORICE
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[research]"
+python -m pip install -e ".[dev,research]"
 python morice_app_launcher.py
 ```
 
-## Verify
+Use the isolated test harness to keep writes out of the real user profile:
 
 ```powershell
-python -m pip install -e ".[dev,research]"
-python -m pytest tests -q
-cd vnext
-pnpm test
-pnpm run typecheck
+python scripts/run_isolated_tests.py tests -q
+cd website
+npm ci
+npm run build
 ```
 
-Build all release assets with:
+## Documentation and project information
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-release.ps1
-```
+- [Documentation index](docs/README.md), [user manual](docs/user-manual.md), [troubleshooting](docs/troubleshooting.md)
+- [Security Lab guide](docs/security-lab-guide.md), [0.12.0 validation](docs/security-lab-validation-0.12.0.md)
+- [Globe, themes and voice](docs/globe-interface-0.11.0.md)
+- [Models and performance](docs/model-guide.md), [reasoning and equations](docs/reasoning-math-0.10.0.md)
+- [Project Mode](docs/project-mode.md), [Android companion](docs/android-companion.md), [desktop companions](docs/desktop-pets.md)
+- [Architecture](docs/architecture.md), [developer guide](docs/developer-guide.md), [plugin SDK](docs/plugin-sdk.md)
+- [Changelog](CHANGELOG.md), [contributing](CONTRIBUTING.md), [security reporting](SECURITY.md), [MIT license](LICENSE)
 
-The release pipeline produces the Windows installer, portable package, source and documentation archives, Python wheel and source distribution, package-content audit, and SHA-256 manifests.
-
-## Documentation
-
-- [User manual](docs/user-manual.md)
-- [Feature matrix](docs/feature-matrix.md)
-- [Project Mode](docs/project-mode.md)
-- [Android companion](docs/android-companion.md)
-- [Desktop pets](docs/desktop-pets.md)
-- [VNext rendering](docs/vnext-science-workspace.md)
-- [Models and performance](docs/model-guide.md)
-- [Advanced configuration](docs/advanced-configuration.md)
-- [Architecture](docs/architecture.md)
-- [Plugin SDK](docs/plugin-sdk.md)
-- [Developer guide](docs/developer-guide.md)
-- [Troubleshooting](docs/troubleshooting.md)
-
-## Contributing And Security
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Report security problems privately through the process in [SECURITY.md](SECURITY.md).
-
-MORICE keeps folder boundaries, protected paths, renderer validation, plugin isolation, and sensitive-action confirmations active even when broader Project Mode access is selected.
-
-## License
-
-MORICE is released under the [MIT License](LICENSE).
+All screenshots above are fresh native 0.12.0 captures using owned fixtures. No reference image or generated mockup is presented as a working feature.

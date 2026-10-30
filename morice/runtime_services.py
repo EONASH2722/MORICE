@@ -1410,6 +1410,7 @@ class RuntimeServices:
         self._device_mesh = None  # Identity/networking stay lazy until explicitly enabled.
         self._research_runtime = None
         self._ambient_service = None
+        self._security_lab = None
         self._media_lab = None
         self._spatial_service = None
         from .media_lab.capabilities import register_media_capabilities
@@ -1421,6 +1422,8 @@ class RuntimeServices:
         from .research.history import register_history_capabilities
         register_history_capabilities(self.kernel,lambda:self.chat_history,
             enabled=lambda:normalize_boolean_setting(load_settings().get('chat_memory_enabled','true'),default=True))
+        from .security_lab.service import register as register_security_lab
+        register_security_lab(self.kernel,lambda:self.security_lab)
 
     @property
     def chat_history(self):
@@ -1444,6 +1447,15 @@ class RuntimeServices:
                 from .science_engine import _evaluate_scalar
                 self._device_mesh.node._observers["python.calculate"] = lambda args, ctx: {"value": _evaluate_scalar(args["expression"], float(args.get("x", 0)))}
             return self._device_mesh
+
+    @property
+    def security_lab(self):
+        with self._lock:
+            if self._shutdown:raise RuntimeError('Runtime is shut down.')
+            if self._security_lab is None:
+                from .security_lab.service import SecurityLab
+                self._security_lab=SecurityLab(self)
+            return self._security_lab
 
     @property
     def ambient(self):
@@ -2113,6 +2125,7 @@ class RuntimeServices:
             self._started = False
         failures: list[str] = []
         shutdown_steps = (
+                ("security lab", lambda: self._security_lab.shutdown() if self._security_lab else None),
                 ("media", lambda: self._media_lab.close() if self._media_lab else None),
                 ("ambient", lambda: self._ambient_service.close() if self._ambient_service else None),
                 ("research", lambda: self._research_runtime.close() if self._research_runtime else None),

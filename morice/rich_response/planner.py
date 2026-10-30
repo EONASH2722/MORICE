@@ -73,6 +73,12 @@ class ResponsePlanner:
         for execution in result.executions:
             if not execution.get('success') or not isinstance(execution.get('output'),dict):continue
             value=execution['output'];capability=execution.get('capability_id','')
+            if value.get('lab_job_id'):
+                source=SourceRef('security_lab',value['lab_job_id'],scope=context.conversation_id)
+                add('status',source,'Actual Security Lab outcome')
+                add('metrics',source,'Candidate workload and elapsed time',{'fields':['tested_candidates','candidate_count','seconds']})
+                add('table',source,'Actual attempts, checks or findings')
+                add('files',source,'Verified recovered artifacts')
             if value.get('build_session_id'):
                 source=SourceRef('build_session',value['build_session_id'],scope=context.conversation_id)
                 add('progress',source,'Actual Builder state')

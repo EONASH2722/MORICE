@@ -44,6 +44,7 @@ dependencies = [
   "elevenlabs>=2.63,<3",
   "python-dotenv>=1.2,<2",
   "cryptography>=45,<47",
+  "pyzipper==0.3.6",
 ]
 
 [project.optional-dependencies]

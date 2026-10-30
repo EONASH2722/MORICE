@@ -332,6 +332,9 @@ class AmbientWorkspace(AmbientDialog):
         super().__init__(runtime, parent); self.setWindowFlags(Qt.Widget); self.timer.stop()
         self.layout().setContentsMargins(24, 20, 24, 20); self.tabs = self.findChild(QTabWidget)
         self.heading = QLabel('Automations'); self.heading.setProperty('role', 'title'); self.layout().insertWidget(0, self.heading)
+        from ..security_lab.ui import SecurityLabPanel
+        self.lab_panel=SecurityLabPanel(runtime,bridge,self);self.tabs.addTab(self.lab_panel,'Security Lab')
+        self.tabs.currentChanged.connect(lambda index:self.status.setVisible(self.tabs.widget(index) is not self.lab_panel))
         self.timer.setInterval(1500)
 
     def select_route(self, key):
@@ -351,7 +354,10 @@ class AmbientWorkspace(AmbientDialog):
     def hideEvent(self, event):
         self.timer.stop(); super().hideEvent(event)
 
-    def dispose(self): self.timer.stop()
+    def dispose(self):
+        self.timer.stop();self.lab_panel.timer.stop()
+        for widget in (self.lab_panel.password,self.lab_panel.convention,self.lab_panel.convention_values,self.lab_panel.sender_token,self.lab_panel.recipient_token):widget.clear()
+        self.lab_panel._candidate_values=[];self.lab_panel._key=None
 
 
 class HistoryWorkspace(ChatHistoryDialog):
