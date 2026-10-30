@@ -129,10 +129,12 @@ def run(output):
     host=RichResponseHost(ResponsePlan(window._chat_id,(component,)),window,registry=registry)
     snapshot=SourceSnapshot(component.source,'Owned source values','USER_DATA','owned-revision',{'result':42.5},verified=True)
     host.sources.resolve=lambda source:snapshot
+    window._insert_chat_widget(host);host.show();window.scroll.ensureWidgetVisible(host)
+    host.select_section(component.id);app.processEvents()
     host.load(component.id)
     until=time.monotonic()+15
     while not host.sections[component.id]['error'] and time.monotonic()<until:app.processEvents();QTest.qWait(10)
-    state=host.sections[component.id];assert state['error'] and '42.5' in state['plain_text']
+    state=host.sections[component.id];assert state['error'] and '42.5' in state.get('plain_text',''),{'error':state['error'],'loading':state['loading'],'visible':host.isVisible(),'text':state['placeholder'].text()}
     host.dispose();host.close();host.deleteLater()
     text_fallback_probe={'failed_renderer_to_original_text':True,'one_user_and_one_reply':True,
         'actual_source_text_after_component_failure':True,'model_transport_stubbed':True,'weights_loaded':False}
