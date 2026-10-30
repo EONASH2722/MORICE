@@ -26,6 +26,7 @@ class WindowCapabilityPort:
 
     def context(self):
         window=self._owner()
+        workspace=(getattr(window,'_voice_context_route','') if window.chat_mode=='voice' else '') or window.active_route
         last=window.history[-1] if window.history else {}
         turn_key=last.get('message_id') or (str(len(window.history))+':'+hashlib.sha256(str(last.get('content','')).encode()).hexdigest()[:16])
         selected=[row for row in self._selections.get(window._chat_id,()) if row.get('kind')!='security_finding' or row.get('turn_key')==turn_key]
@@ -35,10 +36,10 @@ class WindowCapabilityPort:
             if host is not None and not host.closed and host.plan.conversation_id==window._chat_id:
                 selected.append({'kind':'response','id':host.plan.id});break
         view=window.routes.get('research')
-        if window.active_route=='research' and view is not None:
+        if workspace=='research' and view is not None:
             identifier=view.selected_id()
             if identifier:selected=[{'kind':'experiment','id':identifier}]
-        return ActiveContext(window._chat_id,self.window_id,window.active_route,
+        return ActiveContext(window._chat_id,self.window_id,workspace,
             str(window.project_folder or ''),str(window._research_project_id or ''),tuple(selected),last_turn_key=turn_key)
 
     def remember_result(self,result):
@@ -237,13 +238,13 @@ class WindowCapabilityPort:
         if capability=='ui.navigate':
             route=arguments['route']
             window.navigate(route)
-            return {'message':f'Opened {"Core" if route=="home" else route.title()}.','route':route}
+            return {'message':f'{route.title()} is selected for voice commands.' if window.chat_mode=='voice' and route!='voice' else f'Opened {"Core" if route=="home" else route.title()}.','route':route}
         if capability=='ui.settings':
             category=arguments['category'];settings=window.routes['settings']
             matches=[i for i in range(settings.list.count()) if settings.list.item(i).text().casefold()==category.casefold()]
             if len(matches)!=1:raise ValueError('That settings category is not available.')
             settings.search.clear();settings.list.setCurrentRow(matches[0]);window.navigate('settings')
-            return {'message':f'Opened Settings → {category}.','category':category}
+            return {'message':f'Settings → {category} is selected for voice commands.' if window.chat_mode=='voice' else f'Opened Settings → {category}.','category':category}
         if capability=='ui.appearance':
             before=window.theme_engine.profile.to_dict()
             changes=dict(arguments.get('changes',{}));relative=dict(arguments.get('relative',{}))

@@ -19,7 +19,12 @@ def run(output):
     from PySide6.QtWidgets import QApplication
     from .pyside_app import create_application_window
     from .runtime_services import get_runtime_services
-    app=QApplication([]);runtime=get_runtime_services();window=create_application_window(runtime,runtime.start());window.show()
+    app=QApplication([]);runtime=get_runtime_services();window=create_application_window(runtime,runtime.start())
+    background=os.getenv('MORICE_PROBE_BACKGROUND')=='1'
+    if background:
+        from PySide6.QtCore import Qt
+        window.setAttribute(Qt.WA_ShowWithoutActivating);window.setWindowFlag(Qt.WindowStaysOnBottomHint)
+    window.show()
     window._run_startup_health_check()
     spatial=None
     spatial=runtime.spatial.set_pair('Chennai','New York')['result']
@@ -144,7 +149,9 @@ def run(output):
         field=window.material_backdrop.material()
         scenes.append({'preset':preset,'scene':window.material_backdrop.diagnostics()['scene'],'raster_present':field is not None})
     window.theme_engine.update(preset='GLASS',reduced_motion=False,persist=False)
-    window.navigate('home');window.activateWindow();app.processEvents();canvas=window.globe_view.canvas
+    window.navigate('home')
+    if not background:window.activateWindow()
+    app.processEvents();canvas=window.globe_view.canvas
     assert hasattr(canvas,'dynamics'),'The native package requires the actual OpenGL globe.'
     initial_phase=tuple(canvas._orbit_phases)
     from .security_lab.package_probe import probe as probe_security_lab
@@ -167,7 +174,7 @@ def run(output):
     result['text_fallback']=text_fallback_probe
     result['security_lab']=security_probe
     result['composer_geometry']=geometry;result['theme_scenes']=scenes
-    result['ambient_animation']={'phase_advanced':tuple(canvas._orbit_phases)!=initial_phase,'reduced_motion':window.theme_engine.profile.reduced_motion}
+    result['ambient_animation']={'phase_advanced':tuple(canvas._orbit_phases)!=initial_phase,'reduced_motion':window.theme_engine.profile.reduced_motion,'background_probe':background}
     result['globe']=live_globe[-1] if live_globe else canvas.diagnostics();result['three_themes']=list(UI_THEMES.values())
     result['thinking_levels']=[window.thinking_level.itemData(i) for i in range(window.thinking_level.count())]
     if spatial is not None:result['spatial_result']=spatial
@@ -175,4 +182,4 @@ def run(output):
     result["leases_after"]=len(runtime.kernel.resources.snapshot())
     Path(output).write_text(json.dumps(result,indent=2),encoding="utf-8")
     geometry_ok=all(all(control.values()) for row in geometry for control in row['controls'].values())
-    return 0 if result["critical_failures"]==result["leases_after"]==0 and result["ui_ticks"]>10 and result["shutdown"]["clean"] and geometry_ok and all(row['raster_present'] for row in scenes) and result['ambient_animation']['phase_advanced'] and result['globe']['gpu'] and result['globe']['gl']['last_gl_error']==0 else 1
+    return 0 if result["critical_failures"]==result["leases_after"]==0 and result["ui_ticks"]>10 and result["shutdown"]["clean"] and geometry_ok and all(row['raster_present'] for row in scenes) and (background or result['ambient_animation']['phase_advanced']) and result['globe']['gpu'] and result['globe']['gl']['last_gl_error']==0 else 1

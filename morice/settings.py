@@ -75,6 +75,7 @@ DEFAULT_SETTINGS = {
     "pet_interaction_enabled": "true",
     "pet_click_action": "open_morice",
     "pet_event_frequency": "normal",
+    "orb_voice_wake": "false",
 }
 
 
@@ -222,7 +223,7 @@ def normalize_pet_id(value: str) -> str:
     text = aliases.get(text, text)
     return (
         text
-        if text in {"ironman_mark42", "spiderman", "horse", "skeleton", "dog", "cat"}
+        if text in {"ironman_mark42", "spiderman", "horse", "skeleton", "dog", "cat", "orb"}
         else DEFAULT_SETTINGS["active_pet"]
     )
 
@@ -572,6 +573,7 @@ def load_settings() -> dict:
         normalize_boolean_setting(settings.get("pet_enabled", ""))
     ).lower()
     settings["active_pet"] = normalize_pet_id(settings.get("active_pet", ""))
+    settings['orb_voice_wake']=str(normalize_boolean_setting(settings.get('orb_voice_wake','false'))).lower()
     settings["pet_size"] = normalize_pet_size(settings.get("pet_size", ""))
     settings["pet_animation_speed"] = normalize_animation_speed(
         settings.get("pet_animation_speed", "")
@@ -716,6 +718,7 @@ def save_settings(settings: dict) -> None:
         normalize_boolean_setting(settings.get("pet_enabled", ""))
     ).lower()
     clean["active_pet"] = normalize_pet_id(settings.get("active_pet", ""))
+    clean['orb_voice_wake']=str(normalize_boolean_setting(settings.get('orb_voice_wake','false'))).lower()
     clean["pet_size"] = normalize_pet_size(settings.get("pet_size", ""))
     clean["pet_animation_speed"] = normalize_animation_speed(
         settings.get("pet_animation_speed", "")

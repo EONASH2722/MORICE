@@ -49,16 +49,17 @@ def _theme_orbit_geometry(radius,orbit,paths,preset):
     return path,tuple(positions)
 
 
-def draw_core(painter, rect, snapshot, tokens, phase, complexity=3, brightness=.7, moving=True, motion_strength=1.,core_scale=1.):
+def draw_core(painter, rect, snapshot, tokens, phase, complexity=3, brightness=.7, moving=True, motion_strength=1.,core_scale=1.,*,preserve_pose=False):
     """Spline orbits with a luminous point; no face, eyes or identity mark."""
     center = rect.center(); radius = min(rect.width(), rect.height()) * .33 * max(.5,min(1.5,core_scale))
     if radius < 1: return
     color = core_color(snapshot, tokens); secondary = QColor(tokens['accent_secondary'])
     moving = moving and motion_strength > 0
-    phase = loop_angle(phase) if moving else 0.
+    pose=moving or preserve_pose and motion_strength>0
+    phase = loop_angle(phase) if pose else 0.
     motion_strength = max(0., min(1., motion_strength))
     active = snapshot.state not in {CoreState.IDLE, CoreState.ARMED}
-    breath = 1 + (.025 * math.sin(phase)*motion_strength if moving else 0)
+    breath = 1 + (.025 * math.sin(phase)*motion_strength if pose else 0)
     if snapshot.state == CoreState.UNDERSTANDING: radius *= .86
     amplitude = snapshot.audio_level if snapshot.state in {CoreState.LISTENING, CoreState.SPEAKING} else 0
     halo = QRadialGradient(center, radius * 1.5)
@@ -70,8 +71,8 @@ def draw_core(painter, rect, snapshot, tokens, phase, complexity=3, brightness=.
         # centre. These decorative cycles never encode elapsed task progress.
         direction = -1 if orbit % 3 == 1 else 1
         rotation = phase*direction + orbit*1.17
-        lift = radius*.11*math.sin(phase*2 + orbit*1.6)*motion_strength if moving else 0.
-        tilt = 1. + .18*math.sin(phase + orbit*1.2)*motion_strength if moving else 1.
+        lift = radius*.11*math.sin(phase*2 + orbit*1.6)*motion_strength if pose else 0.
+        tilt = 1. + .18*math.sin(phase + orbit*1.2)*motion_strength if pose else 1.
         preset=getattr(tokens,'scene','MORICE')
         if preset in {'MORICE','ARCTIC'}:
             path,positions=_orbit_geometry(round(radius,2),orbit,0.)
@@ -88,7 +89,7 @@ def draw_core(painter, rect, snapshot, tokens, phase, complexity=3, brightness=.
         point=positions[index]*(1-fraction)+positions[index+1]*fraction
         painter.setPen(Qt.NoPen); painter.setBrush(with_alpha(line, 220*brightness)); painter.drawEllipse(point, 2.2, 2.2)
         painter.restore()
-    if amplitude and moving:
+    if amplitude and pose:
         painter.setPen(QPen(with_alpha(color, 160*brightness), 1.4))
         for i in range(40):
             a = i/40*math.tau; start = radius*1.12
@@ -131,7 +132,7 @@ class CoreCanvas(QWidget):
     def paintEvent(self,event):
         started=time.perf_counter();p=QPainter(self);p.setRenderHint(QPainter.Antialiasing)
         profile=self.theme.profile
-        draw_core(p,QRectF(self.rect()),self.model.snapshot,self.theme.tokens,self._phase,profile.orbital_complexity,profile.core_brightness, self.policy.budget.decorative_motion, profile.motion_strength,profile.core_scale)
+        draw_core(p,QRectF(self.rect()),self.model.snapshot,self.theme.tokens,self._phase,profile.orbital_complexity,profile.core_brightness, self.policy.budget.decorative_motion, profile.motion_strength,profile.core_scale,preserve_pose=self.policy.load_state=='UNFOCUSED' and not profile.reduced_motion)
         p.end();self.paint_count+=1;self.paint_samples.append((time.perf_counter()-started)*1000)
 
     def showEvent(self,event):self.clock.request();super().showEvent(event)

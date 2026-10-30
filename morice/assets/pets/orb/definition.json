@@ -1,0 +1,1 @@
+{"id":"orb","name":"Orb","renderer":"holographic_globe","movement":"floating","click_feedback":"ripple","accent":"#c68bff","behavior_states":["idle","hover","react","dragged"]}

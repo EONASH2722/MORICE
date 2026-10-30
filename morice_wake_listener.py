@@ -483,6 +483,9 @@ def wake_morice(source: str) -> None:
     env["MORICE_START_AWAKE"] = "1"
     env["MORICE_WAKE_SOURCE"] = source
     env["MORICE_BACKGROUND_WAKE"] = "1"
+    selected=load_settings()
+    if selected.get('pet_enabled')=='true' and selected.get('active_pet')=='orb' and selected.get('orb_voice_wake')=='true' and norm(source).split()[-1:] in [['morice'],['morris'],['maurice']]:
+        env['MORICE_ORB_VOICE_SESSION']='1'
     launchers = []
     if EXE_PATH.exists():
         launchers.append(([str(EXE_PATH)], EXE_PATH.parent, "exe"))
@@ -839,6 +842,9 @@ def main() -> int:
 
     while True:
         wait_for_voice_session_release()
+        if os.getenv('MORICE_ORB_WAKE_SESSION')=='1':
+            current=load_settings()
+            if current.get('pet_enabled')!='true' or current.get('active_pet')!='orb' or current.get('orb_voice_wake')!='true':return 0
         option = stream_options[stream_index % len(stream_options)]
         source_rate = int(option["rate"])
         source_block_size = max(320, int(round(source_rate * BLOCK_DURATION_SECONDS)))
@@ -886,6 +892,9 @@ def main() -> int:
 
                     if now - last_settings_refresh >= SETTINGS_REFRESH_SECONDS:
                         last_settings_refresh = now
+                        if os.getenv('MORICE_ORB_WAKE_SESSION')=='1':
+                            current=load_settings()
+                            if current.get('pet_enabled')!='true' or current.get('active_pet')!='orb' or current.get('orb_voice_wake')!='true':return 0
                         latest_wake_phrase = configured_wake_phrase()
                         if latest_wake_phrase != wake_phrase:
                             wake_phrase = latest_wake_phrase

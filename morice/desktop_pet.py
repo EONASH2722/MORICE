@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QObject, QPoint, QRect, QLockFile, QTimer, Qt, Signal
+from PySide6.QtCore import QObject, QPoint, QRect, QLockFile, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen, QPolygon, QRegion
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QWidget
@@ -37,6 +37,7 @@ SUPPORTED_PETS = (
     "skeleton",
     "dog",
     "cat",
+    "orb",
 )
 PET_HOST_SERVER_NAME = "EONASH2722.MORICE.DesktopPet.v1"
 
@@ -80,6 +81,7 @@ class AssetLoader:
 
 
 _PET_DEFAULTS = {
+    'orb':PetDefinition('orb','Orb','holographic_globe','floating','ripple','#c68bff',('idle','hover','react','dragged')),
     "ironman_mark42": PetDefinition(
         "ironman_mark42",
         "Iron Man — Mark 42",
@@ -2038,6 +2040,7 @@ class PetManager(QObject):
         self._lock = QLockFile(str(app_session_path().with_name("morice-desktop-pet.lock")))
         self._lock.setStaleLockTime(0)
         self._owns_lock = False
+        self._wake_process=None
         self._fullscreen_timer = QTimer(self)
         self._fullscreen_timer.setInterval(650)
         self._fullscreen_timer.setTimerType(Qt.CoarseTimer)
@@ -2055,6 +2058,7 @@ class PetManager(QObject):
         if self.overlay is not None:
             self.overlay.start()
         self._fullscreen_timer.start()
+        self._sync_orb_wake()
         return self.overlay is not None
 
     def configure(self, settings: dict) -> None:
@@ -2084,8 +2088,11 @@ class PetManager(QObject):
             self.overlay.configure_event_frequency(
                 self.settings.get("pet_event_frequency", "normal")
             )
+            if hasattr(self.overlay,'reload_style'):self.overlay.reload_style()
+        self._sync_orb_wake()
 
     def remove_pet(self) -> None:
+        self._stop_orb_wake()
         self._fullscreen_timer.stop()
         if self.overlay is not None:
             self.overlay.shutdown()
@@ -2099,7 +2106,11 @@ class PetManager(QObject):
 
     def _create_overlay(self) -> None:
         definition = self.asset_loader.load(self.settings.get("active_pet", "dog"))
-        overlay = PetOverlayWindow(
+        if definition.pet_id=='orb':
+            from .orb_pet import OrbPetWindow
+            factory=OrbPetWindow
+        else:factory=PetOverlayWindow
+        overlay = factory(
             definition,
             click_action=self.settings.get("pet_click_action", "open_morice"),
             size=self.settings.get("pet_size", "medium"),
@@ -2111,6 +2122,35 @@ class PetManager(QObject):
         )
         overlay.activated.connect(self._activate_morice)
         self.overlay = overlay
+
+    def present(self,value):
+        if self.overlay is not None and hasattr(self.overlay,'present'):self.overlay.present(value)
+
+    def _stop_orb_wake(self):
+        if self._wake_process is not None:
+            if self._wake_process.poll() is None:
+                # A venv launcher can own a second Python process. Stop only
+                # listener descendants; a MORICE UI it launched must survive.
+                import psutil
+                try:
+                    for child in psutil.Process(self._wake_process.pid).children(recursive=True):
+                        try:
+                            if '--morice-wake-listener' in child.cmdline():child.terminate()
+                        except (psutil.NoSuchProcess,psutil.AccessDenied):pass
+                except (psutil.NoSuchProcess,psutil.AccessDenied):pass
+                self._wake_process.terminate()
+                try:self._wake_process.wait(timeout=2)
+                except subprocess.TimeoutExpired:self._wake_process.kill();self._wake_process.wait(timeout=2)
+            self._wake_process=None
+
+    def _sync_orb_wake(self):
+        wanted=normalize_pet_id(self.settings.get('active_pet'))=='orb' and _setting_bool(self.settings.get('orb_voice_wake')) and _setting_bool(self.settings.get('pet_enabled'))
+        if not wanted:self._stop_orb_wake();return
+        if self._wake_process is not None and self._wake_process.poll() is None:return
+        command=default_pet_host_command();command[-1]='--morice-wake-listener'
+        env={**os.environ,'MORICE_ENABLE_ALWAYS_ON_WAKE':'1','MORICE_ORB_WAKE_SESSION':'1'}
+        try:self._wake_process=subprocess.Popen(command,env=env,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0),close_fds=True)
+        except OSError:self._wake_process=None
 
     def _activate_morice(self, action: str) -> None:
         now = time.monotonic()
@@ -2174,15 +2214,42 @@ class PetProcessController(QObject):
         settings: dict | None = None,
         spawn: Callable[[], object] | None = None,
         parent: QObject | None = None,
+        server_name: str = PET_HOST_SERVER_NAME,
     ) -> None:
         super().__init__(parent)
         self.settings = dict(settings or load_settings())
         self._spawn_callback = spawn or self._spawn
         self._launch_pending_until = 0.0
+        self.server_name=server_name
+        self.presentation_source=None;self._visual_pending=None;self._visual_retry=0.
+        self._visual_socket=QLocalSocket(self);self._visual_socket.connected.connect(self._send_presentation)
+        self._visual_socket.errorOccurred.connect(self._visual_error)
+        self._visual_timer=QTimer(self);self._visual_timer.setInterval(50);self._visual_timer.timeout.connect(self._send_presentation)
+
+    def _visual_error(self,*_):
+        self._visual_retry=time.monotonic()+1.;self._visual_socket.abort()
+
+    def _configure_presentation(self):
+        if _setting_bool(self.settings.get('pet_enabled')) and normalize_pet_id(self.settings.get('active_pet'))=='orb':self._visual_timer.start()
+        else:self._visual_timer.stop();self._visual_socket.abort();self._visual_pending=None
+
+    def present(self,snapshot):
+        self._visual_pending={'state':snapshot.state.value,'level':snapshot.audio_level}
+
+    def _send_presentation(self):
+        if self.presentation_source is not None:self.present(self.presentation_source())
+        if self._visual_pending is None or time.monotonic()<self._visual_retry:return
+        socket=self._visual_socket
+        if socket.state()==QLocalSocket.UnconnectedState:socket.connectToServer(self.server_name);return
+        if socket.state()!=QLocalSocket.ConnectedState:return
+        if socket.bytesToWrite()>4096:self._visual_error();return
+        payload=json.dumps({'presentation':self._visual_pending},allow_nan=False).encode()+b'\n'
+        socket.write(payload);socket.flush()
 
     def start(self) -> bool:
         if not _setting_bool(self.settings.get("pet_enabled", "false")):
             return False
+        self._configure_presentation()
         if _send_pet_host_command("reload"):
             self._launch_pending_until = 0.0
             return True
@@ -2200,6 +2267,7 @@ class PetProcessController(QObject):
 
     def configure(self, settings: dict) -> None:
         self.settings = dict(settings)
+        self._configure_presentation()
         if not _setting_bool(self.settings.get("pet_enabled", "false")):
             self.remove_pet()
             return
@@ -2207,13 +2275,14 @@ class PetProcessController(QObject):
             self.start()
 
     def remove_pet(self) -> None:
+        self._visual_timer.stop();self._visual_socket.abort();self._visual_pending=None
         _send_pet_host_command("stop")
         self._launch_pending_until = 0.0
 
     def shutdown(self) -> None:
         # The resident companion intentionally survives the main app so it can
         # act as a desktop shortcut.  "Remove Pet" is the explicit stop path.
-        return
+        self._visual_timer.stop();self._visual_socket.abort()
 
     def _spawn(self) -> subprocess.Popen:
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(
@@ -2229,43 +2298,59 @@ class PetProcessController(QObject):
 class _PetHostServer(QObject):
     stop_requested = Signal()
     reload_requested = Signal()
+    presentation_received = Signal(object)
 
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(self, parent: QObject | None = None,*,server_name=PET_HOST_SERVER_NAME) -> None:
         super().__init__(parent)
+        self.server_name=server_name
         self.server = QLocalServer(self)
         self.server.newConnection.connect(self._accept_connections)
         self.clients: set[QLocalSocket] = set()
 
     def listen(self) -> bool:
-        QLocalServer.removeServer(PET_HOST_SERVER_NAME)
-        return self.server.listen(PET_HOST_SERVER_NAME)
+        QLocalServer.removeServer(self.server_name)
+        return self.server.listen(self.server_name)
 
     def close(self) -> None:
-        self.server.close()
-        QLocalServer.removeServer(PET_HOST_SERVER_NAME)
+        QLocalServer.removeServer(self.server_name)
         for client in tuple(self.clients):
-            client.abort()
+            client.blockSignals(True);client.abort();client.deleteLater()
         self.clients.clear()
+        self.server.close()
 
     def _accept_connections(self) -> None:
         while self.server.hasPendingConnections():
             client = self.server.nextPendingConnection()
             if client is None:
                 continue
+            if len(self.clients)>=8:client.abort();client.deleteLater();continue
             self.clients.add(client)
-            client.readyRead.connect(lambda client=client: self._read(client))
-            client.disconnected.connect(lambda client=client: self._drop(client))
+            client.readyRead.connect(self._read_client)
+            client.disconnected.connect(self._client_disconnected)
             if client.bytesAvailable():
                 self._read(client)
 
+    @Slot()
+    def _read_client(self):
+        client=self.sender()
+        if client in self.clients:self._read(client)
+
+    @Slot()
+    def _client_disconnected(self):
+        client=self.sender()
+        if client in self.clients:self._drop(client)
+
     def _read(self, client: QLocalSocket) -> None:
-        payload = bytes(client.readAll()).decode("utf-8", errors="ignore")
-        commands = {line.strip().casefold() for line in payload.splitlines()}
-        if "stop" in commands:
-            self.stop_requested.emit()
-        elif "reload" in commands:
-            self.reload_requested.emit()
-        client.disconnectFromServer()
+        payload=bytes(client.property('pending') or b'')+bytes(client.readAll())
+        if len(payload)>8192:client.abort();return
+        lines=payload.split(b'\n');client.setProperty('pending',lines.pop())
+        for line in lines:
+            if line.strip()==b'stop':self.stop_requested.emit();client.disconnectFromServer();return
+            if line.strip()==b'reload':self.reload_requested.emit();client.disconnectFromServer();return
+            try:
+                value=json.loads(line)
+                if isinstance(value,dict) and set(value)=={'presentation'} and isinstance(value['presentation'],dict):self.presentation_received.emit(value['presentation'])
+            except (ValueError,TypeError):pass
 
     def _drop(self, client: QLocalSocket) -> None:
         self.clients.discard(client)
@@ -2303,6 +2388,7 @@ def run_pet_host() -> int:
         manager.configure(refreshed)
 
     server.reload_requested.connect(reload_pet)
+    server.presentation_received.connect(manager.present)
     server.stop_requested.connect(app.quit)
     app.aboutToQuit.connect(server.close)
     app.aboutToQuit.connect(manager.shutdown)

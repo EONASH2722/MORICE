@@ -147,6 +147,7 @@ class RenovatedWindow(ExistingPresenter):
             history=lambda: HistoryWorkspace(self), plugins=lambda: PluginsWorkspace(self, self.ui_bridge))
         for key in ('automations', 'connectors', 'security'): self.route_factories[key] = self._ambient_view
         self._renovated_ready = True
+        self.pet_manager.presentation_source=self._orb_snapshot
         self.plugin_center.open_center = lambda: self.navigate('plugins')
         # This retired presentation never becomes visible in the renovated root.
         # Its polling timer is cosmetic; all domain/service owners remain intact.
@@ -246,6 +247,7 @@ class RenovatedWindow(ExistingPresenter):
 
     def _wake_open_chat(self,state):
         if state=='LISTENING' and self.wake_controller.active:
+            if getattr(self,'_orb_voice_wake',False):self.wake_controller.overlay.hide();return
             self.navigate('chats')
             if not self.wake_controller._fullscreen:
                 if self.isMinimized() or not self.isVisible():self.showNormal()
@@ -265,9 +267,12 @@ class RenovatedWindow(ExistingPresenter):
             except Exception as exc:
                 self.status_line.setText('This workspace could not open: ' + str(exc)[:300]); return
         if key not in self.routes: return
+        if self.chat_mode=='voice' and key!='voice':
+            self._voice_context_route=key
+            return
         if not self.is_busy and not self._project_build_id:
-            if key == 'projects': self._set_chat_mode('project')
-            elif key in {'home', 'chats'}: self._set_chat_mode('normal')
+            if key == 'projects' and self.chat_mode!='voice': self._set_chat_mode('project')
+            elif key in {'home', 'chats'} and self.chat_mode!='voice': self._set_chat_mode('normal')
         self.active_route = key; self.route_stack.setCurrentWidget(self.routes[key]); self.navigation.set_active(key)
         self.route_stack.setAttribute(Qt.WA_TransparentForMouseEvents,key=='home')
         if hasattr(self,'chat_globe_host'):self._fit_chat_globe()
@@ -306,6 +311,7 @@ class RenovatedWindow(ExistingPresenter):
         return view
 
     def _set_chat_mode(self,mode,*args,**kwargs):
+        if getattr(self,'_renovated_ready',False) and mode=='voice' and self.chat_mode!='voice':self._voice_context_route=self.active_route
         result=super()._set_chat_mode(mode,*args,**kwargs)
         if getattr(self,'_renovated_ready',False) and not getattr(self,'_routing_voice_mode',False):
             target='voice' if self.chat_mode=='voice' and not self.wake_controller.active else 'chats' if self.active_route=='voice' and self.chat_mode!='voice' else None
@@ -802,7 +808,7 @@ class RenovatedWindow(ExistingPresenter):
                     self._append_direct_reply(text,resolution.question,address=False)
                     self.runtime.nlui.commit_pending(self.nlui_port.context(),persist=self._session_enabled)
                 return
-        if self.is_busy and self.active_route != getattr(self, '_request_workspace_route', self.active_route):
+        if self.chat_mode!='voice' and self.is_busy and self.active_route != getattr(self, '_request_workspace_route', self.active_route):
             self.status_line.setText('Finish or stop the current response before sending from another workspace.')
             return
         if self._project_build_id and self.active_route == 'projects':
@@ -811,9 +817,9 @@ class RenovatedWindow(ExistingPresenter):
         if not self.is_busy:
             self._request_workspace_route = 'chats' if self.active_route == 'home' else self.active_route
             self._project_presentation_active = self.active_route == 'projects'
-            if self.active_route == 'projects':
+            if self.active_route == 'projects' and self.chat_mode!='voice':
                 self._set_chat_mode('project'); self._set_project_workspace_tab(3)
-            elif self.active_route in {'home', 'chats'}:
+            elif self.active_route in {'home', 'chats'} and self.chat_mode!='voice':
                 self._set_chat_mode('normal')
         if self.active_route != 'projects' and SpatialService.is_context_command(text):
             self.input.clear()
@@ -824,7 +830,7 @@ class RenovatedWindow(ExistingPresenter):
                 if envelope['ok'] and envelope['value']:
                     self._append_direct_reply(text, envelope['value']['message'])
                     self.navigate('spatial'); self.routes['spatial'].completed(envelope)
-                    if self.isMinimized() or not self.isVisible(): self.showNormal(); self.raise_(); self.activateWindow()
+                    if self.chat_mode!='voice' and (self.isMinimized() or not self.isVisible()): self.showNormal(); self.raise_(); self.activateWindow()
                 elif envelope['ok']:
                     self.input.setText(text); self.navigate('chats'); super(RenovatedWindow, self).on_send()
                 else:
@@ -843,6 +849,8 @@ class RenovatedWindow(ExistingPresenter):
         from ..wake_runtime import parse_wake_request
         from ..desktop_pet import foreground_is_fullscreen
         request = parse_wake_request(source)
+        self._orb_voice_wake=(self.settings.get('active_pet')=='orb' and self.settings.get('pet_enabled')=='true'
+            and self.settings.get('orb_voice_wake')=='true' and request.source.casefold().strip() in {'magic words: morice','magic words: morris','magic words: maurice'})
         self.wake_controller.activate(request.source, fullscreen=self.isFullScreen() or foreground_is_fullscreen(ignored_hwnds={int(self.wake_controller.overlay.winId())}))
 
     def _begin_voice_listening(self):
@@ -984,6 +992,19 @@ class RenovatedWindow(ExistingPresenter):
 
     def _core_changed(self, snapshot):
         self.status_line.setText(snapshot.title + ' · ' + snapshot.detail)
+
+    def _orb_snapshot(self):
+        if self.settings.get('orb_voice_wake')=='true' and self.runtime.kernel.permissions.controller.state('microphone_access')==PermissionState.ASK:
+            # Restore the user's explicit saved Orb microphone opt-in; an
+            # explicit denial or OS restriction is never overwritten.
+            self.runtime.kernel.permissions.controller.set_state('microphone_access',PermissionState.GRANTED)
+        if self.settings.get('orb_voice_wake')=='true' and self.runtime.kernel.permissions.controller.state('microphone_access') not in {PermissionState.ASK,PermissionState.GRANTED}:
+            from ..settings import save_settings
+            self.settings['orb_voice_wake']='false';save_settings(self.settings);self.pet_manager.configure(self.settings)
+            self.runtime.speech_input.cancel('Orb microphone permission revoked')
+            field=getattr(self,'orb_pet_settings',None)
+            if field is not None:field.wake.blockSignals(True);field.wake.setChecked(False);field.wake.blockSignals(False)
+        self.core_presentation.sample();return self.core_presentation.snapshot
 
     def _refresh_top_bar_status(self, sample=None):
         super()._refresh_top_bar_status(sample)

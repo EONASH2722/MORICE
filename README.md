@@ -63,6 +63,12 @@ The owned challenge is a reproducible fixture, not a test of a live service. Rea
 
 ## One interface, three themes
 
+**Desktop pet: Orb.** Choose **Settings → Desktop pet → Orb** for the home globe as a movable desktop companion. Its wire gaps are transparent, with a subtle glow; drag and drop it, touch it with the pointer, and let it rotate smoothly through shuffled left/right/up/down turns. **Orb color** and **Glow color** are independent controls in Desktop pet settings and Orb's right-click menu; they save separately from the main globe's colors.
+
+Enable **“Say MORICE to start voice / Allow background microphone”** to use the existing local wake listener. Saying “MORICE” starts an **Orb-only voice session without showing the main window**; Orb follows actual listening, thinking and speech playback levels using the app's globe animation. Voice/Live Action can select any registered MORICE workspace and use its existing natural-language capabilities while keeping the voice surface and conversation active. Actions keep their existing permissions and confirmations. The microphone option is off by default and respects an explicit microphone denial. Disabling it or removing Orb stops its owned wake listener. Windows overlays and dialogs now pause the scene at its current pose instead of resetting its appearance.
+
+![Actual native Orb over an owned checkerboard used to verify desktop transparency](docs/assets/orb-0.12.0/desktop-orb.png)
+
 | White | Glass |
 | --- | --- |
 | ![Actual White home](docs/assets/security-lab-0.12.0/white-home.png) | ![Actual Glass home](docs/assets/security-lab-0.12.0/glass-home.png) |

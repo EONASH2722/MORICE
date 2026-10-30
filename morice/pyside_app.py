@@ -7356,6 +7356,7 @@ class MoriceWindow(QWidget):
         self.active_pet_select = QComboBox()
         self.active_pet_select.setObjectName("AppearanceSelect")
         for label, pet_id in (
+            ('Orb','orb'),
             ("Iron Man — Mark 42", "ironman_mark42"),
             ("Spider-Man", "spiderman"),
             ("Horse", "horse"),
@@ -7445,6 +7446,8 @@ class MoriceWindow(QWidget):
         self.remove_pet_btn = QPushButton("Remove Pet")
         self.remove_pet_btn.setObjectName("QueueButton")
         self.remove_pet_btn.setToolTip("Hide the companion without deleting its settings")
+        from .orb_pet import OrbSettings
+        self.orb_pet_settings=OrbSettings(self)
 
         self.pet_enabled_check.toggled.connect(self._on_pet_settings_changed)
         self.active_pet_select.currentIndexChanged.connect(self._on_pet_settings_changed)
@@ -7668,6 +7671,7 @@ class MoriceWindow(QWidget):
         sidebar_layout.addWidget(self.pet_fullscreen_check)
         sidebar_layout.addWidget(self.pet_interaction_check)
         sidebar_layout.addWidget(self.remove_pet_btn)
+        sidebar_layout.addWidget(self.orb_pet_settings)
         sidebar_layout.addSpacing(8)
         sidebar_layout.addWidget(voice_label)
         sidebar_layout.addWidget(self.tts_enabled_check)
@@ -17007,6 +17011,10 @@ def _show_window_for_launch(window: QWidget, environ: dict[str, str] | None = No
     """Show an ordinary launch normally and a wake launch without activation."""
 
     environment = os.environ if environ is None else environ
+    if str(environment.get('MORICE_ORB_VOICE_SESSION','')).strip()=='1':
+        QApplication.instance().setQuitOnLastWindowClosed(False)
+        window.setAttribute(Qt.WA_ShowWithoutActivating,True)
+        return True
     background_wake = str(environment.get("MORICE_BACKGROUND_WAKE", "")).strip().casefold() in {
         "1",
         "true",
@@ -17035,7 +17043,7 @@ def run_app():
     app.setApplicationDisplayName("MORICE")
     app.setOrganizationName("EONASH2722")
     instance = SingleInstanceController(app)
-    if not instance.acquire_or_notify():
+    if not instance.acquire_or_notify('nothing' if os.getenv('MORICE_ORB_VOICE_SESSION')=='1' else 'open_morice'):
         return 0
     # Publish the UI identity before model/runtime prewarm. The background
     # listener can otherwise observe a long cold start as "no app" and launch

@@ -4,6 +4,27 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import math
+import random
+
+
+class OrbRotation:
+    """Smooth shuffled cardinal turns; never jump to a random orientation."""
+    def __init__(self,seed=None):
+        self.rng=random.Random(seed);self.yaw=0.;self.pitch=0.;self.velocity=[0.,0.];self.target=(.12,0.)
+        self.remaining=0.;self.directions=[];self.direction='right'
+
+    def advance(self,seconds,*,interactive=False,reduced=False):
+        if reduced:return
+        dt=min(.1,max(0.,seconds));self.remaining-=dt
+        if self.remaining<=0:
+            if not self.directions:
+                self.directions=['left','right','up','down'];self.rng.shuffle(self.directions)
+            self.direction=self.directions.pop();speed=self.rng.uniform(.10,.22)
+            self.target={'left':(-speed,0.),'right':(speed,0.),'up':(0.,-speed),'down':(0.,speed)}[self.direction]
+            self.remaining=self.rng.uniform(4.,8.)
+        target=(0.,0.) if interactive else self.target
+        for i in (0,1):self.velocity[i]+=(target[i]-self.velocity[i])*(1-math.exp(-1.8*dt))
+        self.yaw=(self.yaw+self.velocity[0]*dt)%math.tau;self.pitch=(self.pitch+self.velocity[1]*dt)%math.tau
 
 
 class BootStage(str, Enum):

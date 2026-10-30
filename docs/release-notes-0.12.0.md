@@ -4,6 +4,10 @@ MORICE adds a local Security Lab inside the existing Security workspace. It perf
 
 ## Added
 
+- **Orb desktop pet:** the home globe in a transparent, draggable desktop window; independently saved Orb/glow colors; subtle glow and smooth shuffled left/right/up/down idle turns.
+- **Optional Orb voice wake:** explicitly allow the background microphone and say “MORICE” to speak through the small pet, keeping the main window hidden. Existing wake, speech, inference and playback owners are reused; Orb follows actual public activity and speech levels. Voice/Live Action keeps its surface while selecting registered workspaces and using their existing capabilities.
+- **Focus continuity:** Windows overlays/dialogs pause the current visual pose and retain scene quality instead of resetting to angle zero.
+
 - Signature/container inspection, SHA-256, entropy sampling, Unicode encoding/script detection and bounded structural parsing.
 - Base64/Base32/hex/URL/HTML/GZIP decoding. Educational cipher transforms remain labelled candidates.
 - Supplied-candidate ZIP AES/ZipCrypto recovery, optional password PDF recovery, and authenticated AES-GCM/ChaCha20-Poly1305 recovery for the documented manifest envelope.

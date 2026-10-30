@@ -153,7 +153,8 @@ def test_load_sources_do_not_clear_each_others_pressure(tmp_path,app):
     policy.set_load('NORMAL',source='media')
     assert policy.budget.effective=='LOW' and policy.budget.selected=='ULTRA'
     policy.set_load('NORMAL',source='metrics');assert policy.budget.effective=='ULTRA'
-    policy.set_load('UNFOCUSED',source='focus');assert policy.budget.effective=='LOW'
+    policy.set_load('UNFOCUSED',source='focus')
+    assert policy.budget.effective=='ULTRA' and not policy.budget.decorative_motion
 
 
 def test_core_motion_changes_orbits_but_reduced_motion_keeps_identical_pixels(tmp_path,app):

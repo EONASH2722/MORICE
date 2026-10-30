@@ -76,7 +76,7 @@ class WakeOrb(QWidget):
         painter = QPainter(self); painter.setRenderHint(QPainter.Antialiasing)
         level = min(1., max(0., self.level / 100)) if math.isfinite(self.level) else 0.
         snapshot = CoreSnapshot(state=CoreState(self.state.value), audio_level=level)
-        draw_core(painter, QRectF(self.rect()), snapshot, self.theme.tokens, self._phase, min(3, self.theme.profile.orbital_complexity), self.theme.profile.core_brightness, self.policy.budget.decorative_motion and self.policy.budget.effective != 'LOW', self.theme.profile.motion_strength)
+        draw_core(painter, QRectF(self.rect()), snapshot, self.theme.tokens, self._phase, min(3, self.theme.profile.orbital_complexity), self.theme.profile.core_brightness, self.policy.budget.decorative_motion and self.policy.budget.effective != 'LOW', self.theme.profile.motion_strength,preserve_pose=self.policy.load_state=='UNFOCUSED' and not self.theme.profile.reduced_motion)
         painter.end()
 
 
@@ -153,7 +153,7 @@ class WakeController(QObject):
         small = fullscreen and self.preferences.fullscreen == 'small_overlay'
         self.overlay.transcript.setVisible(self.preferences.transcript and not small)
         self.overlay.place(replace(self.preferences, size=min(64, self.preferences.size)) if small else self.preferences, self.owner.screen())
-        show = self.preferences.orb_enabled and not (fullscreen and self.preferences.fullscreen in {'audio_only', 'disabled_overlay'})
+        show = self.preferences.orb_enabled and not getattr(self.owner,'_orb_voice_wake',False) and not (fullscreen and self.preferences.fullscreen in {'audio_only', 'disabled_overlay'})
         if show: self.overlay.show()
         else: self.overlay.hide()
         if self.preferences.activation_sound: QApplication.beep()
@@ -231,7 +231,7 @@ class WakeController(QObject):
         self.owner.chat_mode = self._return_mode
         self.set_state(WakeState.IDLE, 'MORICE')
         self.overlay.orb.level = 0; self.overlay.run.hide()
-        if self.preferences.idle_visible and self.preferences.orb_enabled:
+        if self.preferences.idle_visible and self.preferences.orb_enabled and not getattr(self.owner,'_orb_voice_wake',False):
             self.overlay.transcript.clear(); self.overlay.place(self.preferences); self.overlay.show()
         else: self.overlay.hide()
 

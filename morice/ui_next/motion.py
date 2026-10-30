@@ -39,7 +39,7 @@ class EffectPolicy(QObject):
         if self.load_state in {'VRAM_PRESSURE', 'POWER_SAVING'}:
             effective = 'LOW'; reason = 'Low-cost animation while memory or power is constrained.'
         elif self.load_state == 'UNFOCUSED':
-            effective = 'LOW'; reason = 'Static effects while this window is unfocused.'
+            reason = 'Preserve the scene while this window is unfocused.'
         elif self.load_state in {'GPU_BUSY', 'MEDIA_GENERATING'} and selected in {'HIGH', 'ULTRA'}:
             effective = 'BALANCED'; reason = 'Effects reduced during model work.'
         presets = {'LOW': (20, 72, 0, .15, False), 'BALANCED': (30, 130, 20, .45, True),
@@ -47,6 +47,7 @@ class EffectPolicy(QObject):
         fps, radius, particles, glow, atmosphere = presets[effective]
         decorative = not profile.reduced_motion and profile.motion_strength > 0
         if not decorative: particles = 0
+        if self.load_state=='UNFOCUSED':decorative=False;fps=min(fps,10)
         if profile.particles == 'OFF': particles = 0
         elif profile.particles == 'LOW': particles //= 2
         return EffectBudget(selected, effective, fps, radius, particles, glow, atmosphere, decorative, reason)

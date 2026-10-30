@@ -51,7 +51,7 @@ class SettingsWorkspace(QWidget):
             ('Size', 'pet_size_select'), ('Animation speed', 'pet_animation_speed_select'),
             ('Click action', 'pet_click_action_select'), ('Event frequency', 'pet_event_frequency_select'),
             ('Hide during fullscreen', 'pet_fullscreen_check'), ('Interaction', 'pet_interaction_check'),
-            ('Remove selected pet', 'remove_pet_btn')))
+            ('Orb colors and voice wake', 'orb_pet_settings'),('Remove selected pet', 'remove_pet_btn')))
         self.add_form('Workspace', (('Default music provider', 'music_provider_select'), ('Workspace preset', 'workspace_preset_select'),
             ('Font family', 'font_select'), ('Import font file', 'add_font_btn')))
         self.empty_results = QLabel('No settings match your search. Try another word or clear the search.')

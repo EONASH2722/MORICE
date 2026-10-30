@@ -70,7 +70,10 @@ app=QApplication([])
 with patch('morice.settings._settings_dir',return_value=str(profile/'settings')):
  settings.save_settings({**settings.DEFAULT_SETTINGS,'tts_enabled':'false','stt_enabled':'false','pet_enabled':'false'})
  runtime=RuntimeServices(profile/'runtime',project_root=package); services._RUNTIME_SERVICES=runtime
- window=create_application_window(runtime,runtime.start()); window.show(); app.processEvents(); routes=[]
+ window=create_application_window(runtime,runtime.start())
+ from PySide6.QtCore import Qt
+ window.setAttribute(Qt.WA_ShowWithoutActivating);window.setWindowFlag(Qt.WindowStaysOnBottomHint)
+ window.show(); app.processEvents(); routes=[]
  try:
   for name in window.navigation.buttons:
    window.navigate(name); assert window.active_route==name, window.status_line.text()

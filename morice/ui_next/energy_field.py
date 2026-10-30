@@ -38,7 +38,7 @@ class EnergyField(QWidget):
 
     def invalidate(self,*_):
         self._cache=None;self._key=None;self._path_key=None
-        if not self.policy.budget.decorative_motion or not self.policy.budget.particle_count:self._points=[];self._pulse=0.
+        if self.theme.profile.reduced_motion or not self.policy.budget.particle_count:self._points=[];self._pulse=0.
         self.update();self.clock.request()
 
     def pointer_changed(self,event):
@@ -139,7 +139,7 @@ class EnergyField(QWidget):
         profile=self.theme.profile
         if not profile.background_effects or profile.high_contrast or profile.field_intensity==0:return
         painter.setRenderHint(QPainter.Antialiasing)
-        phase=loop_angle(self._phase) if self.policy.budget.decorative_motion else 0.
+        phase=loop_angle(self._phase)
         color,secondary=self._colors();intensity=profile.field_intensity
         layers=FIELD_BUDGETS[self.policy.budget.effective][3]
         for layer,(path,points) in enumerate(self._native_paths(layers)):
@@ -166,7 +166,7 @@ class EnergyField(QWidget):
         started=time.perf_counter();image=QImage(width,height,QImage.Format_ARGB32_Premultiplied);image.fill(Qt.transparent)
         p=QPainter(image);p.setRenderHint(QPainter.Antialiasing)
         color,secondary=self._colors();intensity=profile.field_intensity
-        phase=loop_angle(self._raster_phase) if self.policy.budget.decorative_motion else 0.
+        phase=loop_angle(self._raster_phase)
         for x,y,r,shade in ((.14,.34,.64,color),(.86,.74,.7,secondary),(.5,.5,.48,color)):
             center=QPointF(width*(x+.035*math.sin(phase+x)),height*(y+.035*math.cos(phase+y)));radius=height*r;gradient=QRadialGradient(center,radius)
             gradient.setColorAt(0,with_alpha(shade,105*intensity));gradient.setColorAt(1,with_alpha(shade,0))
@@ -188,7 +188,7 @@ class EnergyField(QWidget):
         image=self.material()
         if image is not None:p.drawPixmap(self.rect(),image)
         self.draw_contours(p)
-        if self.policy.budget.decorative_motion and not self.theme.profile.high_contrast:
+        if (self.policy.budget.decorative_motion or self.policy.load_state=='UNFOCUSED') and not self.theme.profile.high_contrast:
             p.setPen(Qt.NoPen);p.setBrush(with_alpha(QColor(self.theme.tokens['accent_primary']),24*self.policy.budget.glow_factor))
             for x,y in self._points:p.drawEllipse(QPointF(x,y),1.2,1.2)
         p.end();self.paint_samples.append((time.perf_counter()-started)*1000)

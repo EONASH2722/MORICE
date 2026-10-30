@@ -16,7 +16,7 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtWidgets import QMenu, QColorDialog, QSizePolicy
 
 from .core_state import CoreState
-from .globe_state import GlobeBoot, GlobeDynamics, BootStage
+from .globe_state import GlobeBoot, GlobeDynamics, BootStage, OrbRotation
 from .globe_geometry import build_globe_geometry
 
 
@@ -100,6 +100,7 @@ uniform float pulse;
 uniform vec2 viewOffset;
 uniform vec3 background;
 uniform float lightTheme;
+uniform float transparentPet;
 void main() {
     float r=length((uv-viewOffset)*aspect)/max(.01,radius);
     float haze=exp(-r*r*1.18)*.46*halo;
@@ -107,7 +108,10 @@ void main() {
     float nucleus=exp(-r*r*95.)*.32*core;
     float point=exp(-r*r*4800.)*.7*core;
     vec3 c=glowColor*(haze+rim)+globeColor*(nucleus+point)*(1.+pulse*.22);
-    gl_FragColor=vec4(mix(background+c,mix(background,glowColor,min(.15,haze*.5+nucleus*.15)),lightTheme),1.);
+    if (transparentPet>.5) {
+        float a=clamp(rim*.9+nucleus*.35+point*.5,0.,.38);
+        gl_FragColor=vec4(glowColor,a);
+    } else gl_FragColor=vec4(mix(background+c,mix(background,glowColor,min(.15,haze*.5+nucleus*.15)),lightTheme),1.);
 }
 '''
 
@@ -137,14 +141,17 @@ class HolographicGlobe(QOpenGLWidget):
     boot_changed = Signal(str)
     rendering_failed = Signal(str)
 
-    def __init__(self, model, theme, policy, clock, parent=None, *, boot=None):
+    def __init__(self, model, theme, policy, clock, parent=None, *, boot=None, transparent_pet=False):
         super().__init__(parent)
         fmt=QSurfaceFormat();fmt.setVersion(2,1);fmt.setProfile(QSurfaceFormat.NoProfile)
         fmt.setDepthBufferSize(0);fmt.setStencilBufferSize(0);fmt.setSamples(2);fmt.setSwapInterval(1)
+        self.transparent_pet=bool(transparent_pet);self.orb_rotation=OrbRotation() if self.transparent_pet else None
+        if self.transparent_pet:
+            fmt.setAlphaBufferSize(8);self.setAttribute(Qt.WA_TranslucentBackground);self.setAutoFillBackground(False)
         self.setFormat(fmt);self.setUpdateBehavior(QOpenGLWidget.NoPartialUpdate)
         self.model=model;self.theme=theme;self.policy=policy;self.clock=clock
         self.boot=boot or GlobeBoot();self.dynamics=GlobeDynamics()
-        self.layers=build_globe_geometry();self._buffers=[];self._program=None;self._halo=None
+        self.layers=build_globe_geometry(compact=self.transparent_pet);self._buffers=[];self._program=None;self._halo=None
         self._quad=None;self._vao=None;self._failed='';self._closed=False;self._last_stage=None
         self._last_input=time.perf_counter();self._press=None;self._last_pos=None;self._drag_distance=0.
         self.paint_samples=deque(maxlen=600);self.frame_intervals=deque(maxlen=600);self.paint_count=0
@@ -250,7 +257,8 @@ class HolographicGlobe(QOpenGLWidget):
             for i,layer in enumerate(self.layers):
                 energy=self._idle_mix+self._activity_mix*(2.1 if 'core' in layer.name else 1.2)
                 self._orbit_phases[i]+=min(.1,delta)*layer.speed*energy*self.theme.profile.motion_speed
-        focused=self.window().isActiveWindow()
+        focused=self.transparent_pet or self.window().isActiveWindow()
+        if self.orb_rotation:self.orb_rotation.advance(delta*self.theme.profile.motion_speed,interactive=cursor,reduced=reduced)
         interaction=self.dynamics.dragging or self.dynamics.pointer_speed>.15 and cursor or self.dynamics.ripple_age<2 or self.dynamics.wake_age<1.2 or abs(self.dynamics.zoom-self.dynamics.zoom_target)>.001 or abs(self.dynamics.yaw_velocity)+abs(self.dynamics.pitch_velocity)>.005
         changing=math.dist(self._center,self._center_target)>.001 or abs(self._display_scale-self._scale_target)>.001
         interaction=interaction or changing
@@ -275,13 +283,14 @@ class HolographicGlobe(QOpenGLWidget):
         if self._closed:return
         gl=self.context().functions()
         background=QColor(self.theme.tokens['background'])
-        gl.glClearColor(background.redF(),background.greenF(),background.blueF(),1.)
+        gl.glClearColor(0.,0.,0.,0.) if self.transparent_pet else gl.glClearColor(background.redF(),background.greenF(),background.blueF(),1.)
         gl.glClear(0x00004000)
         if self._failed or self._program is None:return
         ratio=self.devicePixelRatioF();gl.glViewport(0,0,round(self.width()*ratio),round(self.height()*ratio))
         self._vao.bind()
         gl.glDisable(0x0B71);gl.glDisable(0x0BE2)
         gl.glDisable(0x0C11);gl.glDisable(0x0B90);gl.glBlendEquation(0x8006)
+        if self.transparent_pet:gl.glEnable(0x0BE2);gl.glBlendFuncSeparate(0x0302,0x0303,1,0x0303)
         gl.glEnable(0x8642)  # GL_PROGRAM_POINT_SIZE
         gl.glEnable(0x8861)  # Compatibility-context point sprites / gl_PointCoord.
         d=self.dynamics;profile=self.theme.profile;state=self.model.snapshot.state
@@ -293,20 +302,23 @@ class HolographicGlobe(QOpenGLWidget):
         scale=min(1.,self.width()/max(1,self.height()))*d.zoom*self._display_scale
         offset=QVector2D(self._center[0]*2-1,1-self._center[1]*2)
         from .themes import luminance
-        light_theme=luminance(self.theme.tokens['background'])>.45
+        light_theme=not self.transparent_pet and luminance(self.theme.tokens['background'])>.45
         globe_color=self._color(profile.globe_color);glow_color=self._color(profile.globe_glow_color)
         halo=self._halo;halo.bind();self._quad.bind();halo.enableAttributeArray(0);halo.setAttributeBuffer(0,0x1406,0,3,12)
         halo.setUniformValue('aspect',QVector2D(self.width()/max(1,min(self.width(),self.height())),self.height()/max(1,min(self.width(),self.height()))))
         halo.setUniformValue('radius',float(.674*d.zoom*self._display_scale));halo.setUniformValue('globeColor',globe_color);halo.setUniformValue('glowColor',glow_color)
         halo.setUniformValue('viewOffset',offset);halo.setUniformValue('background',self._color(self.theme.tokens['background']))
         halo.setUniformValue('lightTheme',1. if light_theme else 0.)
+        halo.setUniformValue('transparentPet',1. if self.transparent_pet else 0.)
         halo.setUniformValue('halo',float(self.boot.layer(.72,1.) * (.5+profile.core_brightness*.65)*self._presence_opacity))
         halo.setUniformValue('core',float(self.boot.layer(.03,.24)*self._presence_opacity));halo.setUniformValue('pulse',float(pulse))
         gl.glDrawArrays(0x0005,0,4);halo.disableAttributeArray(0);self._quad.release();halo.release()
         # The backing FBO is already opaque. Preserve its alpha while blending
         # emission; reducing alpha here corrupts Qt's premultiplied composition
         # over White and can invert fine lines into green/yellow artifacts.
-        gl.glEnable(0x0BE2);gl.glBlendFuncSeparate(0x0302,0x0303 if light_theme else 1,0,1)
+        gl.glEnable(0x0BE2)
+        if self.transparent_pet:gl.glBlendFuncSeparate(0x0302,0x0303,1,0x0303)
+        else:gl.glBlendFuncSeparate(0x0302,0x0303 if light_theme else 1,0,1)
         program=self._program;program.bind();program.setUniformValue('projection',projection)
         program.setUniformValue('viewOffset',offset);program.setUniformValue('sceneScale',float(scale))
         program.setUniformValue('time',float(d.time));program.setUniformValue('pixelRatio',float(ratio))
@@ -319,6 +331,8 @@ class HolographicGlobe(QOpenGLWidget):
             reveal=self.boot.layer(*layer.reveal)
             if reveal<=0:continue
             matrix=QMatrix4x4();matrix.scale(scale);matrix.rotate(math.degrees(d.pitch),1,0,0);matrix.rotate(math.degrees(d.yaw),0,1,0)
+            if self.orb_rotation:
+                matrix.rotate(math.degrees(self.orb_rotation.pitch),1,0,0);matrix.rotate(math.degrees(self.orb_rotation.yaw),0,1,0)
             matrix.rotate(math.degrees(self._orbit_phases[index]),*layer.axis)
             brightness=layer.brightness*(.55+profile.core_brightness*.7)*(1.+pulse*.3)*self._presence_opacity
             if state in {CoreState.ERROR,CoreState.SECURITY_ALERT}:brightness*=.8+.18*math.sin(d.time*3.)
@@ -403,6 +417,9 @@ class HolographicGlobe(QOpenGLWidget):
 
     def cleanup(self):
         if self.context() is None:return
+        if not self._buffers and self._program is None and self._halo is None:return
+        from PySide6.QtGui import QOpenGLContext
+        previous=QOpenGLContext.currentContext();surface=previous.surface() if previous is not None else None
         self.makeCurrent()
         for buffer in self._buffers:buffer.destroy()
         self._buffers.clear()
@@ -411,6 +428,7 @@ class HolographicGlobe(QOpenGLWidget):
         for program in (self._program,self._halo):
             if program is not None:program.removeAllShaders();program.deleteLater()
         self._program=self._halo=None;self.doneCurrent()
+        if previous is not None and previous is not self.context() and surface is not None:previous.makeCurrent(surface)
 
     def dispose(self):
         self._closed=True;self._context_check.stop();self.clock.unsubscribe_id(id(self));self.cleanup()

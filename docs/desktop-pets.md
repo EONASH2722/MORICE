@@ -1,8 +1,10 @@
 # MORICE desktop pets
 
-Desktop pets are an optional, low-overhead companion process. The process loads
-PySide and pet metadata only; it does not start the language model, agent
-planner, network retrieval, microphone, or voice pipeline.
+Desktop pets are an optional companion process. Existing characters load PySide
+and metadata; Orb additionally uses the home globe's OpenGL renderer with a
+compact version of its geometry. No pet loads an LLM or agent planner. Orb's
+optional microphone opt-in starts the existing local wake listener; the main
+application continues to own speech input, inference and spoken replies.
 
 Open **Settings → Desktop pet** to select and configure a companion. See the [current Settings navigation](screenshots/morice-settings.png).
 
@@ -29,7 +31,7 @@ launchers race.
 The MORICE panel contains the following persistent controls:
 
 - Show desktop pet
-- Pet (Iron Man — Mark 42, Spider-Man, Horse, Skeleton, Dog, or Cat)
+- Pet (Orb, Iron Man — Mark 42, Spider-Man, Horse, Skeleton, Dog, or Cat)
 - Pet size
 - Pet animation speed: Slow, Normal, or Fast
 - Pet click action: Open MORICE, Open MORICE Chat, or Do nothing
@@ -52,6 +54,7 @@ drift over time.
 
 | Pet | Bundled behaviors |
 | --- | --- |
+| Orb | Home globe with actual alpha-transparent gaps, subtle glow, pointer/ripple reactions, stationary drag/drop, smooth shuffled cardinal rotation and actual voice presentation |
 | Iron Man — Mark 42 | Full-screen flight patrol; Mark 42 armor-off/coffee/reassembly; rogue-drone chase and directed repulsor defeat; arc-reactor click flash |
 | Spider-Man | Perch and pendulum web swing; temporary symbiote transform/removal; masked tech-raider chase, web and cocoon; eye click reaction |
 | Dog | Walk/play/sleep plus ball-ready, chase, return and tail-wag celebration |
@@ -66,11 +69,43 @@ escape state without emitting an application-open command.
 
 ## Fullscreen and performance
 
+Orb stays where it is dropped. Its Small/Medium/Large sizes are 160/230/320
+logical pixels. **Orb color** and **Glow color** can be changed independently
+from Settings → Desktop pet or the pet's right-click menu, without changing the
+main globe. Colors and position persist. Its renderer shares the home globe's
+geometry/shaders, with fewer lines to retain visible gaps at desktop-pet sizes.
+
+**Say “MORICE” to start voice / Allow background microphone** is an explicit,
+off-by-default microphone opt-in. It reuses the local Vosk wake listener and
+existing microphone permission. An explicit denial/OS restriction blocks it;
+revocation turns it off. Only the listener this pet starts is stopped when the
+option is disabled, Orb is replaced, or the pet closes. Its main MORICE backend
+stays hidden for Orb voice; only the pet speaks/animates. A backend it launched
+is preserved when the pet closes. Existing user-managed wake listeners remain independent.
+Voice wake needs the installed wake/speech providers and a usable microphone.
+Speech output needs a configured voice provider; missing hardware/providers are
+reported by the existing pipeline rather than simulated.
+
+Voice/Live Action retains its surface while selecting any registered workspace.
+“Open Research” selects the context for subsequent research commands without
+replacing the voice interface. Projects, Security, Media, Spatial, Devices,
+Tools, Settings and other registered workspaces use the same NLUI/capability
+owners as typed requests. Missing adapters/targets still require clarification;
+capabilities are not fabricated. Consequential actions retain confirmation UI.
+
+The main app relays only bounded public state and audio levels to Orb over the
+existing local pet endpoint. Prompts, transcripts and model reasoning are not
+sent. The pet uses the same speech-reactive shader/envelope as the app; stale
+presentation returns to idle after two seconds. Cosmetic IPC grants no action
+permission. Focus loss freezes the current material/core pose and quality so
+dialogs and Windows volume overlays do not restart the visuals.
+
 The host checks the foreground window against its monitor bounds at a coarse
 650 ms interval. During a fullscreen game or video it hides the overlay and
 stops the animation timer, leaving no invisible click target. Rendering uses a
-20 FPS coarse timer, nearest-neighbor/block drawing, a small shaped overlay, and
+20 FPS coarse timer for pixel characters, nearest-neighbor/block drawing, a small shaped overlay, and
 no continuous whole-screen redraw.
+Orb uses the shared visible-only effect clock and GPU line/point buffers instead.
 
 ## Asset structure
 
