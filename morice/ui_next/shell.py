@@ -880,6 +880,8 @@ class RenovatedWindow(ExistingPresenter):
         super()._on_speech_partial(text)
 
     def _on_speech_transcript(self, payload):
+        if getattr(payload,'refinement_error','') and not getattr(payload,'cancelled',False):
+            self._show_notification(payload.message,'warning',6500)
         if getattr(self, '_renovated_ready', False) and self.wake_controller.active:
             if getattr(payload, 'request_id', '') != self.wake_controller.stt_request_id: return
             text = getattr(payload, 'text', '')

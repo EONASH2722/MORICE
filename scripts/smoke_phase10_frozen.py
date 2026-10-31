@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[1]
-parser=argparse.ArgumentParser();parser.add_argument('directory');parser.add_argument('--output',default='build/phase10-frozen-current-startup.json');args=parser.parse_args()
+parser=argparse.ArgumentParser();parser.add_argument('directory');parser.add_argument('--output',default='build/phase10-frozen-current-startup.json');parser.add_argument('--speech-model');args=parser.parse_args()
 executable=Path(args.directory).resolve()/'MORICE.exe';assert executable.is_file()
 executable_digest=hashlib.sha256(executable.read_bytes()).hexdigest()
 output=(ROOT/args.output).resolve();output.parent.mkdir(parents=True,exist_ok=True)
@@ -27,6 +27,13 @@ with tempfile.TemporaryDirectory(prefix='morice-production-frozen-') as director
         capture_output=True,text=True,timeout=60,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
     assert orb_result.returncode==0,(orb_result.returncode,orb_result.stderr[-1200:])
     record['orb_pet']=json.loads(orb_output.read_text(encoding='utf-8'));record['orb_pet']['isolated_pet_process']=True
+    if args.speech_model:
+        speech_output=output.with_name(output.stem+'-speech.json')
+        speech_result=subprocess.run([str(executable),'--morice-speech-probe',str(speech_output),str(Path(args.speech_model).resolve())],cwd=root,env=environment,
+            capture_output=True,text=True,timeout=90,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+        assert speech_result.returncode==0,(speech_result.returncode,speech_result.stderr[-1200:])
+        record['speech_input']=json.loads(speech_output.read_text(encoding='utf-8'))
+        assert record['speech_input']['real_whisper_decode'] and record['speech_input']['owned_decoder_closed']
     assert record['frozen'] and record['production_window_factory'] and record['window_class']=='RenovatedWindow'
     assert record['critical_failures']==record['leases_after']==0 and record['shutdown']['clean']
     assert record['spatial_result']['metres']>13_000_000

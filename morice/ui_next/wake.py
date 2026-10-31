@@ -129,6 +129,7 @@ class WakeController(QObject):
         self.tts_request_id = ''
         self.stt_request_id = ''; self.epoch = 0; self.interaction_token = None
         self.timeout = QTimer(self); self.timeout.setSingleShot(True); self.timeout.timeout.connect(self._expired)
+        self.speech_progress=QTimer(self);self.speech_progress.setInterval(100);self.speech_progress.timeout.connect(self._speech_progress)
         self.overlay.cancelled.connect(self.cancel); self.overlay.reviewed_command.connect(self.submit_reviewed)
 
     def set_state(self, state, message='', timeout=None):
@@ -148,6 +149,9 @@ class WakeController(QObject):
         self.epoch += 1; self.interaction_token = CancellationToken(); self.stt_request_id = ''; self.tts_request_id = ''
         self.runtime.speech_input.cancel('wake-rearmed')
         self._fullscreen = bool(fullscreen); self.active = True; self._started_at = time.monotonic()
+        self.speech_progress.start()
+        starter=getattr(self.owner,'_start_background_task',None);warm=getattr(self.runtime.speech_input,'accuracy_warmup',None)
+        if callable(starter) and callable(warm):starter('stt-accuracy-prewarm',warm())
         self.runtime.voice.interrupt('wake-barge-in'); self.runtime.realtime.cancel_active('wake-barge-in')
         self._pending_text = ''; self.overlay.transcript.clear(); self.overlay.run.hide()
         small = fullscreen and self.preferences.fullscreen == 'small_overlay'
@@ -160,7 +164,9 @@ class WakeController(QObject):
         self.set_state(WakeState.LISTENING, 'Listening…', self.preferences.command_timeout)
         if self.owner.chat_mode != 'voice': self.owner._set_chat_mode('voice')
         else:
-            self.owner._voice_conversation_active = True; self.owner.awake = True; self.owner._begin_voice_listening()
+            self.owner._voice_conversation_active = True; self.owner.awake = True
+            if self.runtime.speech_input.status().listening:QTimer.singleShot(180,self.owner._begin_voice_listening)
+            else:self.owner._begin_voice_listening()
         return True
 
     def partial(self, text):
@@ -173,6 +179,10 @@ class WakeController(QObject):
         if result is not None and (not self.stt_request_id or result.request_id != self.stt_request_id): return True
         if result is None or result.cancelled or result.error_code or not result.text.strip():
             self.set_state(WakeState.ERROR, result.message if result is not None else 'Speech input unavailable.', 2)
+            speak=getattr(self.owner,'_speak_assistant_text',None)
+            if result is not None and result.error_code=='unclear-speech' and callable(speak):
+                handle=speak('I could not hear that clearly. Please say it again.')
+                if handle is not None:self.set_state(WakeState.WORKING,'Preparing speech…',self.preferences.processing_timeout)
             return True
         self._pending_text = result.text.strip()
         if self._pending_text.casefold().strip(' .?!') in {'cancel', 'stop', 'never mind', 'nevermind', 'go to sleep'}:
@@ -225,6 +235,7 @@ class WakeController(QObject):
 
     def finish(self):
         if not self.active: return
+        self.speech_progress.stop()
         self.active = False; self._pending_text = ''; self.tts_request_id = ''; self.stt_request_id = ''; self.timeout.stop(); self.epoch += 1
         if self.interaction_token is not None: self.interaction_token.cancel('wake-interaction-finished')
         self.owner._stop_voice_mode_io('wake-interaction-finished')
@@ -242,6 +253,10 @@ class WakeController(QObject):
 
     def _expired(self):
         self.cancel()
+
+    def _speech_progress(self):
+        if self.active and self.state==WakeState.LISTENING and getattr(getattr(self.runtime.speech_input.status(),'state',None),'value','')=='transcribing':
+            self.set_state(WakeState.UNDERSTANDING,'Refining speech…',max(45.,self.preferences.processing_timeout))
 
     def close(self):
         self.cancel(); self.timeout.stop(); self.clock.unsubscribe_id(id(self.overlay.orb)); self.overlay.close()

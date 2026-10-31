@@ -71,6 +71,10 @@ Enable **“Say MORICE to start voice / Allow background microphone”** to use 
 
 Native arrow, hand and text cursors have a white fill with a black outline, keeping the pointer visible in all three themes even when cursor glow is off. Windows cursor settings stay unchanged.
 
+**Better speech input.** MORICE supports local **Whisper Small** for the final transcript, with quick Vosk live text and wake detection. The larger decoder uses CPU INT8, checks the original audio, handles quiet recordings and stays outside the UI process. Speech correction standardizes the assistant name and known workspace commands while preserving numbers, other names, paths and negation. Unclear speech requests a repeat; a failed accuracy decoder reports its Vosk fallback.
+
+Choose **Settings → Voice → Speech recognition quality** for the engine, local model folder, language and correction switch. The installed accuracy model is about **486 MB** and stays in local model storage; public packages include the decoder and require the model folder separately. The larger decoder warms during voice use and releases its process when the voice session ends. Generated replies feed the existing ElevenLabs or Windows local TTS pipeline and the speech-reactive Orb. [Speech setup and validation](docs/speech-quality.md).
+
 | White | Glass |
 | --- | --- |
 | ![Actual White home](docs/assets/security-lab-0.12.0/white-home.png) | ![Actual Glass home](docs/assets/security-lab-0.12.0/glass-home.png) |

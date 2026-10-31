@@ -18,6 +18,7 @@ bundle_models = os.environ.get('MORICE_BUNDLE_MODELS', '').strip().lower() in {'
 if bundle_models and not bundled_model:
     raise SystemExit('MORICE_BUNDLE_MODELS requires an existing local GGUF.')
 vosk_binaries = collect_dynamic_libs('vosk')
+speech_binaries = collect_dynamic_libs('ctranslate2')
 voice_model = os.path.join(project_dir, 'voice_models', 'vosk-model-small-en-us-0.15')
 vision_roots = [
     os.environ.get('MORICE_LOCAL_DATA_DIR', '').strip(),
@@ -64,11 +65,12 @@ if bundle_models and vision_files:
 import pint
 data_files += collect_data_files('pint')
 data_files += collect_data_files('uiautomation')
+data_files += collect_data_files('faster_whisper')
 
 a = Analysis(
     [os.path.join(project_dir, 'morice_app_launcher.py')],
     pathex=[project_dir],
-    binaries=vosk_binaries,
+    binaries=vosk_binaries+speech_binaries,
     datas=data_files,
     hiddenimports=(
         ['morice.plugin_host', 'morice_wake_listener', 'dotenv', 'websockets']

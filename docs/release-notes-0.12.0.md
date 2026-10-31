@@ -8,6 +8,9 @@ MORICE adds a local Security Lab inside the existing Security workspace. It perf
 - **Optional Orb voice wake:** explicitly allow the background microphone and say “MORICE” to speak through the small pet, keeping the main window hidden. Existing wake, speech, inference and playback owners are reused; Orb follows actual public activity and speech levels. Voice/Live Action keeps its surface while selecting registered workspaces and using their existing capabilities.
 - **Focus continuity:** Windows overlays/dialogs pause the current visual pose and retain scene quality instead of resetting to angle zero.
 - **Visible pointers:** outlined native arrow, hand and text cursors remain legible in White, Pitch Black and Glass, independently of cursor lighting. Windows cursor preferences are unchanged.
+- **Speech accuracy:** optional local Whisper Small final recognition with CPU INT8, fast Vosk live text/wake detection, quiet-input normalization, bounded owned decoding, cancellation and resource cleanup. The local installed profile selects the verified accuracy model; its approximately 486 MB weights stay separate from public packages.
+- **Transcript correction:** audio-based final refinement plus conservative assistant-name/workspace-command correction. Original and final transcripts remain available in speech diagnostics; unclear recognition requests a repeat and unavailable accuracy recognition reports its Vosk fallback.
+- **Reply speech:** generated replies remain connected to TTS; Windows local speech can stream generated reply chunks without an ElevenLabs API key. Voice and Orb use actual playback levels.
 
 - Signature/container inspection, SHA-256, entropy sampling, Unicode encoding/script detection and bounded structural parsing.
 - Base64/Base32/hex/URL/HTML/GZIP decoding. Educational cipher transforms remain labelled candidates.
@@ -22,7 +25,7 @@ MORICE adds a local Security Lab inside the existing Security workspace. It perf
 
 ## Fixed and preserved
 
-This existing 0.12.0 publication is amended with a reply fix; there is no new version. A failed visualization now announces the failure and continues with a normal written answer to the original prompt, without adding another user message or discarding an unsent draft. Interactive component failures show available source data as text, while formatted-page failures preserve the original answer and copy text. Missing sources and a second model failure are reported explicitly.
+This existing 0.12.0 publication includes the reply, Orb, cursor and speech amendments; its version is unchanged. A failed visualization now announces the failure and continues with a normal written answer to the original prompt, without adding another user message or discarding an unsent draft. Interactive component failures show available source data as text, while formatted-page failures preserve the original answer and copy text. Missing sources and a second model failure are reported explicitly.
 
 Practical either/or questions use a bounded model-assisted prerequisite check. The check tracks which objects each option actually brings to the destination, so an option that leaves a required object behind cannot win merely on travel convenience. Local-model samples covered bringing a car to be washed, correcting prior walking advice, and walking to collect a car already there. These samples are not a general intelligence benchmark.
 

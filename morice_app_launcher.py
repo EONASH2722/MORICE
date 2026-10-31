@@ -81,6 +81,15 @@ configure_process_temp_dir()
 _configure_local_model_defaults()
 _fix_pyside_paths()
 
+if '--morice-speech-worker' in sys.argv:
+    from morice.speech_worker import main as run_speech_worker
+    raise SystemExit(run_speech_worker(sys.argv[sys.argv.index('--morice-speech-worker')+1]))
+
+if '--morice-speech-probe' in sys.argv:
+    from morice.speech_probe import run as run_speech_probe
+    index=sys.argv.index('--morice-speech-probe')
+    raise SystemExit(run_speech_probe(sys.argv[index+1],sys.argv[index+2]))
+
 if "--morice-security-worker" in sys.argv:
     from morice.security_lab.worker import main as run_security_worker
     raise SystemExit(run_security_worker())

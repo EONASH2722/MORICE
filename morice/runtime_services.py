@@ -1248,6 +1248,11 @@ class RuntimeServices:
         except (TypeError, ValueError):
             max_listen = 30.0
         speech_config = SpeechInputConfig(
+            model_path=str(settings.get('stt_model_path','')),
+            provider=str(settings.get('stt_provider','auto')),
+            accuracy_model_path=str(settings.get('stt_accuracy_model_path','')),
+            autocorrect=normalize_boolean_setting(str(settings.get('stt_autocorrect','true')),default=True),
+            language=str(settings.get('stt_language','en')),
             enabled=normalize_boolean_setting(
                 str(settings.get("stt_enabled", "true")), default=True
             ),
@@ -1369,6 +1374,7 @@ class RuntimeServices:
         )
         self.kernel.resources.register(ResourceDescriptor("DISK"))
         self.kernel.resources.register(ResourceDescriptor("BROWSER_SESSION"))
+        self.speech_input.attach_resources(self.kernel.resources)
         self.kernel.scheduler = TaskScheduler(self.kernel, self.workers)
         register_echo(self.kernel)
         register_tool_adapters(self.kernel, self.agent.tools)

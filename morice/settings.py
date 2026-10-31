@@ -55,6 +55,11 @@ DEFAULT_SETTINGS = {
     "tts_output_format": "pcm_24000",
     "stt_enabled": "true",
     "stt_auto_send": "true",
+    "stt_provider": "auto",
+    "stt_model_path": "",
+    "stt_accuracy_model_path": "",
+    "stt_autocorrect": "true",
+    "stt_language": "en",
     "stt_input_device": "",
     "stt_max_listen_seconds": "30",
     "vision_processing_enabled": "true",
@@ -537,6 +542,10 @@ def load_settings() -> dict:
     settings["stt_input_device"] = normalize_stt_input_device(
         settings.get("stt_input_device", "")
     )
+    settings['stt_provider'] = str(settings.get('stt_provider', 'auto')) if settings.get('stt_provider') in {'auto','whisper','vosk'} else 'auto'
+    settings['stt_language'] = str(settings.get('stt_language', 'en')) if settings.get('stt_language') in {'en','hi','auto'} else 'en'
+    settings['stt_autocorrect'] = str(normalize_boolean_setting(settings.get('stt_autocorrect', ''),default=True)).lower()
+    for key in ('stt_model_path','stt_accuracy_model_path'): settings[key] = str(settings.get(key,'')).strip()[:4096]
     settings["stt_max_listen_seconds"] = str(
         normalize_stt_max_listen_seconds(
             settings.get("stt_max_listen_seconds", "")
@@ -682,6 +691,10 @@ def save_settings(settings: dict) -> None:
     clean["stt_input_device"] = normalize_stt_input_device(
         settings.get("stt_input_device", "")
     )
+    clean['stt_provider'] = str(settings.get('stt_provider', 'auto')) if settings.get('stt_provider') in {'auto','whisper','vosk'} else 'auto'
+    clean['stt_language'] = str(settings.get('stt_language', 'en')) if settings.get('stt_language') in {'en','hi','auto'} else 'en'
+    clean['stt_autocorrect'] = str(normalize_boolean_setting(settings.get('stt_autocorrect', ''),default=True)).lower()
+    for key in ('stt_model_path','stt_accuracy_model_path'): clean[key] = str(settings.get(key,'')).strip()[:4096]
     clean["stt_max_listen_seconds"] = str(
         normalize_stt_max_listen_seconds(
             settings.get("stt_max_listen_seconds", "")

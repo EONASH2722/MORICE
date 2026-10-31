@@ -38,6 +38,7 @@ dependencies = [
   "sympy>=1.14,<2",
   "sounddevice>=0.4.6",
   "vosk>=0.3.45",
+  "faster-whisper==1.2.1",
   "Pillow>=10.0",
   "geographiclib>=2,<3",
   "comtypes>=1.4,<2; platform_system == 'Windows'",

@@ -39,11 +39,14 @@ class SettingsWorkspace(QWidget):
         self.add_category('Memory',memory_scroll)
         provider = QComboBox(); provider.addItem('ElevenLabs', 'elevenlabs'); provider.addItem('Windows local speech', 'local')
         provider.setCurrentIndex(max(0, provider.findData(window.settings.get('tts_provider', 'elevenlabs')))); window.tts_provider_select = provider
+        from .speech_settings import SpeechSettings
+        window.speech_settings=SpeechSettings(window)
         self.add_form('Voice', (('Reply speech enabled', 'tts_enabled_check'), ('Provider', provider),
             ('Streaming', 'tts_streaming_check'), ('Automatic fallback', 'tts_fallback_check'),
             ('Voice ID', 'tts_voice_id_input'), ('Model ID', 'tts_model_id_input'), ('Speech speed', 'tts_speed_slider'),
             ('Output device', 'tts_output_device_select'), ('Speech input', 'stt_enabled_check'),
             ('Automatically send transcript', 'stt_auto_send_check'), ('Microphone input device', 'stt_input_device_select'),
+            ('Speech recognition quality','speech_settings'),
             ('ElevenLabs API key', 'elevenlabs_api_key_input'), ('Secure key storage', 'save_api_key_btn'),
             ('Provider status', 'elevenlabs_api_status'), ('Save voice settings', 'save_voice_btn')))
         self.wake_fields = {}; wake_view = self.wake_form(); self.add_category('Wake', wake_view)

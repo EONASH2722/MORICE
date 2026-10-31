@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Protocol
+from .speech_refinement import WhisperRefiner, RefinementError, RefinementCancelled, find_whisper_model, correct_transcript, MAX_PCM_BYTES
 
 
 class SpeechInputState(str, Enum):
@@ -20,6 +21,7 @@ class SpeechInputState(str, Enum):
     IDLE = "idle"
     LOADING = "loading"
     LISTENING = "listening"
+    TRANSCRIBING = "transcribing"
     STOPPED = "stopped"
     UNAVAILABLE = "unavailable"
     ERROR = "error"
@@ -36,6 +38,10 @@ class SpeechInputConfig:
     block_size: int = 2_000
     max_listen_seconds: float = 30.0
     auto_send: bool = True
+    provider: str = 'auto'
+    accuracy_model_path: str = ''
+    autocorrect: bool = True
+    language: str = 'en'
 
 
 @dataclass(frozen=True)
@@ -51,6 +57,11 @@ class TranscriptResult:
     first_partial_ms: float | None = None
     speech_end_ms: float | None = None
     speech_end_to_final_ms: float | None = None
+    provider: str = 'vosk'
+    raw_text: str = ''
+    streaming_text: str = ''
+    corrections: tuple[str, ...] = ()
+    refinement_error: str = ''
 
 
 @dataclass(frozen=True)
@@ -137,6 +148,18 @@ class _VoskRecognizer:
 
     def finish(self) -> str:
         return self._value(self._recognizer.FinalResult(), "text")
+
+
+class _EnergyRecognizer:
+    """Endpoint-only fallback when Whisper is present without a Vosk model."""
+    def __init__(self, sample_rate):
+        self.sample_rate = sample_rate; self.spoken = False; self.silence = 0.
+    def accept(self, pcm):
+        if SpeechToTextRuntime._pcm_level(pcm) >= 1.:
+            self.spoken = True; self.silence = 0.
+        elif self.spoken: self.silence += len(pcm) / (2 * self.sample_rate)
+        return self.spoken and self.silence >= .75, '', ''
+    def finish(self): return ''
 
 
 class _SoundDeviceInput:
@@ -284,6 +307,7 @@ class SpeechToTextRuntime:
         model_loader: Callable[[str], Any] | None = None,
         safe_logger: Callable[[str, dict[str, Any]], Any] | None = None,
         clock: Callable[[], float] = time.perf_counter,
+        resources=None,
     ) -> None:
         self._config = config or SpeechInputConfig()
         self._recognizer_factory = recognizer_factory
@@ -299,18 +323,20 @@ class SpeechToTextRuntime:
         self._thread: threading.Thread | None = None
         self._model: Any = None
         self._model_path = find_vosk_model(self._config.model_path)
+        self._resources = resources
+        self._refiner = self._new_refiner(self._config)
         self._state = (
             SpeechInputState.DISABLED
             if not self._config.enabled
             else SpeechInputState.IDLE
-            if self._model_path
+            if self._model_path or self._refiner is not None
             else SpeechInputState.UNAVAILABLE
         )
-        self._last_error = "" if self._model_path else "model-unavailable"
+        self._last_error = "" if self._model_path or self._refiner is not None else "model-unavailable"
         self._message = (
             ""
-            if self._model_path
-            else "Vosk speech recognition model is unavailable."
+            if self._model_path or self._refiner is not None
+            else "A local speech recognition model is unavailable."
         )
         self._last_partial = ""
         self._last_final = ""
@@ -318,6 +344,42 @@ class SpeechToTextRuntime:
         self._input_level_percent = 0.0
         self._vad_state = "idle"
         self._last_microphone_test: dict[str, Any] = {}
+        self._last_provider = 'vosk'; self._last_raw = ''; self._last_streaming = ''
+        self._last_corrections = (); self._last_refinement_error = ''
+
+    def _new_refiner(self, config):
+        path = find_whisper_model(config.accuracy_model_path) if config.provider != 'vosk' else ''
+        return WhisperRefiner(path, resources=self._resources) if path else None
+
+    def attach_resources(self, resources):
+        """Bind the existing Kernel once its constructor has completed."""
+        with self._lock:
+            if self._active is not None: raise RuntimeError('Cannot replace speech resource ownership during capture.')
+            if self._refiner is not None: self._refiner.close()
+            self._resources = resources; self._refiner = self._new_refiner(self._config)
+
+    def release_accuracy_model(self):
+        self.cancel('voice-mode-exited')
+        with self._lock:
+            if self._refiner is not None: self._refiner.close()
+            self._refiner = self._new_refiner(self._config)
+
+    def prewarm_accuracy(self):
+        return self.accuracy_warmup()()
+
+    def accuracy_warmup(self):
+        """Warm the larger decoder only for an explicitly started voice session."""
+        with self._lock:
+            refiner=self._refiner;config=self._config
+        def warm():
+            with self._lock:
+                if self._shutdown or not config.enabled or self._config is not config or self._refiner is not refiner:return False
+            if refiner is None:return False
+            try:return refiner.prewarm()
+            except RefinementCancelled:return False
+            except (ImportError,OSError,RuntimeError,ValueError):
+                self._last_refinement_error='accuracy-engine-unavailable';return False
+        return warm
 
     @property
     def config(self) -> SpeechInputConfig:
@@ -328,7 +390,7 @@ class SpeechToTextRuntime:
             return SpeechInputStatus(
                 state=self._state,
                 listening=self._active is not None and not self._active.done,
-                model_configured=bool(self._model_path),
+                model_configured=bool(self._model_path or self._refiner is not None),
                 input_device=self._config.input_device,
                 last_error_code=self._last_error,
                 message=self._message,
@@ -395,12 +457,19 @@ class SpeechToTextRuntime:
                 "partialTranscript": self._last_partial,
                 "finalTranscript": self._last_final,
                 "confidence": None,
-                "confidenceReason": "Vosk's compact streaming result does not expose a calibrated confidence score.",
+                "confidenceReason": "Decoder scores are not calibrated confidence estimates.",
                 "recognitionLatencyMs": round(self._last_duration_ms, 1),
                 "lastErrorCode": self._last_error,
                 "message": self._message,
                 "deviceError": device_error,
                 "lastMicrophoneTest": dict(self._last_microphone_test),
+                "recognitionProvider": self._last_provider,
+                "accuracyModelAvailable": self._refiner is not None,
+                "accuracyModelPath": self._refiner.model_path if self._refiner is not None else '',
+                "rawTranscript": self._last_raw,
+                "streamingTranscript": self._last_streaming,
+                "corrections": list(self._last_corrections),
+                "refinementError": self._last_refinement_error,
             }
 
     def test_microphone(
@@ -465,24 +534,27 @@ class SpeechToTextRuntime:
 
     def configure(self, config: SpeechInputConfig) -> SpeechInputStatus:
         self.cancel("configuration-changed")
+        if self._refiner is not None: self._refiner.close()
         model_path = find_vosk_model(config.model_path)
         with self._lock:
             changed_model = model_path != self._model_path
             self._config = config
+            self._input_level_percent=0.;self._vad_state='idle'
             self._model_path = model_path
+            self._refiner = self._new_refiner(config)
             if changed_model:
                 self._model = None
-            self._last_error = "" if model_path else "model-unavailable"
+            self._last_error = "" if model_path or self._refiner is not None else "model-unavailable"
             self._message = (
                 ""
-                if model_path
-                else "Vosk speech recognition model is unavailable."
+                if model_path or self._refiner is not None
+                else "A local speech recognition model is unavailable."
             )
             self._state = (
                 SpeechInputState.DISABLED
                 if not config.enabled
                 else SpeechInputState.IDLE
-                if model_path
+                if model_path or self._refiner is not None
                 else SpeechInputState.UNAVAILABLE
             )
             return self.status()
@@ -491,11 +563,12 @@ class SpeechToTextRuntime:
         """Load the configured Vosk model before the first spoken request."""
 
         with self._lock:
-            if self._shutdown or not self._config.enabled or not self._model_path:
+            if self._shutdown or not self._config.enabled or not (self._model_path or self._refiner is not None):
                 return False
             if self._active is not None and not self._active.done:
                 return True
             previous_state = self._state
+            previous_config = self._config
             self._state = SpeechInputState.LOADING
             self._message = "Loading speech recognition."
         try:
@@ -507,7 +580,7 @@ class SpeechToTextRuntime:
                 self._message = "Speech recognition dependencies are unavailable."
             return False
         with self._lock:
-            if not self._shutdown:
+            if not self._shutdown and self._config is previous_config and self._state==SpeechInputState.LOADING and (self._active is None or self._active.done):
                 self._state = (
                     previous_state
                     if previous_state not in {SpeechInputState.LOADING, SpeechInputState.ERROR}
@@ -534,7 +607,7 @@ class SpeechToTextRuntime:
             if not self._config.enabled:
                 handle._finish(self._result(handle, "", False, "disabled", 0.0))
                 return handle
-            if not self._model_path:
+            if not (self._model_path or self._refiner is not None):
                 handle._finish(
                     self._result(handle, "", False, "model-unavailable", 0.0)
                 )
@@ -571,6 +644,7 @@ class SpeechToTextRuntime:
                 return
             self._shutdown = True
         self.cancel("shutdown")
+        if self._refiner is not None: self._refiner.close()
         thread = self._thread
         if thread and thread is not threading.current_thread():
             thread.join(max(0.0, float(timeout)))
@@ -584,6 +658,7 @@ class SpeechToTextRuntime:
                 self._model_path,
                 int(self._config.sample_rate),
             )
+        if not self._model_path: return _EnergyRecognizer(int(self._config.sample_rate))
         if self._model is None:
             if self._model_loader is not None:
                 self._model = self._model_loader(self._model_path)
@@ -607,28 +682,36 @@ class SpeechToTextRuntime:
         speech_end_at: float | None = None
         audio: AudioInput | None = None
         final_parts: list[str] = []
+        pcm = bytearray(); raw_text = ''; streaming_text = ''; provider = 'vosk'; corrections = (); refinement_error = ''
+        with self._lock:refiner = self._refiner;config=self._config
         error_code = ""
         phase = "recognizer"
         try:
+            if cancel.is_set():return
             recognizer = self._recognizer()
             if cancel.is_set():
                 return
             phase = "audio"
-            audio = self._audio_factory(self._config)
+            audio = self._audio_factory(config)
             with self._lock:
+                if self._active is not handle or cancel.is_set():return
                 self._audio = audio
                 self._state = SpeechInputState.LISTENING
                 self._message = "Listening..."
             audio.start()
             phase = "recognition"
-            deadline = started + max(2.0, float(self._config.max_listen_seconds))
+            deadline = started + max(2.0, float(config.max_listen_seconds))
             last_partial = ""
             while not cancel.is_set() and self._clock() < deadline:
                 data = audio.read(0.25)
+                if cancel.is_set():break
                 if not data:
                     continue
                 level = self._pcm_level(data)
-                if speech_detected_at is None and level >= 1.0:
+                if refiner is not None:
+                    if len(pcm) + len(data) > MAX_PCM_BYTES: break
+                    pcm.extend(data)
+                if speech_detected_at is None and (level >= 1.0 or refiner is not None and level >= .2):
                     speech_detected_at = self._clock()
                 with self._lock:
                     self._input_level_percent = level
@@ -643,15 +726,40 @@ class SpeechToTextRuntime:
                     self._callback(on_partial, partial)
                 if final_text:
                     final_parts.append(final_text)
-                if accepted and final_parts:
+                if accepted and (final_parts or refiner is not None and speech_detected_at is not None):
                     speech_end_at = self._clock()
                     break
             if not cancel.is_set():
                 remainder = recognizer.finish()
                 if remainder and remainder not in final_parts:
                     final_parts.append(remainder)
+            streaming_text = ' '.join(final_parts)
+            raw_text = streaming_text
+            if audio is not None:
+                phase = 'audio'; audio.stop()
+                with self._lock:
+                    if self._active is handle and self._audio is audio:self._audio = None; self._input_level_percent = 0.
+                audio = None
+            if refiner is not None and pcm and (speech_detected_at is not None or streaming_text.strip()) and not cancel.is_set():
+                with self._lock:
+                    if self._active is not handle:return
+                    self._state = SpeechInputState.TRANSCRIBING
+                    self._message = 'Refining speech with Whisper…'; self._vad_state = 'transcribing'
+                try:
+                    refined = refiner.transcribe(bytes(pcm), int(config.sample_rate), language=config.language, cancel=cancel)
+                    raw_text = str(refined.get('text', '')).strip(); provider = 'whisper'
+                    if not raw_text or refined.get('uncertain'):
+                        final_parts = []; error_code = 'unclear-speech' if raw_text else 'no-speech'
+                    else:
+                        value, corrections = correct_transcript(raw_text) if config.autocorrect else (raw_text, ())
+                        final_parts = [value]
+                except RefinementCancelled: pass
+                except (RefinementError, ImportError, OSError, ValueError):
+                    refinement_error = 'accuracy-engine-unavailable'
+            elif config.provider == 'whisper' and refiner is None:
+                refinement_error = 'accuracy-model-unavailable'
         except (ImportError, OSError, RuntimeError, ValueError):
-            if not self._model_path:
+            if not (self._model_path or refiner is not None):
                 error_code = "model-unavailable"
             else:
                 error_code = "audio" if phase == "audio" else "dependency"
@@ -668,6 +776,7 @@ class SpeechToTextRuntime:
             finalized_at = started + duration / 1000.0
             text = " ".join(" ".join(final_parts).split())
             cancelled = cancel.is_set()
+            if cancelled:text=''
             if not text and not error_code and not cancelled:
                 error_code = "no-speech"
             result = self._result(
@@ -676,6 +785,8 @@ class SpeechToTextRuntime:
                 cancelled,
                 "cancelled" if cancelled else error_code,
                 duration,
+                provider=provider, raw_text=raw_text, streaming_text=streaming_text,
+                corrections=corrections, refinement_error=refinement_error,
                 started_monotonic=started,
                 speech_detected_ms=(
                     max(0.0, (speech_detected_at - started) * 1000.0)
@@ -698,14 +809,17 @@ class SpeechToTextRuntime:
                     else None
                 ),
             )
-            handle._finish(result)
             with self._lock:
-                self._audio = None
-                if self._active is handle:
+                if cancel.is_set() and not result.cancelled:
+                    from dataclasses import replace
+                    result=replace(result,text='',cancelled=True,error_code='cancelled',message='Listening stopped.')
+                current=self._active is handle
+                if self._audio is audio:self._audio = None
+                if current:
                     self._active = None
-                if not self._shutdown:
+                if not self._shutdown and current and self._config is config:
                     self._state = (
-                        SpeechInputState.IDLE
+                        (SpeechInputState.DISABLED if not config.enabled else SpeechInputState.IDLE if self._model_path or self._refiner is not None else SpeechInputState.UNAVAILABLE)
                         if not result.error_code or result.error_code in {"no-speech", "cancelled"}
                         else SpeechInputState.ERROR
                     )
@@ -713,7 +827,11 @@ class SpeechToTextRuntime:
                     self._message = result.message
                     self._last_final = result.text
                     self._last_duration_ms = result.duration_ms
+                    self._last_provider = result.provider; self._last_raw = result.raw_text
+                    self._last_streaming = result.streaming_text; self._last_corrections = result.corrections
+                    self._last_refinement_error = result.refinement_error
                     self._vad_state = "idle"
+                handle._finish(result)
             self._log(result)
             self._callback(on_complete, result)
 
@@ -739,16 +857,18 @@ class SpeechToTextRuntime:
         first_partial_ms: float | None = None,
         speech_end_ms: float | None = None,
         speech_end_to_final_ms: float | None = None,
+        provider='vosk', raw_text='', streaming_text='', corrections=(), refinement_error='',
     ) -> TranscriptResult:
         messages = {
             "": "Speech recognized.",
             "cancelled": "Listening stopped.",
             "shutdown": "Speech input is stopped.",
             "disabled": "Speech input is disabled.",
-            "model-unavailable": "Vosk speech recognition model is unavailable.",
+            "model-unavailable": "A local speech recognition model is unavailable.",
             "dependency": "Speech recognition dependencies are unavailable.",
             "audio": "The microphone stream failed.",
             "no-speech": "No speech was recognized.",
+            "unclear-speech": "Speech was unclear. Please repeat or review the transcript.",
             "unknown": "Speech recognition failed safely.",
         }
         return TranscriptResult(
@@ -757,12 +877,13 @@ class SpeechToTextRuntime:
             duration_ms=duration_ms,
             cancelled=cancelled,
             error_code=error_code,
-            message=messages.get(error_code, messages["unknown"]),
+            message=('Speech recognized with Vosk; the larger recognizer was unavailable.' if refinement_error and not error_code else messages.get(error_code, messages["unknown"])),
             started_monotonic=max(0.0, float(started_monotonic)),
             speech_detected_ms=speech_detected_ms,
             first_partial_ms=first_partial_ms,
             speech_end_ms=speech_end_ms,
             speech_end_to_final_ms=speech_end_to_final_ms,
+            provider=provider, raw_text=raw_text, streaming_text=streaming_text, corrections=tuple(corrections), refinement_error=refinement_error,
         )
 
     def _log(self, result: TranscriptResult) -> None:
@@ -782,6 +903,7 @@ class SpeechToTextRuntime:
                     ),
                     "cancelled": result.cancelled,
                     "errorCode": result.error_code,
+                    "provider": result.provider, "corrections": len(result.corrections), "refinementError": result.refinement_error,
                 },
             )
         except BaseException:

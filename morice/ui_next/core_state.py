@@ -148,6 +148,8 @@ class CorePresentation(QObject):
         if notice is not None and notice[0] == CoreState.SECURITY_ALERT: state = notice[0]
         elif getattr(voice.state, 'value', '') == 'playing':
             state = CoreState.SPEAKING; audio = self._level(self.runtime.voice.audio_level())
+        elif getattr(getattr(speech,'state',None),'value','')=='transcribing':
+            state=CoreState.UNDERSTANDING; detail='Refining the recorded speech locally'
         elif speech.listening:
             # The existing live-voice gate waits for the user's wake phrase.
             # A saved "enabled" preference alone does not imply a running mic.
