@@ -198,3 +198,16 @@ def test_wheel_worker_uses_package_module_without_a_checkout_launcher(tmp_path,m
         assert spawn.call_args.kwargs['cwd']==installed
         assert not (installed/'morice_app_launcher.py').exists()
     finally:refiner.close()
+
+
+def test_missing_fast_model_and_failed_accuracy_decoder_do_not_claim_vosk():
+    refiner=Mock();refiner.transcribe.side_effect=RefinementError('decoder-load-failed')
+    runtime,_=runtime_for(refiner);runtime._model_path=''
+    class Endpoint:
+        def accept(self,_):return True,'',''
+        def finish(self):return ''
+    runtime._recognizer_factory=lambda *_:Endpoint()
+    try:
+        result=runtime.listen_once().wait(2)
+        assert result.provider=='none' and not result.text and result.refinement_error
+    finally:runtime.shutdown()

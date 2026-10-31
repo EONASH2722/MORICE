@@ -344,7 +344,7 @@ class SpeechToTextRuntime:
         self._input_level_percent = 0.0
         self._vad_state = "idle"
         self._last_microphone_test: dict[str, Any] = {}
-        self._last_provider = 'vosk'; self._last_raw = ''; self._last_streaming = ''
+        self._last_provider = 'none'; self._last_raw = ''; self._last_streaming = ''
         self._last_corrections = (); self._last_refinement_error = ''
 
     def _new_refiner(self, config):
@@ -683,7 +683,9 @@ class SpeechToTextRuntime:
         audio: AudioInput | None = None
         final_parts: list[str] = []
         pcm = bytearray(); raw_text = ''; streaming_text = ''; provider = 'vosk'; corrections = (); refinement_error = ''
-        with self._lock:refiner = self._refiner;config=self._config
+        with self._lock:
+            refiner = self._refiner;config=self._config
+            if not self._model_path:provider='none'
         error_code = ""
         phase = "recognizer"
         try:
