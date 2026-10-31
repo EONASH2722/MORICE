@@ -166,6 +166,8 @@ class RenovatedWindow(ExistingPresenter):
         self.ui_bridge.event_arrived.connect(self._runtime_event)
         self.theme_engine.changed.connect(lambda *_: self.effect_clock.configure())
         self.cursor_lighting = CursorLighting(self, self.theme_engine, self.effect_policy, self.effect_clock)
+        from .cursors import VisibleCursors
+        self.visible_cursors = VisibleCursors(self)
         self.material_backdrop = MaterialBackdrop(self, self.theme_engine, self.effect_policy, self.effect_clock, self.core_presentation)
         self.material_backdrop.hide()
         self.cursor_lighting.pointer_changed.connect(self.material_backdrop.pointer_changed)
@@ -1115,7 +1117,7 @@ class RenovatedWindow(ExistingPresenter):
             self.globe_view.dispose()
             for view in set(self.routes.values()):
                 if hasattr(view, 'dispose'): view.dispose()
-            self.cursor_lighting.close()
+            self.visible_cursors.close(); self.cursor_lighting.close()
             self.material_backdrop.close()
             self.renderer_clocks.close()
             self.icon_binder.close()

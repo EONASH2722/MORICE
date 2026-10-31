@@ -24,8 +24,9 @@ def probe(app):
         orb.model.present({'state':'SPEAKING','level':0});pump(.3);assert orb.canvas._audio_envelope<.1
         orb.theme.update(globe_color='#55ddff',globe_glow_color='#2488aa');orb.reload_style()
         assert orb.theme.profile.globe_color=='#55ddff' and orb.theme.profile.globe_glow_color=='#2488aa'
+        assert not orb.cursor().pixmap().isNull()
         return {'production_globe_renderer':True,'gpu':True,'transparent_interior_fraction':transparent/inside,
-            'idle_rotation':True,'color_persist_reload':True,'controlled_audio_envelope':True,'microphone_opened':False,'weights_loaded':False}
+            'idle_rotation':True,'color_persist_reload':True,'controlled_audio_envelope':True,'outlined_native_pointer':True,'microphone_opened':False,'weights_loaded':False}
     finally:orb.shutdown();app.processEvents()
 
 def run(output):

@@ -271,7 +271,8 @@ def test_native_latest_project_and_transcribed_navigation_use_first_party_bindin
     assert 'No repair or alternate action was started' in window.history[-1]['content'] and not window.pending_project_patch
     window.chat_mode='voice';window._voice_conversation_active=True;window._speech_base_text=''
     window._on_speech_transcript(TranscriptResult('owned-transcript','Open Settings',250))
-    pump(app,lambda:window.active_route=='settings')
+    pump(app,lambda:window.nlui_port.context().route=='settings')
+    assert window.chat_mode=='voice' and window._voice_conversation_active
     assert window.history[-2]['content']=='Open Settings'
 
 

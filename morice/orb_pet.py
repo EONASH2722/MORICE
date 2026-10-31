@@ -44,6 +44,8 @@ class OrbPetWindow(PetOverlayWindow):
         self.canvas.setToolTip('Drag to move Orb · Move the pointer to interact · Right-click for colors')
         layout=QVBoxLayout(self);layout.setContentsMargins(0,0,0,0);layout.addWidget(self.canvas)
         self.setWindowTitle('MORICE Orb');self.setAccessibleName('Orb desktop pet')
+        from .ui_next.cursors import VisibleCursors
+        self.visible_cursors=VisibleCursors(self)
         self.set_animation_speed(options.get('animation_speed','normal'))
 
     def configure_size(self,size):
@@ -106,7 +108,7 @@ class OrbPetWindow(PetOverlayWindow):
     def present(self,value):self.model.present(value)
     def paintEvent(self,event):pass # Child GL canvas owns every visible pixel.
     def shutdown(self):
-        self.canvas.dispose();self.clock.close();super().shutdown()
+        self.visible_cursors.close();self.canvas.dispose();self.clock.close();super().shutdown()
 
 class OrbSettings(QWidget):
     def __init__(self,owner):

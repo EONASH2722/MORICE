@@ -2,7 +2,7 @@
 import math,uuid,json,time
 from unittest.mock import Mock,patch
 import pytest
-from PySide6.QtCore import QRectF,QPoint
+from PySide6.QtCore import QRectF,QPoint,Qt
 from PySide6.QtGui import QImage,QPainter
 from PySide6.QtNetwork import QLocalSocket
 from PySide6.QtWidgets import QWidget
@@ -122,3 +122,27 @@ def test_orb_voice_toggle_respects_existing_microphone_denial(window,app,monkeyp
     window.orb_pet_settings.wake.setChecked(True)
     assert not window.orb_pet_settings.wake.isChecked() and window.settings.get('orb_voice_wake')=='false'
     assert not configure.called and 'blocked' in window.orb_pet_settings.status.text()
+
+@pytest.mark.parametrize('shape',[Qt.ArrowCursor,Qt.PointingHandCursor,Qt.IBeamCursor])
+@pytest.mark.parametrize('ratio',[1.,2.])
+def test_native_pointer_has_opaque_light_and_dark_edges_at_each_dpi(app,shape,ratio):
+    from morice.ui_next.cursors import outlined_cursor
+    cursor=outlined_cursor(shape,ratio);image=cursor.pixmap().toImage()
+    opaque=[image.pixelColor(x,y) for x in range(image.width()) for y in range(image.height()) if image.pixelColor(x,y).alpha()>240]
+    assert any(color.lightness()>240 for color in opaque)
+    assert any(color.lightness()<15 for color in opaque)
+    assert image.pixelColor(0,0).alpha()==0 and image.width()==round(32*ratio)
+
+def test_pointer_roles_stay_visible_without_glow_or_global_cursor_override(window,app):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QLineEdit,QPushButton
+    original=app.overrideCursor()
+    text=QLineEdit(window);button=QPushButton(window)
+    for preset in ('ICE','MORICE','GLASS'):
+        window.theme_engine.update(preset=preset,cursor_glow='OFF',cursor_light=False,persist=False)
+        text.setCursor(Qt.IBeamCursor);button.setCursor(Qt.PointingHandCursor)
+        assert not window.cursor().pixmap().isNull()
+        assert text.cursor().hotSpot()!=button.cursor().hotSpot()
+        assert not text.cursor().pixmap().isNull() and not button.cursor().pixmap().isNull()
+    text.setCursor(Qt.WaitCursor);assert text.cursor().shape()==Qt.WaitCursor
+    assert app.overrideCursor()==original

@@ -69,6 +69,8 @@ Enable **“Say MORICE to start voice / Allow background microphone”** to use 
 
 ![Actual native Orb over an owned checkerboard used to verify desktop transparency](docs/assets/orb-0.12.0/desktop-orb.png)
 
+Native arrow, hand and text cursors have a white fill with a black outline, keeping the pointer visible in all three themes even when cursor glow is off. Windows cursor settings stay unchanged.
+
 | White | Glass |
 | --- | --- |
 | ![Actual White home](docs/assets/security-lab-0.12.0/white-home.png) | ![Actual Glass home](docs/assets/security-lab-0.12.0/glass-home.png) |
