@@ -84,14 +84,15 @@ class WhisperRefiner:
                 from .kernel.contracts import ResourceClaim
                 if not self.resources.acquire(self._owner, (ResourceClaim('SPEECH_DECODER'),)): raise RefinementError('decoder-busy')
                 self._leased = True
-            command = [sys.executable]
-            if not getattr(sys, 'frozen', False): command.append(str(Path(__file__).resolve().parents[1] / 'morice_app_launcher.py'))
-            command.extend(('--morice-speech-worker', self.model_path))
+            frozen=bool(getattr(sys,'frozen',False))
+            command=([sys.executable,'--morice-speech-worker',self.model_path] if frozen
+                     else [sys.executable,'-m','morice.speech_worker',self.model_path])
             environment = {**os.environ, 'HF_HUB_OFFLINE': '1', 'HF_HUB_DISABLE_TELEMETRY': '1',
                 'OMP_NUM_THREADS': '4','OPENBLAS_NUM_THREADS':'4','MKL_NUM_THREADS':'4'}
             try:
                 process = spawn_owned_process(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL, env=environment, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+                    cwd=None if frozen else Path(__file__).resolve().parents[1],
                     memory_limit_bytes=3 * 1024**3)
             except BaseException:
                 if self._leased: self.resources.release(self._owner); self._leased = False

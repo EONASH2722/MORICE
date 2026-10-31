@@ -50,4 +50,12 @@ def main(model_path):
                 'language': info.language, 'uncertain': not bool(text) or bool(scores and sum(scores)/len(scores)<-1.0)})
         except Exception:
             reply({'type': 'error', 'id': identifier, 'error': 'decode-failed'})
+        finally:
+            request=None;pcm=b'';samples=audio=None;segments=segment=info=None
+            parts=scores=None;line=b'';text=''
     return 0
+
+
+if __name__=='__main__':
+    if len(sys.argv)!=2:raise SystemExit('Usage: python -m morice.speech_worker MODEL_DIRECTORY')
+    raise SystemExit(main(sys.argv[1]))

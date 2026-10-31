@@ -179,3 +179,22 @@ def test_old_capture_cleanup_cannot_clear_a_replacement_capture():
         assert runtime._audio is second and runtime.status().state==SpeechInputState.LISTENING and runtime.status().listening
         runtime.cancel();assert b.wait(1).cancelled
     finally:old_stop.set();first.abort();second.abort();runtime.shutdown()
+
+
+def test_wheel_worker_uses_package_module_without_a_checkout_launcher(tmp_path,monkeypatch):
+    import io,sys
+    import morice.speech_refinement as module
+    installed=tmp_path/'site-packages';(installed/'morice').mkdir(parents=True)
+    monkeypatch.setattr(module,'__file__',str(installed/'morice/speech_refinement.py'))
+    monkeypatch.delattr(sys,'frozen',raising=False)
+    process=Mock();process.poll.return_value=None
+    process.stdout=io.BytesIO(b'{"type":"ready"}\n');process.stdin=io.BytesIO()
+    spawn=Mock(return_value=process);monkeypatch.setattr(module,'spawn_owned_process',spawn)
+    monkeypatch.setattr(module,'reap_owned_job',lambda *_,**__:True)
+    refiner=WhisperRefiner('owned-model')
+    try:
+        assert refiner.prewarm()
+        assert spawn.call_args.args[0]==[sys.executable,'-m','morice.speech_worker','owned-model']
+        assert spawn.call_args.kwargs['cwd']==installed
+        assert not (installed/'morice_app_launcher.py').exists()
+    finally:refiner.close()
