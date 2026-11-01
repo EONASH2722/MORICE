@@ -2,6 +2,8 @@
 
 MORICE uses Vosk for quick streaming text and wake detection, with **Whisper Small** available for the final speech transcript. The installed profile selects the larger local recognizer. English, Hindi and automatic language detection are available under **Settings → Voice → Speech recognition quality**.
 
+Selecting Voice explicitly starts its session. Merely restoring a saved Voice page leaves devices off until a microphone or camera control is activated. Camera startup, unavailable-device and error messages stay visible and can be cancelled. Device indicators refer to MORICE's own capture. Late speech deliveries are ignored after pause/resume, reconfiguration or session replacement.
+
 ![Actual native speech quality controls with a local Whisper folder selected](assets/speech-0.12.0/voice-controls.png)
 
 Select Automatic, Whisper or Vosk, choose a local converted Whisper model folder and save voice settings. The folder needs `model.bin`, `config.json`, `tokenizer.json` and `vocabulary.txt`. Public downloads include the decoder; the Whisper weights are acquired separately through an explicit user action. The app loads local files and performs recognition offline.
@@ -17,3 +19,5 @@ Silence and low-confidence recognition are reported. Unclear recognized speech a
 In voice mode, generated reply text feeds the existing TTS pipeline. ElevenLabs uses the configured voice, model and stored API key. Windows local speech uses installed system voices and supports streamed reply chunks. Playback PCM levels drive the app and Orb speaking animation.
 
 Validation uses owned Windows-synthesized audio: ordinary commands, negation, quantities, assistant naming and a reasoning question, plus quiet audio, silence/noise and actual worker cancellation. It also exercises packaged decoding and a local language-model-to-TTS pipeline. These fixtures verify operation and specific cases; they do not certify accuracy for every microphone, accent or acoustic environment.
+
+The November 1 device check also exercised the actual integrated camera and Realtek microphone through the native Voice workspace: live frames reached the visible preview, microphone capture entered listening, and both stopped with no pending workers or resource leases. No images, audio or transcripts were saved, and no external speech provider was called for that check. This verifies those devices on that machine, not universal camera/driver compatibility.

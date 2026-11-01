@@ -116,14 +116,14 @@ class RenovatedWindow(ExistingPresenter):
         for name, label, action in (('minimize', 'Minimize', self.showMinimized), ('maximize', 'Maximize or restore', self._toggle_renovated_maximize), ('close', 'Close', self.close)):
             button = QPushButton(''); button.setProperty('morice_icon', name); button.setFixedWidth(40); button.clicked.connect(action); button.setAccessibleName(label); button.setToolTip(label); header.addWidget(button)
         root.addWidget(self.header)
-        body = QHBoxLayout(); self.navigation = NavigationRail(); self.navigation.set_expanded(False); self.navigation.selected.connect(self.navigate); self.navigation.toggle_requested.connect(self.toggle_sidebar); body.addWidget(self.navigation)
+        body = QHBoxLayout(); self.navigation = NavigationRail(); self.navigation.set_expanded(False); self.navigation.selected.connect(self.select_workspace); self.navigation.toggle_requested.connect(self.toggle_sidebar); body.addWidget(self.navigation)
         central = QVBoxLayout(); central.setSpacing(16); self.route_stack = RouteStack(); central.addWidget(self.route_stack, 1)
         # Hidden routes must not impose their minimum height on Core/Chat.
         # The composer and dock reserve space before the active route expands.
         self.route_stack.setSizePolicy(QSizePolicy.Expanding,QSizePolicy.Ignored)
         self.composer = self._new_composer(); central.addWidget(self.composer, 0, Qt.AlignHCenter)
         self.input.document().documentLayout().documentSizeChanged.connect(self._fit_renovated_composer)
-        self.action_deck = ActionDeck(); self.action_deck.selected.connect(self.navigate); central.addWidget(self.action_deck, 0, Qt.AlignHCenter)
+        self.action_deck = ActionDeck(); self.action_deck.selected.connect(self.select_workspace); central.addWidget(self.action_deck, 0, Qt.AlignHCenter)
         body.addLayout(central, 1); root.addLayout(body, 1)
         self.status_line = QLabel('Ready · Private local workspace'); self.status_line.setProperty('role', 'secondary'); root.addWidget(self.status_line)
         self.core_presentation.changed.connect(self._core_changed)
@@ -165,9 +165,7 @@ class RenovatedWindow(ExistingPresenter):
         self.navigate(restored_route)
         self.ui_bridge.event_arrived.connect(self._runtime_event)
         self.theme_engine.changed.connect(lambda *_: self.effect_clock.configure())
-        self.cursor_lighting = CursorLighting(self, self.theme_engine, self.effect_policy, self.effect_clock)
-        from .cursors import VisibleCursors
-        self.visible_cursors = VisibleCursors(self)
+        self.cursor_lighting = CursorLighting(self, self.theme_engine, self.effect_policy, self.effect_clock, pointer_only=True)
         self.material_backdrop = MaterialBackdrop(self, self.theme_engine, self.effect_policy, self.effect_clock, self.core_presentation)
         self.material_backdrop.hide()
         self.cursor_lighting.pointer_changed.connect(self.material_backdrop.pointer_changed)
@@ -262,6 +260,23 @@ class RenovatedWindow(ExistingPresenter):
     def _add_route(self, key, widget):
         self.routes[key] = widget
         if self.route_stack.indexOf(widget) < 0: self.route_stack.addWidget(widget)
+
+    def select_workspace(self, key):
+        """Explicit Voice selection starts its session; route restoration stays passive."""
+        if key == 'voice':
+            self._set_chat_mode('voice')
+        self.navigate(key)
+
+    def _on_live_camera_requested(self, enabled):
+        if enabled and getattr(self, '_renovated_ready', False) and self.chat_mode != 'voice':
+            self.select_workspace('voice')
+        super()._on_live_camera_requested(enabled)
+
+    def _on_live_microphone_requested(self, enabled):
+        if enabled and getattr(self, '_renovated_ready', False) and self.chat_mode != 'voice':
+            self.select_workspace('voice')
+            return
+        super()._on_live_microphone_requested(enabled)
 
     def navigate(self, key):
         if key not in self.routes and key in self.route_factories:
@@ -646,7 +661,7 @@ class RenovatedWindow(ExistingPresenter):
     def _on_workspace_command(self, command, argument=None):
         if getattr(self, '_renovated_ready', False) and str(command).startswith('renovation:'):
             kind, value = str(command).split(':', 2)[1:]
-            if kind == 'route': self.navigate(value)
+            if kind == 'route': self.select_workspace(value)
             elif kind == 'theme': self.theme_engine.update(preset=value)
             return
         return super()._on_workspace_command(command, argument)
@@ -860,6 +875,7 @@ class RenovatedWindow(ExistingPresenter):
             permission = self.runtime.kernel.permissions.controller.state('microphone_access')
             if permission not in {PermissionState.ASK, PermissionState.GRANTED}:
                 message = 'Microphone input is unavailable under the existing permission policy: ' + permission.value
+                self.live_action_workspace.set_microphone_state(False, message)
                 if self.wake_controller.active:
                     from .wake import WakeState
                     self.wake_controller.set_state(WakeState.ERROR, message, 2)
@@ -868,6 +884,13 @@ class RenovatedWindow(ExistingPresenter):
         handle = super()._begin_voice_listening()
         if handle is not None and getattr(self, '_renovated_ready', False) and self.wake_controller.active:
             self.wake_controller.stt_request_id = handle.request_id
+        elif getattr(self, '_renovated_ready', False) and self.wake_controller.active:
+            status = self.runtime.speech_input.status()
+            if status.state.value in {'disabled', 'unavailable', 'stopped'}:
+                from .wake import WakeState
+                message = ('Speech input is disabled. Enable it in Settings → Voice.'
+                    if status.state.value == 'disabled' else status.message or 'Speech input is unavailable.')
+                self.wake_controller.set_state(WakeState.ERROR, message, 2)
         return handle
 
     def _on_speech_partial(self, text):
@@ -1005,6 +1028,7 @@ class RenovatedWindow(ExistingPresenter):
         if self.settings.get('orb_voice_wake')=='true' and self.runtime.kernel.permissions.controller.state('microphone_access') not in {PermissionState.ASK,PermissionState.GRANTED}:
             from ..settings import save_settings
             self.settings['orb_voice_wake']='false';save_settings(self.settings);self.pet_manager.configure(self.settings)
+            self._speech_input_request_id = ''
             self.runtime.speech_input.cancel('Orb microphone permission revoked')
             field=getattr(self,'orb_pet_settings',None)
             if field is not None:field.wake.blockSignals(True);field.wake.setChecked(False);field.wake.blockSignals(False)
@@ -1119,7 +1143,7 @@ class RenovatedWindow(ExistingPresenter):
             self.globe_view.dispose()
             for view in set(self.routes.values()):
                 if hasattr(view, 'dispose'): view.dispose()
-            self.visible_cursors.close(); self.cursor_lighting.close()
+            self.cursor_lighting.close()
             self.material_backdrop.close()
             self.renderer_clocks.close()
             self.icon_binder.close()

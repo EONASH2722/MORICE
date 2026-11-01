@@ -147,6 +147,7 @@ class WakeController(QObject):
         if not self.active: self._return_mode = self.owner.chat_mode
         if self.interaction_token is not None: self.interaction_token.cancel('wake-rearmed')
         self.epoch += 1; self.interaction_token = CancellationToken(); self.stt_request_id = ''; self.tts_request_id = ''
+        self.owner._speech_input_request_id = ''
         self.runtime.speech_input.cancel('wake-rearmed')
         self._fullscreen = bool(fullscreen); self.active = True; self._started_at = time.monotonic()
         self.speech_progress.start()

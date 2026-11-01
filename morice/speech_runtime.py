@@ -575,9 +575,10 @@ class SpeechToTextRuntime:
             self._recognizer()
         except (ImportError, OSError, RuntimeError, ValueError):
             with self._lock:
-                self._state = SpeechInputState.ERROR
-                self._last_error = "dependency"
-                self._message = "Speech recognition dependencies are unavailable."
+                if not self._shutdown and self._config is previous_config and self._state == SpeechInputState.LOADING and (self._active is None or self._active.done):
+                    self._state = SpeechInputState.ERROR
+                    self._last_error = "dependency"
+                    self._message = "Speech recognition dependencies are unavailable."
             return False
         with self._lock:
             if not self._shutdown and self._config is previous_config and self._state==SpeechInputState.LOADING and (self._active is None or self._active.done):
@@ -599,7 +600,7 @@ class SpeechToTextRuntime:
     ) -> ListenHandle:
         self.cancel("replaced")
         clean_id = str(request_id or uuid.uuid4().hex)[:128]
-        handle = ListenHandle(clean_id, lambda: self.cancel("user"))
+        handle = ListenHandle(clean_id, lambda: self.cancel("user", expected_handle=handle))
         with self._lock:
             if self._shutdown:
                 handle._finish(self._result(handle, "", True, "shutdown", 0.0))
@@ -627,11 +628,11 @@ class SpeechToTextRuntime:
             thread.start()
         return handle
 
-    def cancel(self, reason: str = "user") -> bool:  # noqa: ARG002
+    def cancel(self, reason: str = "user", *, expected_handle: ListenHandle | None = None) -> bool:  # noqa: ARG002
         with self._lock:
             active = self._active
             audio = self._audio
-            if active is None or active.done:
+            if active is None or active.done or expected_handle is not None and active is not expected_handle:
                 return False
             self._cancel.set()
         if audio is not None:

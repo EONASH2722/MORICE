@@ -237,7 +237,7 @@ class WindowCapabilityPort:
             return {'chat_id':window._chat_id}
         if capability=='ui.navigate':
             route=arguments['route']
-            window.navigate(route)
+            getattr(window,'select_workspace',window.navigate)(route)
             return {'message':f'{route.title()} is selected for voice commands.' if window.chat_mode=='voice' and route!='voice' else f'Opened {"Core" if route=="home" else route.title()}.','route':route}
         if capability=='ui.settings':
             category=arguments['category'];settings=window.routes['settings']

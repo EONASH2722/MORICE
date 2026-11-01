@@ -249,7 +249,7 @@ from .pet_launcher import (
     repaired_window_geometry,
     restore_morice_window,
 )
-from .speech_runtime import SpeechInputConfig, TranscriptResult
+from .speech_runtime import SpeechInputConfig, SpeechInputState, TranscriptResult
 from .voice_runtime import BoundedSpeechStream
 from .wake_runtime import (
     parse_wake_request,
@@ -6113,7 +6113,7 @@ class MoriceWindow(QWidget):
     premium_metrics_ready = Signal(object)
     plugin_catalog_changed = Signal()
     plugin_notification_received = Signal(str, str)
-    speech_partial_ready = Signal(str)
+    speech_partial_ready = Signal(str, str)
     speech_transcript_ready = Signal(object)
     speech_playback_finished = Signal(object)
     pc_control_ready = Signal(str, object)
@@ -6410,8 +6410,8 @@ class MoriceWindow(QWidget):
         self.file_search_ready.connect(self._on_file_search_ready)
         self.desktop_action_ready.connect(self._on_desktop_action_ready)
         self.premium_metrics_ready.connect(self._on_premium_metrics)
-        self.speech_partial_ready.connect(self._on_speech_partial)
-        self.speech_transcript_ready.connect(self._on_speech_transcript)
+        self.speech_partial_ready.connect(self._deliver_speech_partial)
+        self.speech_transcript_ready.connect(self._deliver_speech_transcript)
         self.speech_playback_finished.connect(
             self._on_speech_playback_finished
         )
@@ -9558,7 +9558,15 @@ class MoriceWindow(QWidget):
         status = self.runtime.speech_input.status()
         if status.listening:
             return
+        if status.state == SpeechInputState.DISABLED:
+            message = 'Speech input is disabled. Enable it in Settings → Voice.'
+            self._show_notification(message, 'warning', 6500)
+            if hasattr(self, 'live_action_workspace'):
+                self.live_action_workspace.set_microphone_state(False, message)
+            return
         if not status.model_configured:
+            if hasattr(self, 'live_action_workspace'):
+                self.live_action_workspace.set_microphone_state(False, status.message)
             self._show_notification(status.message, "error", 6500)
             return
         self._barge_in_monitoring = barge_in
@@ -9576,9 +9584,12 @@ class MoriceWindow(QWidget):
             self.live_action_workspace.set_microphone_state(
                 True, "Listening… speak naturally."
             )
+        request_id = uuid.uuid4().hex
+        self._speech_input_request_id = request_id
         handle=self.runtime.speech_input.listen_once(
+            request_id=request_id,
             on_partial=lambda text: self._emit_background(
-                "speech_partial_ready", text
+                "speech_partial_ready", text, request_id
             ),
             on_complete=lambda result: self._emit_background(
                 "speech_transcript_ready", result
@@ -9586,6 +9597,29 @@ class MoriceWindow(QWidget):
         )
         self._speech_input_request_id=handle.request_id
         return handle
+
+    def _accept_speech_delivery(self, request_id: str) -> bool:
+        return bool(
+            request_id
+            and request_id == getattr(self, '_speech_input_request_id', '')
+            and self.chat_mode == 'voice'
+            and self._voice_conversation_active
+            and not self._live_microphone_paused
+            and not self._is_closing
+        )
+
+    def _deliver_speech_partial(self, text: str, request_id: str) -> None:
+        if self._accept_speech_delivery(request_id):
+            self._on_speech_partial(text)
+
+    def _deliver_speech_transcript(self, payload: object) -> None:
+        if not isinstance(payload, TranscriptResult) or payload.cancelled or not self._accept_speech_delivery(payload.request_id):
+            return
+        try:
+            self._on_speech_transcript(payload)
+        finally:
+            if self._speech_input_request_id == payload.request_id:
+                self._speech_input_request_id = ''
 
     def _on_speech_partial(self, text: str) -> None:
         if self.chat_mode != "voice" or not self._voice_conversation_active:
@@ -9639,7 +9673,7 @@ class MoriceWindow(QWidget):
                 if handle is None:QTimer.singleShot(450,self._begin_voice_listening)
             if hasattr(self, "live_action_workspace"):
                 self.live_action_workspace.set_microphone_state(
-                    not self._live_microphone_paused,
+                    not self._live_microphone_paused and result is not None and result.error_code in {'', 'no-speech', 'unclear-speech'},
                     message,
                 )
             return
@@ -9732,6 +9766,7 @@ class MoriceWindow(QWidget):
             input_device: int | str | None = int(raw_device) if raw_device else None
         except ValueError:
             input_device = raw_device or None
+        self._speech_input_request_id = ''
         speech_status = self.runtime.speech_input.configure(
             SpeechInputConfig(
                 model_path=str(self.settings.get('stt_model_path','')),
@@ -12033,6 +12068,7 @@ class MoriceWindow(QWidget):
             )
             QTimer.singleShot(0, self._begin_voice_listening)
         else:
+            self._speech_input_request_id = ''
             self.runtime.speech_input.cancel("microphone-paused")
             self.live_action_workspace.set_microphone_state(
                 False, "Microphone paused. Typed requests still work."
@@ -15504,6 +15540,7 @@ class MoriceWindow(QWidget):
     def _send_request(self,user_input,*,text_only=False,continuation=False,notice=''):
         ui_received_ns = time.perf_counter_ns()
         self.runtime.voice.interrupt("new-user-request")
+        self._speech_input_request_id = ''
         self.runtime.speech_input.cancel("transcript-submitted")
         self.runtime.live_vision.cancel("new-user-request")
         if self._project_build_id:

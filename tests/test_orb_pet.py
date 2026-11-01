@@ -97,6 +97,22 @@ def test_morice_orb_wake_keeps_main_window_hidden_and_starts_one_capture(window,
     assert window.chat_mode=='voice' and window.active_route==before and listening.call_count==1
     assert not window.isVisible() and not window.wake_controller.overlay.isVisible()
 
+def test_finishing_orb_voice_restores_the_chat_widgets_without_showing_the_app(window, app, monkeypatch):
+    monkeypatch.setattr(window, '_begin_voice_listening', Mock())
+    window._set_chat_mode('normal'); window.navigate('chats'); app.processEvents()
+    window.append_message('MORICE', 'Owned conversation visibility fixture.'); app.processEvents()
+    assert window.scroll.isVisible()
+    window.settings.update(pet_enabled='true', active_pet='orb', orb_voice_wake='true')
+    window.hide()
+    window._wake_from_external('magic words: morice'); app.processEvents()
+    assert window.chat_mode == 'voice'
+    window.wake_controller.finish(); app.processEvents()
+    assert not window.isVisible()
+    assert window.chat_mode == 'normal'
+    window.showNormal(); window.navigate('chats'); app.processEvents()
+    assert window.scroll.isVisible() and window.input.isVisible() and window.composer.isVisible()
+
+
 def test_voice_can_select_every_workspace_without_changing_voice_surface(window,app,monkeypatch):
     from morice.ui_next.navigation import ROUTES
     monkeypatch.setattr(window,'_begin_voice_listening',Mock())
@@ -123,26 +139,17 @@ def test_orb_voice_toggle_respects_existing_microphone_denial(window,app,monkeyp
     assert not window.orb_pet_settings.wake.isChecked() and window.settings.get('orb_voice_wake')=='false'
     assert not configure.called and 'blocked' in window.orb_pet_settings.status.text()
 
-@pytest.mark.parametrize('shape',[Qt.ArrowCursor,Qt.PointingHandCursor,Qt.IBeamCursor])
-@pytest.mark.parametrize('ratio',[1.,2.])
-def test_native_pointer_has_opaque_light_and_dark_edges_at_each_dpi(app,shape,ratio):
-    from morice.ui_next.cursors import outlined_cursor
-    cursor=outlined_cursor(shape,ratio);image=cursor.pixmap().toImage()
-    opaque=[image.pixelColor(x,y) for x in range(image.width()) for y in range(image.height()) if image.pixelColor(x,y).alpha()>240]
-    assert any(color.lightness()>240 for color in opaque)
-    assert any(color.lightness()<15 for color in opaque)
-    assert image.pixelColor(0,0).alpha()==0 and image.width()==round(32*ratio)
-
-def test_pointer_roles_stay_visible_without_glow_or_global_cursor_override(window,app):
+def test_windows_pointer_roles_use_no_custom_pixmaps_or_cursor_overlay(window,app):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QLineEdit,QPushButton
     original=app.overrideCursor()
     text=QLineEdit(window);button=QPushButton(window)
     for preset in ('ICE','MORICE','GLASS'):
-        window.theme_engine.update(preset=preset,cursor_glow='OFF',cursor_light=False,persist=False)
+        window.theme_engine.update(preset=preset,cursor_glow='HIGH',cursor_light=True,cursor_trail=True,persist=False)
         text.setCursor(Qt.IBeamCursor);button.setCursor(Qt.PointingHandCursor)
-        assert not window.cursor().pixmap().isNull()
-        assert text.cursor().hotSpot()!=button.cursor().hotSpot()
-        assert not text.cursor().pixmap().isNull() and not button.cursor().pixmap().isNull()
+        assert window.cursor().shape()==Qt.ArrowCursor and window.cursor().pixmap().isNull()
+        assert text.cursor().shape()==Qt.IBeamCursor and button.cursor().shape()==Qt.PointingHandCursor
+        assert text.cursor().pixmap().isNull() and button.cursor().pixmap().isNull()
+        assert window.cursor_lighting.pointer_only and window.cursor_lighting.isHidden()
     text.setCursor(Qt.WaitCursor);assert text.cursor().shape()==Qt.WaitCursor
     assert app.overrideCursor()==original

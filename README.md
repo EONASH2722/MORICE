@@ -69,7 +69,7 @@ Enable **“Say MORICE to start voice / Allow background microphone”** to use 
 
 ![Actual native Orb over an owned checkerboard used to verify desktop transparency](docs/assets/orb-0.12.0/desktop-orb.png)
 
-Native arrow, hand and text cursors have a white fill with a black outline, keeping the pointer visible in all three themes even when cursor glow is off. Windows cursor settings stay unchanged.
+MORICE and Orb use your **normal Windows cursor**, including its system size and style. There are no custom cursor images, pointer glow or cursor trails. The globe itself still reacts to mouse movement.
 
 **Better speech input.** MORICE supports local **Whisper Small** for the final transcript, with quick Vosk live text and wake detection. The larger decoder uses CPU INT8, checks the original audio, handles quiet recordings and stays outside the UI process. Speech correction standardizes the assistant name and known workspace commands while preserving numbers, other names, paths and negation. Unclear speech requests a repeat; a failed accuracy decoder reports its Vosk fallback.
 
@@ -98,6 +98,8 @@ Ordinary questions and engineering prompts stay written replies. An explicit vis
 ![Actual voice workspace](docs/assets/security-lab-0.12.0/voice.png)
 
 **Voice mode has no text composer or spoken-answer text overlay.** Its globe follows actual speech playback levels with smooth attack and release; microphone and camera controls remain available. Typed chat keeps its editor. Optional background wake, magic words and double-clap activation retain explicit microphone access. Hardware latency depends on the audio provider and device.
+
+Selecting **Voice** from navigation, the home shortcuts, command search or natural language starts its voice session. Restoring a previously open Voice page leaves devices off until you activate a control. **Resume microphone** and **Turn camera on** also activate the session from that restored page. Camera startup and device errors stay visible and can be cancelled; device indicators describe MORICE's own capture, not whether another app is using the hardware. Old speech results are discarded after pause, restart or settings changes.
 
 ## Workspaces and natural-language control
 

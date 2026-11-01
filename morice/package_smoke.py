@@ -177,8 +177,9 @@ def run(output):
     result['ambient_animation']={'phase_advanced':tuple(canvas._orbit_phases)!=initial_phase,'reduced_motion':window.theme_engine.profile.reduced_motion,'background_probe':background}
     result['globe']=live_globe[-1] if live_globe else canvas.diagnostics();result['three_themes']=list(UI_THEMES.values())
     result['thinking_levels']=[window.thinking_level.itemData(i) for i in range(window.thinking_level.count())]
-    assert not window.cursor().pixmap().isNull() and not window.input.viewport().cursor().pixmap().isNull()
-    result['native_pointer']={'outlined_arrow_and_text':True,'global_override_used':False,'independent_of_cursor_glow':True}
+    assert window.cursor().pixmap().isNull() and window.input.viewport().cursor().pixmap().isNull()
+    assert window.cursor_lighting.pointer_only and not window.cursor_lighting.isVisible()
+    result['native_pointer']={'windows_system_cursor':True,'custom_pixmaps':False,'cursor_overlay':False,'global_override_used':False}
     if spatial is not None:result['spatial_result']=spatial
     window.close();runtime.shutdown();result["shutdown"]=runtime.shutdown_report
     result["leases_after"]=len(runtime.kernel.resources.snapshot())

@@ -184,6 +184,7 @@ class LiveActionWorkspace(QWidget):
         super().__init__(parent)
         self.setObjectName("LiveActionWorkspace")
         self._camera_active = False
+        self._camera_requested = False
         self._microphone_active = False
 
         root = QVBoxLayout(self)
@@ -394,13 +395,15 @@ class LiveActionWorkspace(QWidget):
     def set_camera_state(self, state: str, message: str) -> None:
         active = state == "active"
         self._camera_active = active
-        if getattr(self,'_globe_voice',False):self.stage.setVisible(active)
-        self.camera_button.setText("Turn camera off" if active else "Turn camera on")
-        self.privacy_label.setText(
-            "● CAMERA LIVE · memory only" if active else "● CAMERA OFF · no frames stored"
-        )
-        if not active and state in {"off", "unavailable", "error"}:
+        self._camera_requested = state in {'starting', 'active', 'unavailable', 'error'}
+        if getattr(self,'_globe_voice',False):self.stage.setVisible(self._camera_requested)
+        self.camera_button.setText("Turn camera off" if active else "Cancel camera" if self._camera_requested else "Turn camera on")
+        status = {'active':'CAMERA LIVE · memory only', 'starting':'CAMERA STARTING',
+            'unavailable':'CAMERA UNAVAILABLE', 'error':'CAMERA ERROR'}.get(state,'CAMERA OFF · no frames stored')
+        self.privacy_label.setText('● ' + status)
+        if not active and state in {"off", "starting", "unavailable", "error"}:
             self.preview.clear_frame(message)
+            if state != 'off': self.preview.setText(message)
         if state in {"unavailable", "error"} and not getattr(self,'_globe_voice',False):
             self.overlay.set_status(message, state="camera")
         elif state in {'unavailable','error'}:self.transcript_label.setText(message)
@@ -437,7 +440,7 @@ class LiveActionWorkspace(QWidget):
         QApplication.clipboard().setText(str(text or ""))
 
     def _toggle_camera(self) -> None:
-        self.cameraRequested.emit(not self._camera_active)
+        self.cameraRequested.emit(not self._camera_requested)
 
     def _toggle_microphone(self) -> None:
         self.microphoneRequested.emit(not self._microphone_active)

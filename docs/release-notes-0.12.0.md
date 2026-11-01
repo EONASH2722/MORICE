@@ -7,7 +7,7 @@ MORICE adds a local Security Lab inside the existing Security workspace. It perf
 - **Orb desktop pet:** the home globe in a transparent, draggable desktop window; independently saved Orb/glow colors; subtle glow and smooth shuffled left/right/up/down idle turns.
 - **Optional Orb voice wake:** explicitly allow the background microphone and say “MORICE” to speak through the small pet, keeping the main window hidden. Existing wake, speech, inference and playback owners are reused; Orb follows actual public activity and speech levels. Voice/Live Action keeps its surface while selecting registered workspaces and using their existing capabilities.
 - **Focus continuity:** Windows overlays/dialogs pause the current visual pose and retain scene quality instead of resetting to angle zero.
-- **Visible pointers:** outlined native arrow, hand and text cursors remain legible in White, Pitch Black and Glass, independently of cursor lighting. Windows cursor preferences are unchanged.
+- **Windows cursors:** the app and Orb use the system arrow, hand and text cursor with the user's Windows size and style. Custom cursor images, glow and trails were removed; the globe remains mouse-reactive.
 - **Speech accuracy:** optional local Whisper Small final recognition with CPU INT8, fast Vosk live text/wake detection, quiet-input normalization, bounded owned decoding, cancellation and resource cleanup. The local installed profile selects the verified accuracy model; its approximately 486 MB weights stay separate from public packages.
 - **Transcript correction:** audio-based final refinement plus conservative assistant-name/workspace-command correction. Original and final transcripts remain available in speech diagnostics; unclear recognition requests a repeat and unavailable accuracy recognition reports its Vosk fallback.
 - **Reply speech:** generated replies remain connected to TTS; Windows local speech can stream generated reply chunks without an ElevenLabs API key. Voice and Orb use actual playback levels.
@@ -24,6 +24,10 @@ MORICE adds a local Security Lab inside the existing Security workspace. It perf
 - Natural-language Lab requests and rich results backed by actual local receipts/artifacts.
 
 ## Fixed and preserved
+
+Explicit Voice selection now activates the session through navigation, home shortcuts, command search and natural language. Microphone/camera controls work from a passively restored Voice page without starting capture merely because the app reopened. Starting, unavailable and failed cameras keep their status visible and remain cancellable. Microphone failures no longer claim recording is active. Camera indicators describe this app's actual capture.
+
+Obsolete speech handles cannot cancel newer recordings. Late warmup errors cannot overwrite a newer or stopped session, and queued transcripts cannot alter a new draft or submit after pause/resume or a settings change. Disabled recognition is reported explicitly.
 
 This existing 0.12.0 publication includes the reply, Orb, cursor and speech amendments; its version is unchanged. A failed visualization now announces the failure and continues with a normal written answer to the original prompt, without adding another user message or discarding an unsent draft. Interactive component failures show available source data as text, while formatted-page failures preserve the original answer and copy text. Missing sources and a second model failure are reported explicitly.
 

@@ -88,8 +88,9 @@ def cursor_style(profile, budget):
 
 class CursorLighting(QWidget):
     pointer_changed = Signal(object)
-    def __init__(self, window, theme, policy, clock):
+    def __init__(self, window, theme, policy, clock, *, pointer_only=False):
         super().__init__(window)
+        self.pointer_only = pointer_only
         self.owner = window; self.theme = theme; self.policy = policy; self.clock = clock
         self.setAttribute(Qt.WA_TransparentForMouseEvents); self.setAttribute(Qt.WA_NoSystemBackground)
         self.setMouseTracking(True); window.setMouseTracking(True)
@@ -97,7 +98,9 @@ class CursorLighting(QWidget):
         self.paint_count = 0; self.last_dirty_pixels = 0; self._last_event = 0.
         clock.subscribe(self, self.tick); QApplication.instance().installEventFilter(self)
         theme.changed.connect(self.clear); policy.changed.connect(self.clear)
-        self.resize(window.size()); self.show(); self.raise_()
+        self.resize(window.size())
+        if not self.pointer_only: self.show(); self.raise_()
+        else: self.hide()
 
     def set_targets(self):
         self._targets = [weakref.ref(widget) for widget in self.owner.findChildren(QAbstractButton) if widget.isVisible()][:256]
@@ -115,11 +118,14 @@ class CursorLighting(QWidget):
 
     def eventFilter(self, source, event):
         if event.type() in (QEvent.MouseMove, QEvent.MouseButtonPress) and isinstance(source, QWidget) and source.window() is self.owner:
-            if not self.theme.profile.cursor_light and self.theme.profile.cursor_glow == 'OFF': return False
+            if not self.pointer_only and not self.theme.profile.cursor_light and self.theme.profile.cursor_glow == 'OFF': return False
             if not self.owner.isVisible() or self.owner.isMinimized(): return False
             now = time.perf_counter()
             self._target_point = QPointF(self.owner.mapFromGlobal(event.globalPosition().toPoint())); self._dirty = True
             self.pointer_changed.emit({'point': QPointF(self._target_point), 'pressed': event.type() == QEvent.MouseButtonPress})
+            if self.pointer_only:
+                self._dirty = False
+                return False
             if self._point is None or not self.policy.budget.decorative_motion: self._point = QPointF(self._target_point)
             if self.theme.profile.cursor_trail and self.policy.budget.decorative_motion and now-self._last_event >= 1/self.policy.budget.fps:
                 self._trail.append((QPointF(self._target_point), now)); self._trail = self._trail[-8:]; self._last_event = now
@@ -172,6 +178,7 @@ class CursorLighting(QWidget):
         return sorted(nearby, key=lambda item: item[0])[:3]
 
     def paintEvent(self, event):
+        if self.pointer_only: return
         if self._point is None or (not self.theme.profile.cursor_light and self.theme.profile.cursor_glow == 'OFF'): return
         self.paint_count += 1
         painter = QPainter(self); painter.setRenderHint(QPainter.Antialiasing); painter.setClipRegion(event.region())
