@@ -1,82 +1,539 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
+import { ArrowDown } from "@phosphor-icons/react/dist/csr/ArrowDown";
+import { ArrowRight } from "@phosphor-icons/react/dist/csr/ArrowRight";
+import { ArrowUpRight } from "@phosphor-icons/react/dist/csr/ArrowUpRight";
+import { Code } from "@phosphor-icons/react/dist/csr/Code";
+import { Desktop } from "@phosphor-icons/react/dist/csr/Desktop";
+import { DownloadSimple } from "@phosphor-icons/react/dist/csr/DownloadSimple";
+import { GithubLogo } from "@phosphor-icons/react/dist/csr/GithubLogo";
+import { List } from "@phosphor-icons/react/dist/csr/List";
+import { Pause } from "@phosphor-icons/react/dist/csr/Pause";
+import { Play } from "@phosphor-icons/react/dist/csr/Play";
+import { ShieldCheck } from "@phosphor-icons/react/dist/csr/ShieldCheck";
+import { Sparkle } from "@phosphor-icons/react/dist/csr/Sparkle";
+import { X } from "@phosphor-icons/react/dist/csr/X";
+import HeroScene from "./HeroScene";
+import CustomCursor from "./CustomCursor";
 
-const repo = 'https://github.com/EONASH2722/MORICE'
-const sourceVersion = '0.12.0'
+const repo = "https://github.com/EONASH2722/MORICE";
+const version = "0.12.0";
+const release = `${repo}/releases/tag/v${version}`;
 const workspaces = [
-  { name: 'Core', icon: 'core', image: `morice-home.png?v=${sourceVersion}`, title: 'One living interface.', copy: 'A native GPU globe, White / Pitch Black / Glass themes, real activity, and thinking levels directly in chat.' },
-  { name: 'Security Lab', icon: 'shield', image: `morice-security-lab.png?v=${sourceVersion}`, title: 'Evidence you can inspect.', copy: 'Analyze local files, estimate and verify password recovery, review code and run an owned messaging challenge with an actual source repair. Physical devices and live services remain separately scoped.' },
-  { name: 'Projects', icon: 'code', image: `morice-projects.png?v=${sourceVersion}`, title: 'From a request to real files.', copy: 'Choose a folder, describe a change, review the proposal and save the files. Keep updates, checks and the existing browser preview together.' },
-  { name: 'Spatial', icon: 'globe', image: `morice-spatial.png?v=${sourceVersion}`, title: 'Find your place in the world.', copy: 'Search cities, states and countries online, with offline fallback. Choose ambiguous places explicitly and compare WGS84 distances between verified coordinates.' },
-  { name: 'Research', icon: 'research', image: `morice-research.png?v=${sourceVersion}`, title: 'A clearer path to an experiment.', copy: 'Describe a supported model or enter values in a form. Review the plan, run real computations, and inspect stored results.' },
-  { name: 'Media', icon: 'image', image: `morice-media.png?v=${sourceVersion}`, title: 'Start with an idea.', copy: 'Type a prompt and generate an image with a compatible installed model. References and masks are optional edit tools; model readiness and resource limits stay visible.' },
-] as const
+  {
+    name: "Core",
+    label: "A space to think.",
+    image: "morice-home.png",
+    copy: "Conversation, local intelligence, and a living globe. Your starting point for whatever comes next.",
+    tag: "YOUR PERSONAL WORKSPACE",
+  },
+  {
+    name: "Projects",
+    label: "An idea. Then a reality.",
+    image: "morice-projects.png",
+    copy: "Go from a request to real files. Plan a change, review the proposal, and keep your code and checks in one place.",
+    tag: "BUILD SOMETHING THAT MATTERS",
+  },
+  {
+    name: "Research",
+    label: "Follow your curiosity.",
+    image: "morice-research.png",
+    copy: "Explore questions, run supported computations, and inspect the evidence behind your results.",
+    tag: "THINK A LITTLE DEEPER",
+  },
+  {
+    name: "Spatial",
+    label: "A world to explore.",
+    image: "morice-spatial.png",
+    copy: "Find real places, resolve ambiguous locations, and compare distances between verified coordinates.",
+    tag: "SEE THE BIGGER PICTURE",
+  },
+  {
+    name: "Media",
+    label: "Make the imagined real.",
+    image: "morice-media.png",
+    copy: "Generate and edit images with compatible installed providers. Keep the idea, the process, and the output together.",
+    tag: "GIVE YOUR IDEAS A FORM",
+  },
+  {
+    name: "Security Lab",
+    label: "Trust the evidence.",
+    image: "morice-security-lab.png",
+    copy: "Inspect local files, review source, and verify supported recovery with supplied passwords or keys. Every result comes with evidence.",
+    tag: "INSPECT. UNDERSTAND. VERIFY.",
+  },
+] as const;
 
-// Every pictogram is authored for this site; no icon pack or icon font.
-const marks: Record<string, string> = {
-  core: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8M3 12c0-4 18-4 18 0s-18 4-18 0M12 3c4 0 4 18 0 18s-4-18 0-18',
-  globe: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18M5 7h14M5 17h14',
-  research: 'M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3M8 14h8M10 17h.1M14 18h.1',
-  image: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1M4 16l5-5 4 4 3-3 4 5M15 7h.1',
-  code: 'M8 6l-6 6 6 6M16 6l6 6-6 6M14 3l-4 18',
-  shield: 'M12 2l8 4v6c0 5-5 8-8 10-3-2-8-5-8-10V6l8-4M8 12l3 3 5-6',
-  voice: 'M9 4a3 3 0 0 1 6 0v8a3 3 0 0 1-6 0V4M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8',
-  devices: 'M3 4h12v10H3V4M7 18h5M9 14v4M17 8h5v13h-5V8M19 18h1',
-  arrow: 'M4 12h15M13 6l6 6-6 6',
-  download: 'M12 3v12M7 10l5 5 5-5M4 16v5h16v-5',
-  branch: 'M6 3v13a4 4 0 0 0 4 4h8M6 6h9a3 3 0 0 0 3-3M4 3h4M16 3h4M16 20h4',
-  motion: 'M3 7h9M3 12h5M3 17h9M16 5l5 7-5 7V5',
-  pause: 'M8 4v16M16 4v16',
-  palette: 'M12 3a9 9 0 1 0 0 18h2a2 2 0 0 0 2-2c0-2-3-2-3-4s3-2 5-2c4 0 3-10-6-10M7 8h.1M12 6h.1M17 8h.1M6 13h.1',
-}
-function Mark({ name }: { name: string }) {
-  return <svg className="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={marks[name] ?? marks.core} /></svg>
-}
 function Brand() {
-  return <a className="brand" href="#top" aria-label="MORICE home"><img src="./morice-logo.png" alt="" width="34" height="34" /><span>MORICE</span></a>
-}
-function Core({ motion, theme }: { motion: boolean; theme: string }) {
-  const petals = Array.from({ length: 12 }, (_, i) => i)
-  return <div className={`core-preview ${motion ? '' : 'still'}`} aria-hidden="true"><div className="core-aura" />
-    {theme === 'midnight' ? <>{[0, 1, 2].map(i => <div className={`orbit-plane plane-${i}`} key={i}><div className="orbit-float"><div className="orbit-ring"><i /></div></div></div>)}<svg className="scene-motif star-atlas" viewBox="0 0 400 400">{petals.map(i => <circle key={i} cx={200 + 164 * Math.cos(i * Math.PI / 6)} cy={200 + 130 * Math.sin(i * Math.PI / 6)} r={i % 3 === 0 ? 2.5 : 1.3} />)}</svg></> :
-      <svg className={`scene-motif motif-${theme}`} viewBox="0 0 400 400" fill="none" stroke="currentColor" strokeWidth="1">
-        {theme === 'glass' ? [0,1,2,3].map(i => <g className={`facet facet-${i}`} key={i}><polygon points="200,50 324,152 276,300 122,316 58,148" transform={`translate(200 200) rotate(${i*37}) scale(${.45+i*.15}) translate(-200 -200)`} /><path d="M90 130L270 96M132 260L296 188" /></g>) :
-          theme === 'ice' ? petals.filter(i => i % 2 === 0).map(i => <g className="frost-arm" key={i} transform={`rotate(${i*30} 200 200)`}><path d="M200 200V42M200 78L172 101M200 78L228 101M200 116L158 151M200 116L242 151M200 158L172 180M200 158L228 180" /><path d="M200 44L214 68L200 92L186 68Z" /></g>) : petals.map(i => <path className="solar-filament" key={i} d="M200 84C142 126 156 176 200 200C244 176 258 126 200 84Z" transform={`rotate(${i*30} 200 200)`} />)}
-      </svg>}
-    <div className="core-light" /><div className="core-centre" /></div>
+  return (
+    <a href="#top" className="brand" aria-label="MORICE home">
+      <img src="./morice-logo.png" width="42" height="42" alt="" />
+      <span>
+        MORICE<span className="brand-period">.</span>
+      </span>
+    </a>
+  );
 }
 
 export default function App() {
-  const [selected, setSelected] = useState(0)
-  const [theme, setTheme] = useState('midnight')
-  const [motion, setMotion] = useState(() => !matchMedia('(prefers-reduced-motion: reduce)').matches)
-  const [visible, setVisible] = useState(() => !document.hidden)
-  const workspace = workspaces[selected]
+  const [motion, setMotion] = useState(
+    () => !matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [selected, setSelected] = useState(0);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const workspace = workspaces[selected];
+
   useEffect(() => {
-    const changed = () => setVisible(!document.hidden)
-    const media = matchMedia('(prefers-reduced-motion: reduce)')
-    const reduced = () => { if (media.matches) setMotion(false) }
-    document.addEventListener('visibilitychange', changed); media.addEventListener('change', reduced)
-    return () => { document.removeEventListener('visibilitychange', changed); media.removeEventListener('change', reduced) }
-  }, [])
-  return <div className={`site-shell ${theme}`}>
-    <a className="skip-link" href="#workspace">Skip to the workspace</a>
-    <header className="site-header"><Brand /><nav aria-label="Main navigation"><a href="#workspace">Workspace</a><a href="#capabilities">Capabilities</a><a href="#privacy">Your control</a><a href={`${repo}/tree/main/docs`}>Docs</a></nav><a className="button compact" href={repo}><Mark name="branch" />Source</a></header>
-    <main>
-      <section className="hero" id="top">
-        <div className="hero-copy"><p className="eyebrow">PRIVATE INTELLIGENCE · A NEW WORKSPACE</p><h1>Think clearly.<br />Build freely.<br /><em>Stay in control.</em></h1><p className="hero-description">Meet the renovated MORICE. A calmer home for local AI, meaningful tools, and work you can inspect.</p><div className="hero-actions"><a className="button primary" href="#workspace">Explore the workspace<Mark name="arrow" /></a><a className="text-link" href="#get">Run MORICE</a></div><p className="release-note">Current source {sourceVersion} · Windows desktop preview</p></div>
-        <div className="hero-art"><div className="art-grid" /><Core motion={motion && visible} theme={theme} /><div className="core-caption"><span className="small-label">MORICE CORE</span><p>Room for your next idea.</p><span className="preview-label">{({midnight:'Pitch Black',ice:'White',glass:'Glass'} as Record<string,string>)[theme]} · Visual preview</span></div><div className="appearance-controls"><div className="palette-controls" aria-label="Website theme and animation">{['midnight', 'ice', 'glass'].map(name => <button key={name} className={`swatch swatch-${name}`} aria-label={`${({midnight:'Pitch Black',ice:'White',glass:'Glass'} as Record<string,string>)[name]} theme`} aria-pressed={theme === name} onClick={() => setTheme(name)}><Mark name="palette" /></button>)}</div><button className="motion-control" aria-pressed={motion} onClick={() => setMotion(value => !value)}><Mark name={motion ? 'pause' : 'motion'} />{motion ? 'Pause motion' : 'Enable motion'}</button></div></div>
-      </section>
-      <section className="section workspace-section" id="workspace"><div className="section-head"><p className="eyebrow">ONE HOME. MANY WAYS TO WORK.</p><h2>A little less noise.<br /><em>A lot more possibility.</em></h2><p>Move between focused spaces while the same execution, permission, and verification systems keep your work grounded.</p></div><div className="workspace-tabs" role="tablist" aria-label="Desktop workspace captures">{workspaces.map((item, index) => <button key={item.name} id={`tab-${index}`} role="tab" aria-selected={selected === index} aria-controls="workspace-panel" tabIndex={selected === index ? 0 : -1} onClick={() => setSelected(index)} onKeyDown={event => { if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') { event.preventDefault(); const next = (selected + (event.key === 'ArrowRight' ? 1 : -1) + workspaces.length) % workspaces.length; setSelected(next); document.getElementById(`tab-${next}`)?.focus() } }}><Mark name={item.icon} />{item.name}</button>)}</div><article className="workspace-panel" id="workspace-panel" role="tabpanel" aria-labelledby={`tab-${selected}`}><div className="capture-bar"><span><Mark name={workspace.icon} />{workspace.name}</span><span>Actual desktop capture</span></div><img key={workspace.image} src={`./${workspace.image}`} alt={`MORICE ${workspace.name} workspace captured from the native desktop app`} width="1708" height="1050" loading="lazy" /><div className="capture-copy"><h3>{workspace.title}</h3><p>{workspace.copy}</p></div></article></section>
-      <section className="section" id="capabilities"><div className="section-head compact-head"><p className="eyebrow">TOOLS WITH A PURPOSE</p><h2>From a question<br />to something <em>you can use.</em></h2></div><div className="capability-grid">{[
-        ['code', 'Build, test, review.', 'Projects keep plans, files, terminal output and verification together. Review proposed changes before applying them.'],
-        ['research', 'Follow the evidence.', 'Research tracks provenance and distinguishes supplied data, computed results and unverified interpretations.'],
-        ['globe', 'Explore your world.', 'Online place search and offline city fallback support real locations, bearings, paths and deterministic distance comparisons.'],
-        ['image', 'Make space for creativity.', 'Media Lab exposes installed model capabilities, actual queue states, resource limits and verified outputs.'],
-        ['voice', 'Present when called.', 'Opt-in wake and voice use existing speech services. Camera capture stays explicit; model and device availability remain visible.'],
-        ['devices', 'Connect with intent.', 'Pair explicitly, compare codes, scope trust and verify transfers. Shared Wi-Fi alone creates no trust.'],
-      ].map(([icon, title, copy]) => <article className="capability-card" key={title}><Mark name={icon} /><h3>{title}</h3><p>{copy}</p></article>)}</div></section>
-      <section className="section trust-section" id="privacy"><div className="trust-visual" aria-hidden="true"><Mark name="shield" /><span className="trust-orbit" /></div><div className="trust-copy"><p className="eyebrow">YOUR MACHINE. YOUR BOUNDARIES.</p><h2>Capability comes<br />with <em>accountability.</em></h2><p>Local models can keep inference on your device. Online search and optional providers have their own availability and permission boundaries. A requested action becomes success only when the relevant verification succeeds.</p><ul><li>One shared runtime, with bounded workers and resource leases.</li><li>Explicit camera, microphone, file, device and connector access.</li><li>Visible provenance, cancellation and recovery limits.</li><li>Reduced Motion, adaptive visual quality and authored interface icons.</li></ul><a className="text-link" href={`${repo}/tree/main/docs`}>Read the architecture and constraints<Mark name="arrow" /></a></div></section>
-      <section className="section get-section" id="get"><div><p className="eyebrow">OPEN SOURCE. LOCAL FIRST.</p><h2>Make it<br /><em>your workspace.</em></h2><p>Download the renovated Windows desktop preview or build it from source. Model inference needs compatible local runtimes, installed weights and enough available RAM/VRAM. Physical-device and provider validation remains scoped in the audit reports.</p></div><div className="get-options"><a className="get-card featured" href={`${repo}/releases/tag/v${sourceVersion}`}><Mark name="download" /><span><strong>Windows preview · {sourceVersion}</strong><small>Updated app, documentation and verified checksums</small></span><Mark name="arrow" /></a><a className="get-card" href={`${repo}#installation`}><Mark name="code" /><span><strong>Build current source · {sourceVersion}</strong><small>Python packages or local development setup</small></span><Mark name="arrow" /></a><a className="get-card" href={`${repo}/releases/tag/v0.8.0-android`}><Mark name="devices" /><span><strong>Published Android · 0.8.0</strong><small>Earlier companion release; physical hardware checks are separate</small></span><Mark name="arrow" /></a><p className="availability-note">This website is a product overview. Its Core animation is decorative; it does not record audio, start a model, or represent a live task.</p></div></section>
-    </main><footer><Brand /><p>Intelligence, under your control.</p><a className="text-link" href={repo}>View the repository<Mark name="arrow" /></a></footer>
-  </div>
+    const media = matchMedia("(prefers-reduced-motion: reduce)");
+    const change = () => setMotion(!media.matches);
+    media.addEventListener("change", change);
+    const observer = new IntersectionObserver(
+      (entries) =>
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        }),
+      { threshold: 0.12 },
+    );
+    document
+      .querySelectorAll("[data-reveal]")
+      .forEach((el) => observer.observe(el));
+    return () => {
+      media.removeEventListener("change", change);
+      observer.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && menuOpen) {
+        setMenuOpen(false);
+        menuButton.current?.focus();
+      }
+    };
+    const desktop = matchMedia("(min-width: 901px)");
+    const resize = () => {
+      if (desktop.matches) setMenuOpen(false);
+    };
+    document.addEventListener("keydown", close);
+    desktop.addEventListener("change", resize);
+    return () => {
+      document.removeEventListener("keydown", close);
+      desktop.removeEventListener("change", resize);
+    };
+  }, [menuOpen]);
+
+  const switchWorkspace = (index: number, focus = false) => {
+    setSelected(index);
+    if (focus) document.getElementById(`workspace-tab-${index}`)?.focus();
+  };
+
+  return (
+    <div className={`site-shell ${motion ? "" : "motion-paused"}`}>
+      <CustomCursor motion={motion} />
+      <a className="skip-link" href="#workspace">
+        Skip to content
+      </a>
+      <header className="site-header">
+        <div className="header-inner">
+          <Brand />
+          <nav
+            id="main-nav"
+            className={menuOpen ? "nav-open" : ""}
+            aria-label="Main navigation"
+          >
+            <a href="#workspace" onClick={() => setMenuOpen(false)}>
+              Workspace
+            </a>
+            <a href="#explore" onClick={() => setMenuOpen(false)}>
+              Explore
+            </a>
+            <a href="#principles" onClick={() => setMenuOpen(false)}>
+              Our approach
+            </a>
+            <a href={`${repo}/tree/main/docs`}>
+              Documentation
+              <ArrowUpRight size={12} />
+            </a>
+            <a href="#download" onClick={() => setMenuOpen(false)}>
+              Download
+            </a>
+            <a href={repo} className="nav-github">
+              <GithubLogo size={18} />
+              GitHub
+            </a>
+          </nav>
+          <button
+            ref={menuButton}
+            className="menu-toggle"
+            aria-expanded={menuOpen}
+            aria-controls="main-nav"
+            aria-label={menuOpen ? "Close navigation" : "Open navigation"}
+            onClick={() => setMenuOpen(!menuOpen)}
+          >
+            {menuOpen ? <X size={24} /> : <List size={24} />}
+          </button>
+        </div>
+      </header>
+      <main>
+        <section className="hero" id="top" aria-labelledby="hero-title">
+          <a className="release-badge" href={release}>
+            <span />
+            MORICE {version}
+            <span className="badge-divider" />
+            UNLEASHED
+            <ArrowUpRight size={12} />
+          </a>
+          <div className="hero-scene">
+            <HeroScene motion={motion} />
+            <h1 id="hero-title">MORICE</h1>
+          </div>
+          <div className="hero-content">
+            <p className="hero-tagline">
+              A little curiosity.
+              <br className="mobile-break" /> Limitless possibility.
+            </p>
+            <p className="hero-description">
+              Your ideas. Your intelligence. Your machine.
+            </p>
+            <div className="hero-actions">
+              <a className="pill pill-primary" href="#download">
+                Meet MORICE
+                <ArrowRight size={18} />
+              </a>
+              <a className="pill" href={repo}>
+                Explore the source
+                <ArrowUpRight size={17} />
+              </a>
+            </div>
+          </div>
+          <div className="hero-bottom">
+            <a className="scroll-cue" href="#explore">
+              <span>SCROLL TO EXPLORE</span>
+              <ArrowDown size={15} />
+            </a>
+            <button
+              className="motion-toggle"
+              aria-pressed={!motion}
+              aria-label={motion ? "Pause animations" : "Resume animations"}
+              onClick={() => setMotion(!motion)}
+            >
+              {motion ? (
+                <Pause size={14} weight="fill" />
+              ) : (
+                <Play size={14} weight="fill" />
+              )}
+              <span>{motion ? "Pause motion" : "Resume motion"}</span>
+            </button>
+          </div>
+        </section>
+        <section className="section explore-section" id="explore">
+          <div className="section-heading" data-reveal>
+            <div>
+              <p className="eyebrow">THE NEXT CHAPTER</p>
+              <h2>More room for possibility.</h2>
+              <p className="section-description">
+                Meet the tools that turn a spark of curiosity into something
+                real.
+              </p>
+            </div>
+            <a className="pill" href={`${repo}/blob/main/CHANGELOG.md`}>
+              What’s new
+              <ArrowUpRight size={16} />
+            </a>
+          </div>
+          <div className="feature-grid">
+            {[
+              {
+                image: "morice-home.png",
+                category: "MEET MORICE",
+                title: "Intelligence, on your terms.",
+                copy: "Local models. A living interface. A workspace that feels like yours.",
+                target: 0,
+              },
+              {
+                image: "morice-security-lab.png",
+                category: "INTRODUCING SECURITY LAB",
+                title: "Look closer. Know more.",
+                copy: "Real file analysis and verifiable results, right on your machine.",
+                target: 5,
+              },
+              {
+                image: "morice-projects.png",
+                category: "BUILT FOR BUILDERS",
+                title: "Less friction. More creating.",
+                copy: "Bring your next project to life, from first thought to real files.",
+                target: 1,
+              },
+            ].map((item, index) => (
+              <a
+                className="feature-card"
+                href="#workspace"
+                key={item.title}
+                data-reveal
+                style={
+                  { "--reveal-delay": `${index * 100}ms` } as CSSProperties
+                }
+                onClick={() => switchWorkspace(item.target)}
+              >
+                <div className="feature-image">
+                  <img
+                    src={`./${item.image}?v=${version}`}
+                    alt={`Actual MORICE ${workspaces[item.target].name} desktop app`}
+                    width="1708"
+                    height="1050"
+                    loading="lazy"
+                  />
+                  <span className="card-arrow">
+                    <ArrowUpRight size={20} />
+                  </span>
+                </div>
+                <div className="feature-copy">
+                  <p className="eyebrow">{item.category}</p>
+                  <h3>{item.title}</h3>
+                  <p>{item.copy}</p>
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+        <section
+          className="section workspace-section"
+          id="workspace"
+          aria-labelledby="workspace-title"
+        >
+          <div className="center-heading" data-reveal>
+            <p className="eyebrow">ONE WORKSPACE. YOUR WHOLE WORLD.</p>
+            <h2 id="workspace-title">
+              Great ideas deserve
+              <br />a space to grow.
+            </h2>
+            <p className="section-description">
+              Think, build, research, create. Follow the idea wherever it takes
+              you.
+            </p>
+          </div>
+          <div className="workspace-showcase" data-reveal>
+            <div
+              className="workspace-tabs"
+              role="tablist"
+              aria-label="Explore MORICE workspaces"
+            >
+              {workspaces.map((item, index) => (
+                <button
+                  id={`workspace-tab-${index}`}
+                  key={item.name}
+                  role="tab"
+                  aria-selected={selected === index}
+                  aria-controls="workspace-panel"
+                  tabIndex={selected === index ? 0 : -1}
+                  onClick={() => switchWorkspace(index)}
+                  onKeyDown={(event) => {
+                    let next = selected;
+                    if (event.key === "ArrowRight")
+                      next = (selected + 1) % workspaces.length;
+                    else if (event.key === "ArrowLeft")
+                      next =
+                        (selected + workspaces.length - 1) % workspaces.length;
+                    else if (event.key === "Home") next = 0;
+                    else if (event.key === "End") next = workspaces.length - 1;
+                    else return;
+                    event.preventDefault();
+                    switchWorkspace(next, true);
+                  }}
+                >
+                  <span className="tab-number">0{index + 1}</span>
+                  {item.name}
+                  <ArrowUpRight size={14} />
+                </button>
+              ))}
+            </div>
+            <div
+              id="workspace-panel"
+              className="workspace-panel"
+              role="tabpanel"
+              aria-labelledby={`workspace-tab-${selected}`}
+              tabIndex={0}
+            >
+              <div className="workspace-copy" key={`${workspace.name}-copy`}>
+                <p className="eyebrow">{workspace.tag}</p>
+                <h3>{workspace.label}</h3>
+                <p>{workspace.copy}</p>
+                <a className="text-link" href={`${repo}/tree/main/docs`}>
+                  Discover the workspace
+                  <ArrowRight size={18} />
+                </a>
+                <span className="capture-note">
+                  Actual MORICE desktop capture
+                </span>
+              </div>
+              <div className="workspace-capture" key={workspace.name}>
+                <div className="window-bar">
+                  <span className="window-dots">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                  <span>MORICE / {workspace.name}</span>
+                  <span>v{version}</span>
+                </div>
+                <img
+                  src={`./${workspace.image}?v=${version}`}
+                  alt={`Actual MORICE ${workspace.name} desktop workspace`}
+                  width="1708"
+                  height="1050"
+                  loading="lazy"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+        <section className="section principles-section" id="principles">
+          <div className="principles-intro" data-reveal>
+            <p className="eyebrow">POWERFUL BY NATURE. PERSONAL BY DESIGN.</p>
+            <h2>
+              A world of intelligence.
+              <br />
+              <span>Still entirely yours.</span>
+            </h2>
+            <p className="section-description">
+              We believe the best tools give you more freedom.
+              <br />
+              To think independently. To create openly. To stay in control.
+            </p>
+          </div>
+          <div className="principles-grid">
+            {[
+              {
+                Icon: Desktop,
+                index: "01",
+                title: "At home on your machine.",
+                copy: "Run compatible local models on your own hardware. Your workspace and your files stay close to you.",
+              },
+              {
+                Icon: ShieldCheck,
+                index: "02",
+                title: "You set the boundaries.",
+                copy: "Microphone, camera, devices, and desktop control are yours to enable. Optional online providers remain your choice.",
+              },
+              {
+                Icon: Code,
+                index: "03",
+                title: "Open from the beginning.",
+                copy: "Explore the code. Understand how it works. Make it your own. MORICE is open source, under the MIT license.",
+              },
+            ].map(({ Icon, index, title, copy }) => (
+              <article className="principle" data-reveal key={index}>
+                <div className="principle-top">
+                  <Icon size={28} weight="light" />
+                  <span>{index}</span>
+                </div>
+                <h3>{title}</h3>
+                <p>{copy}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+        <section className="download-section" id="download">
+          <div className="download-content" data-reveal>
+            <img
+              className="download-logo"
+              src="./morice-logo.png"
+              alt="MORICE"
+              width="88"
+              height="88"
+              loading="lazy"
+            />
+            <p className="eyebrow">YOUR NEXT IDEA STARTS HERE</p>
+            <h2>
+              Made for possibility.
+              <br />
+              Ready when you are.
+            </h2>
+            <p className="section-description">
+              Bring MORICE to your desktop. See where curiosity takes you.
+            </p>
+            <div className="download-actions">
+              <a className="pill pill-primary" href={release}>
+                <DownloadSimple size={19} />
+                Download for Windows
+                <ArrowUpRight size={16} />
+              </a>
+              <a className="pill" href={`${repo}#run-from-source`}>
+                <GithubLogo size={19} />
+                Build from source
+                <ArrowUpRight size={16} />
+              </a>
+            </div>
+            <p className="download-meta">
+              Windows 10 / 11<span>·</span>v{version} preview<span>·</span>Free
+              & open source
+            </p>
+            <a
+              className="android-link"
+              href={`${repo}/releases/tag/v0.8.0-android`}
+            >
+              Looking for the Android companion?
+              <ArrowUpRight size={13} />
+            </a>
+            <p className="requirements">
+              Local inference requires compatible runtimes, model weights, and
+              sufficient memory.
+              <br />
+              Media and voice features depend on your installed providers.
+            </p>
+          </div>
+          <a className="closing-link" href={release}>
+            <span>Let’s make something.</span>
+            <ArrowUpRight weight="light" />
+          </a>
+        </section>
+      </main>
+      <footer className="site-footer">
+        <div className="footer-main">
+          <div className="footer-identity">
+            <Brand />
+            <p>Intelligence, under your control.</p>
+            <a href={repo} aria-label="MORICE on GitHub">
+              <GithubLogo size={22} />
+            </a>
+          </div>
+          <div className="footer-column">
+            <h3>Discover</h3>
+            <a href="#workspace">Workspace</a>
+            <a href="#explore">What’s new</a>
+            <a href="#principles">Our approach</a>
+          </div>
+          <div className="footer-column">
+            <h3>Get MORICE</h3>
+            <a href={release}>Windows desktop</a>
+            <a href={`${repo}/releases/tag/v0.8.0-android`}>
+              Android companion
+            </a>
+            <a href={`${repo}#run-from-source`}>Build from source</a>
+          </div>
+          <div className="footer-column">
+            <h3>Resources</h3>
+            <a href={`${repo}/tree/main/docs`}>Documentation</a>
+            <a href={`${repo}/issues`}>Feedback & issues</a>
+            <a href={`${repo}/blob/main/LICENSE`}>MIT license</a>
+          </div>
+        </div>
+        <div className="footer-bottom">
+          <p>© {new Date().getFullYear()} MORICE. Built with curiosity.</p>
+          <span>
+            <Sparkle size={13} />
+            LOCAL FIRST. OPEN ALWAYS.
+          </span>
+          <a href="#top">
+            Back to top
+            <ArrowUpRight size={14} />
+          </a>
+        </div>
+      </footer>
+    </div>
+  );
 }

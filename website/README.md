@@ -1,43 +1,30 @@
 # MORICE website
 
-The product overview is a React + TypeScript application built with Vite. The existing GitHub Pages workflow deploys `website/dist`. Current source is 0.9.3; published Windows/Android 0.8.0 downloads are explicitly labelled as earlier builds.
+MORICE's React + TypeScript product website, built with Vite and published at https://eonash2722.github.io/MORICE/ through the existing GitHub Pages workflow.
 
-## Current production-build previews
-
-| Glass on desktop | Ice on mobile |
-| --- | --- |
-| ![Glass website hero](../docs/screenshots/website-hero-current.png) | ![Ice website scene and compact mobile workspace tabs](../docs/screenshots/website-mobile-current.png) |
-
-These owned-browser captures show the local production build for version 0.9.3. The embedded desktop images come from the actual renovated native app in isolated profiles. They do not establish live deployment or infer model activity.
+The design adapts the spacious black layout, refracted wordmark animation, pill buttons, reveal transitions, and dot-and-ring cursor observed at https://www.moonshot.ai/. Copy, logo, product imagery, links, and violet accents belong to MORICE. There is no chat composer or typing bar.
 
 ## Development
 
-```bash
-cd website
+```sh
 npm ci
 npm run dev
-```
-
-Build and preview:
-
-```bash
-npm run typecheck
 npm run build
 npm run preview
 ```
 
-Vite's local preview serves the build at its root. Relative asset paths also support the repository's `/MORICE/` GitHub Pages deployment.
+`npm run build` includes TypeScript validation. Vite's relative base supports GitHub Pages' `/MORICE/` subdirectory. Pushes to `main` that change `website/**` trigger `.github/workflows/pages.yml`.
 
-## Architecture and interaction
+## Implementation
 
-`src/App.tsx` owns semantic sections, authored SVG pictograms, four scene presets, pause/resume, keyboard workspace tabs and truthful source/download links. Midnight uses an orbital star atlas; Ice blooms into a crystal; Solar rotates corona filaments; Glass floats refractive facets. The website Core is decorative and does not record audio, load a model or imply a live task.
+- `src/App.tsx`: responsive navigation, product sections, six keyboard-accessible workspace tabs, and version-specific release links. Windows is 0.12.0; the separate Android companion remains 0.8.0.
+- `src/HeroScene.tsx`: an original WebGL eclipse and refracted moving MORICE wordmark. The scene responds to the mouse and stops when hidden, offscreen, or paused. A semantic text heading remains available if WebGL is unavailable or lost. There are no remote animation scripts.
+- `src/CustomCursor.tsx`: a 5 px dot and trailing 36 px ring that expands to 56 px on links and buttons. It is enabled only after a real mouse event on a fine pointer. Touch, keyboard use, and reduced motion retain the native cursor. Cursor updates do not rerender React.
+- `src/styles.css`: responsive layouts, focus states, scroll reveals, hover states, and reduced-motion behavior. Manually pausing motion also keeps newly selected workspace panels fully visible.
+- `public/`: the existing MORICE logo and actual desktop screenshots. The M PLUS 1 Latin variable font is served locally; its license and provenance are in `public/fonts/`.
 
-`src/styles.css` defines theme variables, distinct closed animation cycles, focus states and responsive layouts. Animation endpoints return to the same pose. The website pauses decoration when hidden, exposes a visible motion control and honours the operating system's Reduced Motion setting. It uses system fonts and no icon pack.
+The page is a product overview. It does not run inference or access the microphone, camera, or files. Compatible local runtimes and model weights are separate app requirements.
 
-`public/` holds the original MORICE logo and five current native workspace captures, including Projects. The older `NeuralCanvas.tsx` and `useScrollProgress.ts` remain unimported historical source; the current page does not mount a scrolling cinematic canvas.
+## Validation
 
-## Verification and deployment
-
-The local production build was checked at 1440×1000 and 390×844: no horizontal overflow or broken loaded images, all four motifs present with changing transforms, pause/resume, arrow-key workspace switching and a fresh load with zero console errors/warnings. This is browser validation, not compositor or physical-device certification.
-
-`.github/workflows/pages.yml` installs the locked dependencies, builds the site and deploys through the official GitHub Pages actions. Authorized publication is the final stage after the software candidate checks. A successful local build alone is not a live deployment result. See the [release audit](../docs/release-audit-report.md) for current scope and constraints.
+The production build was checked in Chromium at 1440, 1024, 768, 390, and 320 px widths, plus a touch-enabled mobile context. Checks covered animation/pause, cursor hover, all workspace tabs and images, keyboard navigation, mobile menu and Escape, section anchors, release destinations, reduced motion, WebGL fallback, console errors, and horizontal overflow. See `design-qa.md` for the visual comparison and evidence paths.

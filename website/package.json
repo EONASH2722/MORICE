@@ -10,11 +10,12 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "typescript": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
     "@types/react": "latest",
