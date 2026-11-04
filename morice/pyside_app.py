@@ -17064,6 +17064,10 @@ def _show_window_for_launch(window: QWidget, environ: dict[str, str] | None = No
     """Show an ordinary launch normally and a wake launch without activation."""
 
     environment = os.environ if environ is None else environ
+    helper=getattr(window,'background_helper',None)
+    if '--morice-background' in sys.argv and helper is not None and helper.preferences.enabled:
+        QApplication.instance().setQuitOnLastWindowClosed(False)
+        window.hide();return True
     if str(environment.get('MORICE_ORB_VOICE_SESSION','')).strip()=='1':
         QApplication.instance().setQuitOnLastWindowClosed(False)
         window.setAttribute(Qt.WA_ShowWithoutActivating,True)
@@ -17090,6 +17094,7 @@ def create_application_window(runtime_services, recovery_info=None):
 
 def run_app():
     _set_windows_app_id()
+    QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
     app = QApplication(sys.argv)
     _load_ui_fonts()
     app.setApplicationName("MORICE")

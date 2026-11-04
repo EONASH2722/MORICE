@@ -33,6 +33,17 @@ def foreground(background):
     return max(('#101723', '#f5f8fc'), key=lambda candidate: contrast(candidate, background))
 
 
+def window_opacity(profile):
+    """Compositor translucency also works with the existing OpenGL backdrop.
+
+    Panel alpha alone only reveals that backdrop, not the Windows desktop.
+    High contrast and the opaque themes retain full window opacity.
+    """
+    if profile.preset != 'GLASS' or profile.high_contrast:
+        return 1.
+    return .92 - .28 * profile.glass
+
+
 def mix(first, second, fraction):
     values = [round(int(first[i:i + 2], 16) * (1 - fraction) + int(second[i:i + 2], 16) * fraction) for i in (1, 3, 5)]
     return '#' + ''.join(f'{value:02x}' for value in values)

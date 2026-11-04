@@ -20,7 +20,10 @@ MAX_PCM_BYTES = 16_000 * 2 * 120
 
 def find_whisper_model(explicit=""):
     override = explicit or os.getenv('MORICE_WHISPER_MODEL', '')
-    candidates = [override] if str(override).strip() else [local_data_dir() / 'models/stt/faster-whisper-small']
+    candidates = [override] if str(override).strip() else [
+        local_data_dir() / 'models/stt/faster-whisper-large-v3-turbo',
+        local_data_dir() / 'models/stt/faster-whisper-small',
+    ]
     for candidate in candidates:
         if not str(candidate).strip(): continue
         path = Path(candidate).expanduser()
@@ -40,6 +43,8 @@ class WhisperRefiner:
         self._process = None; self._reader = None; self._queue = None
         self._owner = 'speech-decoder:' + uuid.uuid4().hex; self._leased = False
         self._closed = False
+        try:self._model_bytes=(Path(self.model_path)/'model.bin').stat().st_size
+        except OSError:self._model_bytes=0
         if resources is not None:
             from .kernel.resources import ResourceDescriptor
             if resources.descriptor('SPEECH_DECODER') is None: resources.register(ResourceDescriptor('SPEECH_DECODER'))
@@ -93,7 +98,9 @@ class WhisperRefiner:
                 process = spawn_owned_process(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL, env=environment, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
                     cwd=None if frozen else Path(__file__).resolve().parents[1],
-                    memory_limit_bytes=3 * 1024**3)
+                    # Large checkpoints overlap their stored FP16 tensors and
+                    # INT8 tensors during load. Steady state is much smaller.
+                    memory_limit_bytes=(4 if self._model_bytes>1024**3 else 3) * 1024**3)
             except BaseException:
                 if self._leased: self.resources.release(self._owner); self._leased = False
                 raise

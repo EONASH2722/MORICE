@@ -23,6 +23,8 @@ class SpeechSettings(QWidget):
         path=QFileDialog.getExistingDirectory(self,'Select a local Whisper model',self.path.text())
         if path:self.path.setText(path)
     def refresh(self,*_):
-        self.status.setText('Local accuracy model available.' if find_whisper_model(self.path.text()) else 'Accuracy model unavailable. Vosk remains available for speech input. Model downloads require an explicit user action.')
+        from pathlib import Path
+        model=find_whisper_model(self.path.text())
+        self.status.setText('Local accuracy model: '+Path(model).name if model else 'Accuracy model unavailable. Vosk remains available for speech input. Model downloads require an explicit user action.')
     def write_settings(self,settings):
         settings.update(stt_provider=self.provider.currentData(),stt_accuracy_model_path=self.path.text().strip(),stt_language=self.language.currentData(),stt_autocorrect=str(self.correct.isChecked()).lower())

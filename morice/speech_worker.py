@@ -8,14 +8,16 @@ import sys
 
 def main(model_path):
     os.environ['HF_HUB_OFFLINE'] = '1'
-    import numpy as np
-    from faster_whisper import WhisperModel
-    from .speech_refinement import MAX_PCM_BYTES, find_whisper_model
     def reply(value):
         sys.stdout.write(json.dumps(value, ensure_ascii=True) + '\n'); sys.stdout.flush()
     try:
+        import numpy as np
+        from faster_whisper import WhisperModel
+        from .speech_refinement import MAX_PCM_BYTES, find_whisper_model
         if not find_whisper_model(model_path): raise ValueError('model-unavailable')
-        model = WhisperModel(model_path, device='cpu', compute_type='int8', cpu_threads=4, num_workers=1, local_files_only=True)
+        model = WhisperModel(model_path, device='cpu', compute_type='int8', cpu_threads=min(8,max(2,(os.cpu_count() or 4)//2)), num_workers=1, local_files_only=True)
+    except ImportError:
+        reply({'type': 'error', 'error': 'decoder-dependency-unavailable'}); return 1
     except Exception:
         reply({'type': 'error', 'error': 'decoder-load-failed'}); return 1
     reply({'type': 'ready', 'provider': 'whisper', 'device': 'cpu', 'compute_type': 'int8'})
@@ -39,7 +41,7 @@ def main(model_path):
             if rms < .04: audio=np.clip(audio*min(12.,.08/rms),-1.,1.)
             segments, info = model.transcribe(audio, language=request.get('language') if request.get('language') in {'en', 'hi'} else None,
                 beam_size=5, temperature=0., condition_on_previous_text=False, vad_filter=True,
-                initial_prompt='MORICE. Research Lab. Builder. Settings. Desktop Orb.', word_timestamps=True)
+                initial_prompt='MORICE. Research Lab. Builder. Settings. Desktop Orb.', word_timestamps=False)
             parts=[]; scores=[]
             for segment in segments:
                 if segment.no_speech_prob > .65 and segment.avg_logprob < -.8: continue

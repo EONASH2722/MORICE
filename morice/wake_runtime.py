@@ -17,6 +17,15 @@ VOICE_SESSION_FILENAME = "voice-session.json"
 APP_SESSION_FILENAME = "app-session.json"
 
 
+def helper_owns_wake() -> bool:
+    """A resident helper supersedes the optional pet's wake child."""
+    from .runtime_services import runtime_data_dir
+    path=runtime_data_dir()/'renovation/background-helper.json'
+    try:
+        return path.stat().st_size<12000 and json.loads(path.read_text()).get('enabled') is True
+    except (OSError,ValueError,AttributeError):return False
+
+
 def _clean_text(value: object, limit: int = 160) -> str:
     text = " ".join(str(value or "").replace("\x00", " ").split())
     return text[:limit]

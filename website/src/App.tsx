@@ -8,6 +8,8 @@ import { Desktop } from "@phosphor-icons/react/dist/csr/Desktop";
 import { DownloadSimple } from "@phosphor-icons/react/dist/csr/DownloadSimple";
 import { GithubLogo } from "@phosphor-icons/react/dist/csr/GithubLogo";
 import { List } from "@phosphor-icons/react/dist/csr/List";
+import { Microphone } from "@phosphor-icons/react/dist/csr/Microphone";
+import { MouseMiddleClick } from "@phosphor-icons/react/dist/csr/MouseMiddleClick";
 import { Pause } from "@phosphor-icons/react/dist/csr/Pause";
 import { Play } from "@phosphor-icons/react/dist/csr/Play";
 import { ShieldCheck } from "@phosphor-icons/react/dist/csr/ShieldCheck";
@@ -17,8 +19,32 @@ import HeroScene from "./HeroScene";
 import CustomCursor from "./CustomCursor";
 
 const repo = "https://github.com/EONASH2722/MORICE";
-const version = "0.12.0";
-const release = `${repo}/releases/tag/v${version}`;
+const sourceVersion = '0.12.0';
+const release = `${repo}/releases/tag/v${sourceVersion}`;
+const helperGuide = `${repo}/blob/main/docs/background-helper.md`;
+const desktopFeatures = [
+  {
+    Icon: Microphone,
+    number: "01",
+    title: "Say MORICE.",
+    copy: "Call your assistant while you work. A compact panel appears at the top of the screen for your question and reply.",
+    detail: "Wake listening is yours to enable.",
+  },
+  {
+    Icon: MouseMiddleClick,
+    number: "02",
+    title: "Circle what matters.",
+    copy: "Hold the middle mouse button, draw a closed loop, and release. Ask about the selected content and keep it for follow-up questions.",
+    detail: "Circle selection and screen capture are opt-in.",
+  },
+  {
+    Icon: Desktop,
+    number: "03",
+    title: "A darker kind of Glass.",
+    copy: "Black translucent surfaces let your desktop show through the main window. Choose Glass in Appearance, then adjust Glass intensity.",
+    detail: "Your existing globe. A clearer view around it.",
+  },
+] as const;
 const workspaces = [
   {
     name: "Core",
@@ -148,8 +174,8 @@ export default function App() {
             <a href="#workspace" onClick={() => setMenuOpen(false)}>
               Workspace
             </a>
-            <a href="#explore" onClick={() => setMenuOpen(false)}>
-              Explore
+            <a href="#desktop-helper" onClick={() => setMenuOpen(false)}>
+              Desktop helper
             </a>
             <a href="#principles" onClick={() => setMenuOpen(false)}>
               Our approach
@@ -182,9 +208,9 @@ export default function App() {
         <section className="hero" id="top" aria-labelledby="hero-title">
           <a className="release-badge" href={release}>
             <span />
-            MORICE {version}
+            MORICE {sourceVersion}
             <span className="badge-divider" />
-            UNLEASHED
+            DESKTOP HELPER UPDATE
             <ArrowUpRight size={12} />
           </a>
           <div className="hero-scene">
@@ -211,7 +237,7 @@ export default function App() {
             </div>
           </div>
           <div className="hero-bottom">
-            <a className="scroll-cue" href="#explore">
+            <a className="scroll-cue" href="#desktop-helper">
               <span>SCROLL TO EXPLORE</span>
               <ArrowDown size={15} />
             </a>
@@ -230,10 +256,67 @@ export default function App() {
             </button>
           </div>
         </section>
+        <section
+          className="section desktop-helper-section"
+          id="desktop-helper"
+          aria-labelledby="helper-title"
+        >
+          <div className="section-heading" data-reveal>
+            <div>
+              <p className="eyebrow">NEW IN MORICE {sourceVersion}</p>
+              <h2 id="helper-title">Your assistant, within reach.</h2>
+              <p className="section-description helper-description">
+                Keep working where you are. Bring MORICE to you with your voice
+                or a circle around something on screen, using the same assistant
+                and models as your main workspace.
+              </p>
+            </div>
+            <a className="pill" href={helperGuide}>
+              Set up the helper
+              <ArrowUpRight size={16} />
+            </a>
+          </div>
+          <div className="helper-grid">
+            {desktopFeatures.map(({ Icon, number, title, copy, detail }) => (
+              <article className="helper-card" data-reveal key={number}>
+                <div className="helper-card-top">
+                  <Icon size={27} weight="light" />
+                  <span>{number}</span>
+                </div>
+                <h3>{title}</h3>
+                <p>{copy}</p>
+                <span className="helper-card-detail">{detail}</span>
+              </article>
+            ))}
+          </div>
+          <div className="helper-controls" data-reveal>
+            <div className="helper-control-icons" aria-hidden="true">
+              <Pause size={16} weight="fill" />
+              <Play size={16} weight="fill" />
+            </div>
+            <p>
+              A tiny orb. Real pause and play controls. Press <kbd>Enter</kbd> to
+              send a question. Enable the options you want in
+              <strong> Settings → Background Helper</strong>.
+            </p>
+          </div>
+          <div className="speech-update" data-reveal>
+            <div>
+              <p className="eyebrow">VOICE, ON YOUR TERMS</p>
+              <h3>More capable listening. The voice you chose.</h3>
+            </div>
+            <p>
+              Install the optional local Whisper Large v3 Turbo model for
+              improved speech recognition. MORICE prefers it when available;
+              its roughly 1.6 GB of weights are a separate download. Reply with
+              your configured ElevenLabs voice or Windows local speech.
+            </p>
+          </div>
+        </section>
         <section className="section explore-section" id="explore">
           <div className="section-heading" data-reveal>
             <div>
-              <p className="eyebrow">THE NEXT CHAPTER</p>
+              <p className="eyebrow">YOUR LOCAL WORKSPACE</p>
               <h2>More room for possibility.</h2>
               <p className="section-description">
                 Meet the tools that turn a spark of curiosity into something
@@ -281,7 +364,7 @@ export default function App() {
               >
                 <div className="feature-image">
                   <img
-                    src={`./${item.image}?v=${version}`}
+                    src={`./${item.image}?v=${sourceVersion}`}
                     alt={`Actual MORICE ${workspaces[item.target].name} desktop app`}
                     width="1708"
                     height="1050"
@@ -378,10 +461,10 @@ export default function App() {
                     <i />
                   </span>
                   <span>MORICE / {workspace.name}</span>
-                  <span>v{version}</span>
+                  <span>v{sourceVersion}</span>
                 </div>
                 <img
-                  src={`./${workspace.image}?v=${version}`}
+                  src={`./${workspace.image}?v=${sourceVersion}`}
                   alt={`Actual MORICE ${workspace.name} desktop workspace`}
                   width="1708"
                   height="1050"
@@ -469,7 +552,7 @@ export default function App() {
               </a>
             </div>
             <p className="download-meta">
-              Windows 10 / 11<span>·</span>v{version} preview<span>·</span>Free
+              Windows 10 / 11<span>·</span>v{sourceVersion} preview<span>·</span>Free
               & open source
             </p>
             <a
@@ -483,7 +566,11 @@ export default function App() {
               Local inference requires compatible runtimes, model weights, and
               sufficient memory.
               <br />
+              The Windows build includes the speech decoder; optional Whisper
+              model weights remain separate.
+              <br />
               Media and voice features depend on your installed providers.
+              ElevenLabs requires your own account and API key.
             </p>
           </div>
           <a className="closing-link" href={release}>
@@ -504,6 +591,7 @@ export default function App() {
           <div className="footer-column">
             <h3>Discover</h3>
             <a href="#workspace">Workspace</a>
+            <a href="#desktop-helper">Desktop helper</a>
             <a href="#explore">What’s new</a>
             <a href="#principles">Our approach</a>
           </div>

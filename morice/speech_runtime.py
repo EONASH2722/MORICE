@@ -367,6 +367,21 @@ class SpeechToTextRuntime:
     def prewarm_accuracy(self):
         return self.accuracy_warmup()()
 
+    def completion_timeout_seconds(self, *, include_capture=True):
+        """Bound UI/probe waits by the decoder's existing staged deadlines.
+
+        A cold call may wait for a prewarm operation, load the worker, and
+        decode. Each stage has its own timeout in WhisperRefiner. Cancelling
+        the interaction still interrupts those waits immediately.
+        """
+        with self._lock:
+            config, refiner = self._config, self._refiner
+            interval = getattr(refiner, 'timeout', 45.) if refiner is not None else 0.
+        if type(interval) not in (int, float) or not math.isfinite(interval): interval = 45.
+        interval = min(120., max(0., interval))
+        capture = min(120., max(2., float(config.max_listen_seconds))) if include_capture else 0.
+        return capture + 3 * interval + 5.
+
     def accuracy_warmup(self):
         """Warm the larger decoder only for an explicitly started voice session."""
         with self._lock:

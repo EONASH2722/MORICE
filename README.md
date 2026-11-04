@@ -24,7 +24,21 @@
 
 The release keeps MORICE's continuous purple globe, three complete themes, voice mode, natural-language controls, rich responses and existing workspaces. **UNLEASHED is the release name; it does not mean arbitrary encryption can be broken or that untested integrations are certified.**
 
+**This update to the existing 0.12.0 publication adds Background Helper:** a compact top-of-screen assistant for the MORICE wake phrase and an optional middle-mouse selection gesture. It also updates the main Glass theme to black translucency and improves local speech recognition support. The version and download links stay the same.
+
 [Download 0.12.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.12.0) · [Release notes](docs/release-notes-0.12.0.md) · [Security Lab guide](docs/security-lab-guide.md) · [Validation and limits](docs/security-lab-validation-0.12.0.md)
+
+## Background Helper
+
+Open **Settings → Background Helper** and enable the features you want. The helper is off by default; microphone access, the global middle-mouse gesture and screen capture remain explicit choices. With **Run after closing main window** enabled and a working system tray, the main window's X hides it while the helper stays available. Use the tray to reopen MORICE, pause either activation method or quit the application.
+
+- **Say “MORICE”** to open the compact assistant at the top of the screen and ask a question without opening the main window.
+- **Hold the middle mouse button, draw a closed loop and release** to select visible content. With capture enabled, MORICE takes one bounded capture of the enclosed area. Ask about it in the same popup; follow-up questions reuse that selection. Automatic explanation is a separate option, off by default.
+- **Pause / Play** stops and resumes the helper interaction while retaining its current selection and answer. The popup uses a small instance of MORICE's existing orb and a curved transparent-black surface. Press **Enter** to send, **Esc** to dismiss and **Ctrl+Shift+C** to copy the answer.
+
+The helper reuses the existing conversation, local vision, speech-input and speech-output systems. It does not require a permanently visible desktop pet. The optional Orb pet remains available separately, and the two features coordinate wake-listener ownership.
+
+Selections stay in memory for the interaction; idle operation does not continuously capture the screen. Exclude applications that need native middle-button dragging. Elevated applications, protected surfaces and exclusive fullscreen applications can limit interaction. Physical wake detection, gesture reliability and mixed-DPI behavior depend on the microphone, display arrangement and Windows environment; controlled tests do not certify every hardware setup. [Background Helper setup and limits](docs/background-helper.md).
 
 ## Security Lab
 
@@ -71,15 +85,13 @@ Enable **“Say MORICE to start voice / Allow background microphone”** to use 
 
 MORICE and Orb use your **normal Windows cursor**, including its system size and style. There are no custom cursor images, pointer glow or cursor trails. The globe itself still reacts to mouse movement.
 
-**Better speech input.** MORICE supports local **Whisper Small** for the final transcript, with quick Vosk live text and wake detection. The larger decoder uses CPU INT8, checks the original audio, handles quiet recordings and stays outside the UI process. Speech correction standardizes the assistant name and known workspace commands while preserving numbers, other names, paths and negation. Unclear speech requests a repeat; a failed accuracy decoder reports its Vosk fallback.
+**Better speech input.** MORICE supports local **faster-whisper Large v3 Turbo** for the final transcript, alongside quick Vosk live text and wake detection. Turbo is preferred when installed; **Whisper Small** remains an alternative, and an explicitly selected model folder takes precedence. The accuracy decoder uses CPU INT8, checks the original audio, handles quiet recordings and runs outside the UI process. Speech correction standardizes the assistant name and known workspace commands while preserving request arguments. Unclear speech requests a repeat; an unavailable accuracy decoder reports its fallback rather than presenting rough live text as a successful refinement. Accuracy and latency still depend on the recording and hardware.
 
-Choose **Settings → Voice → Speech recognition quality** for the engine, local model folder, language and correction switch. The installed accuracy model is about **486 MB** and stays in local model storage; public packages include the decoder and require the model folder separately. The larger decoder warms during voice use and releases its process when the voice session ends. Generated replies feed the existing ElevenLabs or Windows local TTS pipeline and the speech-reactive Orb. [Speech setup and validation](docs/speech-quality.md).
+Choose **Settings → Voice → Speech recognition quality** for the engine, local model folder, language and correction switch. Turbo weights need approximately **1.6 GB** of storage; Small needs approximately **486 MB**. Public Windows packages include the decoder dependencies, with accuracy-model weights installed separately. Decoding also needs working memory beyond the download size, and its owned process is released when the voice session ends. Replies retain the existing **ElevenLabs provider and configured voice**, or the selected Windows local speech provider. ElevenLabs requires your own configured API key; no account key or personal voice settings ship in the release. [Speech setup and validation](docs/speech-quality.md).
 
-| White | Glass |
-| --- | --- |
-| ![Actual White home](docs/assets/security-lab-0.12.0/white-home.png) | ![Actual Glass home](docs/assets/security-lab-0.12.0/glass-home.png) |
+![Actual White home](docs/assets/security-lab-0.12.0/white-home.png)
 
-**White, Pitch Black and Glass** apply across navigation, settings, dialogs, scientific canvases, rich responses and the globe's atmosphere. Globe Color and Globe Glow Color are independently adjustable. Glass uses translucent panels and native window opacity; it does not capture the desktop.
+**White, Pitch Black and Glass** apply across navigation, settings, dialogs, scientific canvases, rich responses and the globe's atmosphere. Globe Color and Globe Glow Color are independently adjustable. **Glass now uses black surfaces with the desktop visible through the main window.** Increase **Settings → Appearance → Advanced appearance → Glass intensity** to reveal more of the background. Native window opacity also affects controls and text; High contrast restores full opacity. This is desktop translucency, not native frosted blur, and it does not capture the desktop. The Blur control softens the decorative field.
 
 The GPU globe forms at startup, animates while idle and follows actual work. Drag to rotate with inertia, scroll to zoom, click for a ripple and double-click to reset. Cursor interaction smoothly takes over idle movement and remains available during generation. Reduced Motion and hidden-window throttling remain supported. Wake activation opens chat in the selected theme with existing microphone permissions.
 
@@ -143,6 +155,13 @@ morice
 
 Inference needs compatible local runtimes and installed weights. Media, voice and Android diagnostics need their respective providers/tools. Missing providers leave other workspaces usable. Windows downloads are preview builds; signing status and exact checks are recorded in the release audit.
 
+Set up the providers needed for your workflow after installation:
+
+- **Chat and reasoning:** install a compatible local text model and select it under **Settings → Models**. GGUF weights are separate downloads.
+- **Selected-content explanations:** install the supported local vision model and its matching projector. Enabling the selection gesture alone does not install a vision model.
+- **Accuracy speech recognition:** select a compatible CTranslate2 Whisper model folder under **Settings → Voice**. Turbo and Small weights are separate; the Windows bundle includes the small Vosk wake/live-transcription model and the accuracy decoder libraries.
+- **Speech playback:** configure ElevenLabs and your chosen voice, or select Windows local speech. Enable the helper's microphone and capture options only when you want those features active.
+
 ## Run from source
 
 ```powershell
@@ -168,9 +187,10 @@ npm run build
 - [Documentation index](docs/README.md), [user manual](docs/user-manual.md), [troubleshooting](docs/troubleshooting.md)
 - [Security Lab guide](docs/security-lab-guide.md), [0.12.0 validation](docs/security-lab-validation-0.12.0.md)
 - [Globe, themes and voice](docs/globe-interface-0.11.0.md)
+- [Background Helper](docs/background-helper.md), [speech recognition setup](docs/speech-quality.md)
 - [Models and performance](docs/model-guide.md), [reasoning and equations](docs/reasoning-math-0.10.0.md)
 - [Project Mode](docs/project-mode.md), [Android companion](docs/android-companion.md), [desktop companions](docs/desktop-pets.md)
 - [Architecture](docs/architecture.md), [developer guide](docs/developer-guide.md), [plugin SDK](docs/plugin-sdk.md)
 - [Changelog](CHANGELOG.md), [contributing](CONTRIBUTING.md), [security reporting](SECURITY.md), [MIT license](LICENSE)
 
-All screenshots above are fresh native 0.12.0 captures using owned fixtures. No reference image or generated mockup is presented as a working feature.
+Screenshots show native MORICE 0.12.0 screens using owned content. They predate Background Helper and the updated black Glass material.

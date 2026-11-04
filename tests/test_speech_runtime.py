@@ -61,7 +61,7 @@ class FakeAudio:
 
 class SpeechRuntimeTests(unittest.TestCase):
     def configured(self, model: str) -> SpeechInputConfig:
-        return SpeechInputConfig(model_path=model, max_listen_seconds=2)
+        return SpeechInputConfig(model_path=model, max_listen_seconds=2, provider='vosk')
 
     def test_default_audio_block_bounds_interactive_stt_latency(self):
         config = SpeechInputConfig()
@@ -142,7 +142,7 @@ class SpeechRuntimeTests(unittest.TestCase):
     def test_missing_model_fails_without_opening_microphone(self):
         calls = []
         runtime = SpeechToTextRuntime(
-            SpeechInputConfig(model_path="D:/missing"),
+            SpeechInputConfig(model_path="D:/missing",provider='vosk'),
             audio_factory=lambda config: calls.append(config),
         )
         runtime._model_path = ""

@@ -207,7 +207,9 @@ class WakeController(QObject):
 
     def result(self, text):
         if not self.active: return
-        if self.preferences.transcript: self.overlay.transcript.setText(str(text)[:240])
+        helper=getattr(self.owner,'background_helper',None)
+        if self.preferences.transcript and not (helper is not None and helper.engaged(self.owner)):
+            self.overlay.transcript.setText(str(text)[:240])
         status = self.runtime.voice.status()
         if status.active or status.queued or self.tts_request_id:
             self.set_state(WakeState.SPEAKING if status.state.value == 'playing' else WakeState.WORKING,
@@ -224,6 +226,10 @@ class WakeController(QObject):
         if not self.runtime.speech_input.status().listening: self.stt_request_id = ''
         self.set_state(WakeState.LISTENING, 'Listening for a follow-up…', min(self.preferences.command_timeout, self.preferences.idle_timeout))
         self.owner._begin_voice_listening()
+        helper=getattr(self.owner,'background_helper',None)
+        if helper is not None and helper.session:
+            self.timeout.stop()
+            helper.arm_idle()
 
     def playback_finished(self, result):
         if not self.active: return False
@@ -243,6 +249,9 @@ class WakeController(QObject):
         self.owner.chat_mode = self._return_mode
         self.set_state(WakeState.IDLE, 'MORICE')
         self.overlay.orb.level = 0; self.overlay.run.hide()
+        helper=getattr(self.owner,'background_helper',None)
+        if helper is not None and self.overlay is helper.popup:
+            helper.end_voice();return
         if self.preferences.idle_visible and self.preferences.orb_enabled and not getattr(self.owner,'_orb_voice_wake',False):
             self.overlay.transcript.clear(); self.overlay.place(self.preferences); self.overlay.show()
         else: self.overlay.hide()
@@ -257,7 +266,8 @@ class WakeController(QObject):
 
     def _speech_progress(self):
         if self.active and self.state==WakeState.LISTENING and getattr(getattr(self.runtime.speech_input.status(),'state',None),'value','')=='transcribing':
-            self.set_state(WakeState.UNDERSTANDING,'Refining speech…',max(45.,self.preferences.processing_timeout))
+            budget=self.runtime.speech_input.completion_timeout_seconds(include_capture=False)
+            self.set_state(WakeState.UNDERSTANDING,'Refining speech…',max(budget,self.preferences.processing_timeout))
 
     def close(self):
         self.cancel(); self.timeout.stop(); self.clock.unsubscribe_id(id(self.overlay.orb)); self.overlay.close()

@@ -25,6 +25,9 @@ jobs:
       - name: Run Python tests
         env:
           QT_QPA_PLATFORM: offscreen
+          # The owned UIA fixture creates a native window. Keep it enabled on
+          # this dedicated Windows runner, not normal local offscreen runs.
+          MORICE_RUN_NATIVE_UIA: "1"
         run: python scripts/run_isolated_tests.py tests -q
       - uses: pnpm/action-setup@v4
         with:

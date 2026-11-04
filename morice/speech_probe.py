@@ -1,5 +1,23 @@
 """Real packaged ASR acceptance with owned synthesized PCM, without a microphone."""
 def run(output,model_path):
+    """A failed windowed-executable probe must never open an exception dialog."""
+    import json,sys
+    from pathlib import Path
+    try:
+        return _run(output,model_path)
+    except Exception as exc:
+        record={'success':False,'frozen':bool(getattr(sys,'frozen',False)),
+            'error_code':'probe-timeout' if isinstance(exc,TimeoutError) else 'probe-validation-failed' if isinstance(exc,AssertionError) else 'probe-execution-failed',
+            'error_type':type(exc).__name__,'microphone_opened':False,'audio_played':False}
+        try:
+            destination=Path(output);destination.parent.mkdir(parents=True,exist_ok=True)
+            destination.write_text(json.dumps(record,indent=2),encoding='utf-8')
+        except (OSError,ValueError,TypeError):
+            pass
+        return 1
+
+
+def _run(output,model_path):
     import json,os,sys,threading,time
     from pathlib import Path
     from .config import TTSConfig
@@ -22,14 +40,18 @@ def run(output,model_path):
     runtime=SpeechToTextRuntime(SpeechInputConfig(provider='whisper',accuracy_model_path=model_path,autocorrect=True),resources=resources,audio_factory=lambda _:audio)
     started=time.perf_counter()
     try:
-        result=runtime.listen_once().wait(55)
+        handle=runtime.listen_once();budget=runtime.completion_timeout_seconds()
+        result=handle.wait(budget)
+        if result is None:
+            handle.cancel()
+            raise TimeoutError('speech-probe-timeout')
         assert result is not None and not result.error_code and not result.cancelled,result
         assert result.provider=='whisper' and 'settings' in result.text.lower() and '45' in result.text,result
         assert result.text.startswith('MORICE') and audio.stopped,result
-        record={'frozen':bool(getattr(sys,'frozen',False)),'provider':result.provider,'reference':reference,
+        record={'success':True,'frozen':bool(getattr(sys,'frozen',False)),'provider':result.provider,'reference':reference,
             'transcript':result.text,'streaming_transcript':result.streaming_text,'corrections':list(result.corrections),
             'real_whisper_decode':True,'real_local_tts_fixture':True,'microphone_opened':False,'audio_played':False,
-            'model_downloaded_by_application':False,'seconds':time.perf_counter()-started}
+            'model_downloaded_by_application':False,'seconds':time.perf_counter()-started,'wait_budget_seconds':budget}
     finally:runtime.shutdown()
     assert not resources.snapshot() and not resources.retained()
     record['leases_after']=0;record['owned_decoder_closed']=runtime._refiner._process is None

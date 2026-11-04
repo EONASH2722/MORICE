@@ -39,7 +39,10 @@ def test_general_prose_is_not_a_computer_control_instruction():
     assert requests_desktop_automation('Take control of my PC and open an app.')
 
 
-@pytest.mark.skipif(os.name!='nt',reason='Actual native Windows accessibility integration')
+@pytest.mark.skipif(
+    os.name!='nt' or os.getenv('MORICE_RUN_NATIVE_UIA')!='1',
+    reason='Opt-in native Windows desktop integration: set MORICE_RUN_NATIVE_UIA=1 on a dedicated test desktop.',
+)
 def test_actual_owned_accessible_app_text_invoke_and_revocation(tmp_path,monkeypatch):
     from morice.runtime_services import RuntimeServices
     from morice import settings
@@ -62,6 +65,19 @@ def test_actual_owned_accessible_app_text_invoke_and_revocation(tmp_path,monkeyp
         blocked=runtime.pc_control.execute(inspect)
         assert not blocked.success and 'turn on Desktop automation' in blocked.message
         runtime.set_desktop_automation_enabled(True,persist=False)
+        # The fixture records initial state before QApplication.exec(). A file
+        # alone does not establish that the native desktop can enumerate it.
+        # Keep polling the same manager used by the production adapter; an
+        # unavailable window remains a real CI failure, never an automatic skip.
+        deadline=time.monotonic()+20
+        ready=[]
+        while process.poll() is None and time.monotonic()<deadline:
+            ready=[window for window in runtime.desktop.windows.list_windows()
+                if window.pid==process.pid and window.title==title and window.visible]
+            if ready:break
+            time.sleep(.03)
+        assert ready,('Owned native fixture was not visible to the runtime window manager '
+            f'within 20 seconds (exit={process.poll()}, manager={type(runtime.desktop.windows).__name__}).')
         observed=runtime.pc_control.execute(inspect)
         assert observed.success and observed.verified,observed.to_dict()
         field=next(c for c in observed.output['controls'] if c['name']=='Fixture input')

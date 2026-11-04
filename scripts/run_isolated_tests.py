@@ -8,7 +8,7 @@ ROOT=Path(__file__).resolve().parents[1];sys.path.insert(0,str(ROOT))
 
 with tempfile.TemporaryDirectory(prefix='morice-isolated-tests-') as directory:
     root=Path(directory)
-    os.environ.update(APPDATA=str(root/'roaming'),LOCALAPPDATA=str(root/'local'),MORICE_LOCAL_DATA_DIR=str(root/'data'),
+    os.environ.update(APPDATA=str(root/'roaming'),LOCALAPPDATA=str(root/'local'),MORICE_LOCAL_DATA_DIR=str(root/'data'),MORICE_RUNTIME_DIR=str(root/'runtime'),
         MORICE_PRELOAD='0',MORICE_DISABLE_SESSION='1',MORICE_DISABLE_RECOVERY='1',MORICE_NODE_NETWORK='0',MORICE_REDUCE_MOTION='1',QT_QPA_PLATFORM='offscreen',
         QT_QUICK_BACKEND='software',QTWEBENGINE_CHROMIUM_FLAGS='--disable-gpu')
     from morice import settings

@@ -138,6 +138,10 @@ class RenovatedWindow(ExistingPresenter):
         self.wake_controller = WakeController(self, self.theme_engine, self.effect_policy, self.effect_clock)
         self.wake_controller.changed.connect(self.core_presentation.wake_changed)
         self.wake_controller.changed.connect(self._wake_open_chat)
+        from ..background_helper import BackgroundHelper
+        resident=getattr(self.runtime,'_background_helper',None)
+        self.background_helper = resident if resident is not None and not resident._closed else BackgroundHelper(self)
+        self.runtime._background_helper=self.background_helper
         self._add_route('settings', SettingsWorkspace(self))
         self._add_route('projects', ProjectsWorkspace(self))
         self._add_route('tools', ToolsWorkspace(self)); self._add_route('activity', ActivityWorkspace(self, self.ui_bridge))
@@ -246,6 +250,7 @@ class RenovatedWindow(ExistingPresenter):
         host=QWidget();host.setAttribute(Qt.WA_TransparentForMouseEvents);return host
 
     def _wake_open_chat(self,state):
+        if hasattr(self,'background_helper') and self.background_helper.engaged(self):return
         if state=='LISTENING' and self.wake_controller.active:
             if getattr(self,'_orb_voice_wake',False):self.wake_controller.overlay.hide();return
             self.navigate('chats')
@@ -533,6 +538,7 @@ class RenovatedWindow(ExistingPresenter):
             self.thinking_bubble=None;self._stream_activity=activity
             activity._visible=False;activity.detail_label.hide();activity.toggle.setText('Thinking · Show activity')
         super()._on_assistant_stream_delta(request_id,delta)
+        if hasattr(self,'background_helper') and self.background_helper.owner is self:self.background_helper.stream(self._stream_text,request_id)
         if activity is not None and self._stream_bubble is not None:
             self._stream_bubble.layout().insertWidget(0,activity);activity.show()
         if delta and getattr(self,'_renovated_ready',False):
@@ -683,8 +689,10 @@ class RenovatedWindow(ExistingPresenter):
         palette = self.palette(); palette.setColor(QPalette.Window, QColor(self.theme_engine.tokens['background'])); self.setPalette(palette)
         # Native compositor opacity gives Glass real translucency without
         # desktop capture or layered-window readback on every OpenGL frame.
-        glass=self.theme_engine.profile.preset=='GLASS' and not self.theme_engine.profile.high_contrast
-        self.setWindowOpacity(.94 if glass else 1.)
+        from .themes import window_opacity
+        opacity=window_opacity(self.theme_engine.profile)
+        if abs(self.windowOpacity()-opacity)>1/255:
+            self.setWindowOpacity(opacity)
         self.reduced_motion = self.theme_engine.profile.reduced_motion
         self._refresh_rich_appearance()
         if getattr(self.live_action_workspace, '_shared_presentation', False):
@@ -801,6 +809,9 @@ class RenovatedWindow(ExistingPresenter):
 
     def on_send(self):
         if not getattr(self, '_renovated_ready', False): return super().on_send()
+        if self.background_helper.engaged(self):self.background_helper._has_request=True
+        if self.background_helper.engaged(self) and self.background_helper.selection is not None:
+            return super().on_send()
         text = self.input.text().strip()
         if not text: return
         if getattr(self,'_nlui_token',None) is not None:
@@ -866,9 +877,19 @@ class RenovatedWindow(ExistingPresenter):
         from ..wake_runtime import parse_wake_request
         from ..desktop_pet import foreground_is_fullscreen
         request = parse_wake_request(source)
+        if self.background_helper.preferences.enabled:
+            if self.background_helper.preferences.wake_enabled:
+                self.background_helper.activate_voice(request.source)
+            return
         self._orb_voice_wake=(self.settings.get('active_pet')=='orb' and self.settings.get('pet_enabled')=='true'
             and self.settings.get('orb_voice_wake')=='true' and request.source.casefold().strip() in {'magic words: morice','magic words: morris','magic words: maurice'})
         self.wake_controller.activate(request.source, fullscreen=self.isFullScreen() or foreground_is_fullscreen(ignored_hwnds={int(self.wake_controller.overlay.winId())}))
+
+    def _prepare_live_vision_request(self,user_input):
+        if getattr(self,'_renovated_ready',False) and self.background_helper.engaged(self):
+            # A desktop conversation never implicitly opens/captures the camera.
+            return self.background_helper.prepare_vision(user_input)
+        return super()._prepare_live_vision_request(user_input)
 
     def _begin_voice_listening(self):
         if getattr(self, '_renovated_ready', False):
@@ -916,6 +937,10 @@ class RenovatedWindow(ExistingPresenter):
         super()._on_speech_transcript(payload)
 
     def _on_speech_playback_finished(self, result):
+        helper=getattr(self,'background_helper',None)
+        if helper is not None and helper.engaged(self):
+            helper.popup.orb.level_source=None
+            helper.arm_idle()
         if getattr(self, '_renovated_ready', False) and self.wake_controller.playback_finished(result): return
         super()._on_speech_playback_finished(result)
 
@@ -988,6 +1013,7 @@ class RenovatedWindow(ExistingPresenter):
         if getattr(self,'_renovated_ready',False):self._present_user_data()
         if getattr(self, '_renovated_ready', False) and self.wake_controller.active:
             self.wake_controller.result(reply)
+        if getattr(self,'_renovated_ready',False) and self.background_helper.owner is self:self.background_helper.result(reply)
         return result
 
     def _finish_response_delivery(self, author, message, is_user, **kwargs):
@@ -999,6 +1025,7 @@ class RenovatedWindow(ExistingPresenter):
         if getattr(self, '_renovated_ready', False): self.routes['projects'].refresh_state()
         if getattr(self, '_renovated_ready', False) and self.wake_controller.active and not is_user:
             self.wake_controller.result(message)
+        if getattr(self,'_renovated_ready',False) and not is_user and self.background_helper.owner is self:self.background_helper.result(message)
         return result
 
     def _on_project_patch_result(self, payload):
@@ -1132,7 +1159,11 @@ class RenovatedWindow(ExistingPresenter):
         self.navigate('settings')
 
     def closeEvent(self, event):
+        helper=getattr(self,'background_helper',None)
+        if helper is not None and helper.owner is self and helper.should_hide_on_close():
+            event.ignore();helper.hide_main();return
         if getattr(self, '_renovated_ready', False):
+            if self.background_helper.owner is self:self.background_helper.shutdown()
             self._rich_sync_timer.stop()
             for host in tuple(self._rich_hosts):
                 if isValid(host):host.dispose()

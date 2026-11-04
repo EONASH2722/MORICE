@@ -2144,6 +2144,8 @@ class PetManager(QObject):
             self._wake_process=None
 
     def _sync_orb_wake(self):
+        from .wake_runtime import helper_owns_wake
+        if helper_owns_wake():self._stop_orb_wake();return
         wanted=normalize_pet_id(self.settings.get('active_pet'))=='orb' and _setting_bool(self.settings.get('orb_voice_wake')) and _setting_bool(self.settings.get('pet_enabled'))
         if not wanted:self._stop_orb_wake();return
         if self._wake_process is not None and self._wake_process.poll() is None:return

@@ -93,6 +93,26 @@ def test_every_destination_reachable_one_runtime_hidden_pollers_stop(window, app
     assert not window.runtime.speech_input.status().listening
 
 
+def test_main_glass_reveals_desktop_and_restores_opaque_themes(window, app):
+    original = window.theme_engine.profile
+    renderer = window.globe_view.canvas
+    try:
+        window.theme_engine.update(persist=False, preset='GLASS', background_tone='', surface_tone='', glass=.55, high_contrast=False)
+        app.processEvents()
+        assert .65 < window.windowOpacity() < .85
+        assert max(int(window.theme_engine.tokens['background'][i:i+2], 16) for i in (1, 3, 5)) < 16
+        assert max(int(window.theme_engine.tokens['surface'][i:i+2], 16) for i in (1, 3, 5)) < 32
+        window.theme_engine.update(persist=False, glass=1.)
+        assert window.windowOpacity() < .70
+        window.theme_engine.update(persist=False, high_contrast=True)
+        assert window.windowOpacity() == 1.
+        window.theme_engine.update(persist=False, preset='MORICE', high_contrast=False)
+        assert window.windowOpacity() == 1.
+        assert window.globe_view.canvas is renderer
+    finally:
+        window.theme_engine.apply_profile(original, persist=False)
+
+
 def test_bridge_delivers_worker_results_on_gui_thread_and_bounds_event_bursts(window, app):
     delivered = []; gui = threading.get_ident()
     window.ui_bridge.submit('renovation-thread-check', threading.get_ident,

@@ -17,7 +17,7 @@ npm run preview
 
 ## Implementation
 
-- `src/App.tsx`: responsive navigation, product sections, six keyboard-accessible workspace tabs, and version-specific release links. Windows is 0.12.0; the separate Android companion remains 0.8.0.
+- `src/App.tsx`: responsive navigation, the Background Helper update, six keyboard-accessible workspace tabs, and version-specific release links. Windows remains 0.12.0; the separate Android companion remains 0.8.0. Helper copy explains opt-in voice wake/circle capture, the shared compact popup, actual pause/play controls, black translucent Glass, and optional external Whisper Large v3 Turbo weights. It does not present an invented app screenshot or promise native frosted desktop blur.
 - `src/HeroScene.tsx`: an original WebGL eclipse and refracted moving MORICE wordmark. The scene responds to the mouse and stops when hidden, offscreen, or paused. A semantic text heading remains available if WebGL is unavailable or lost. There are no remote animation scripts.
 - `src/CustomCursor.tsx`: a 5 px dot and trailing 36 px ring that expands to 56 px on links and buttons. It is enabled only after a real mouse event on a fine pointer. Touch, keyboard use, and reduced motion retain the native cursor. Cursor updates do not rerender React.
 - `src/styles.css`: responsive layouts, focus states, scroll reveals, hover states, and reduced-motion behavior. Manually pausing motion also keeps newly selected workspace panels fully visible.

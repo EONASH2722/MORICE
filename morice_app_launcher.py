@@ -98,6 +98,10 @@ if '--morice-orb-probe' in sys.argv:
     from morice.orb_probe import run as run_orb_probe
     raise SystemExit(run_orb_probe(sys.argv[sys.argv.index('--morice-orb-probe')+1]))
 
+if '--morice-helper-probe' in sys.argv:
+    from morice.helper_probe import run as run_helper_probe
+    raise SystemExit(run_helper_probe(sys.argv[sys.argv.index('--morice-helper-probe')+1]))
+
 if "--morice-smoke-test" in sys.argv:
     from morice.package_smoke import run as run_package_smoke
     index = sys.argv.index("--morice-smoke-test")

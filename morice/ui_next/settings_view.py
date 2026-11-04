@@ -50,6 +50,9 @@ class SettingsWorkspace(QWidget):
             ('ElevenLabs API key', 'elevenlabs_api_key_input'), ('Secure key storage', 'save_api_key_btn'),
             ('Provider status', 'elevenlabs_api_status'), ('Save voice settings', 'save_voice_btn')))
         self.wake_fields = {}; wake_view = self.wake_form(); self.add_category('Wake', wake_view)
+        from .helper_settings import BackgroundHelperSettings
+        self.background_helper_settings=BackgroundHelperSettings(window)
+        self.add_category('Background Helper',self.background_helper_settings)
         self.add_form('Desktop pet', (('Enabled', 'pet_enabled_check'), ('Active pet', 'active_pet_select'),
             ('Size', 'pet_size_select'), ('Animation speed', 'pet_animation_speed_select'),
             ('Click action', 'pet_click_action_select'), ('Event frequency', 'pet_event_frequency_select'),
@@ -137,6 +140,7 @@ class SettingsWorkspace(QWidget):
                 visible |= any(query in key.replace('_', ' ') or query in field.accessibleName().casefold() for key, field in self.categories[name].fields.items())
                 self.categories[name].filter('' if matches_category else query)
             if name == 'Wake': visible |= any(query in key.replace('_', ' ') for key in self.wake_fields)
+            if name == 'Background Helper': visible |= any(query in key.replace('_',' ') or query in field.accessibleName().casefold() for key,field in self.background_helper_settings.fields.items())
             if name == 'Memory': visible |= any(word in query for word in ('preference','privacy','history','forget','export','retention'))
             self.list.item(index).setHidden(not visible)
         visible_rows = [index for index in range(self.list.count()) if not self.list.item(index).isHidden()]

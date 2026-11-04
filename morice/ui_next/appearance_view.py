@@ -54,7 +54,7 @@ class AppearanceView(QWidget):
             ('font_scale', 'Font scale', 80, 180, .01), ('core_scale','Core size',50,150,.01), ('motion_strength', 'Animation strength', 0, 100, .01), ('motion_speed', 'Animation speed', 50, 200, .01)):
             field = QSlider(Qt.Horizontal); field.setRange(minimum, maximum); field.setValue(round(getattr(theme.profile, key) / factor)); field.setAccessibleName(label)
             if key == 'blur': field.setToolTip('Procedural raster softness; no desktop pixels are captured.')
-            if key == 'glass': field.setToolTip('Glass theme: translucent panels, refracted field and soft reflective edges.')
+            if key == 'glass': field.setToolTip('Glass theme: increase to reveal more of the desktop through the black window and panels.')
             field.valueChanged.connect(lambda value, name=key, scale=factor: self.update(name, value if scale == 1 else value * scale)); add_field(key, label, field)
         for key, label in (('field_intensity', 'Energy field intensity'), ('field_motion', 'Energy field motion'), ('core_brightness', 'Core brightness'), ('orbital_complexity', 'Orbital complexity')):
             field = QSlider(Qt.Horizontal); field.setRange(1 if key == 'orbital_complexity' else 0, 6 if key == 'orbital_complexity' else 100)
@@ -98,7 +98,7 @@ class AppearanceView(QWidget):
     def refresh_status(self, *_):
         budget = self.policy.budget
         description={'ICE':'White surfaces with readable violet light.','MORICE':'Pitch-black surfaces with luminous violet energy.',
-            'GLASS':'Translucent materials over the same live globe.'}.get(self.theme.profile.preset,'Historical appearance profile.')
+            'GLASS':'Black translucent glass with the desktop visible behind the window. Adjust Glass intensity under Advanced appearance.'}.get(self.theme.profile.preset,'Historical appearance profile.')
         self.scene_description.setText(description)
         self.status.setText(f'Selected {budget.selected} · Active {budget.effective}' + (' · ' + budget.reason if budget.reason else '') + (' · Reduced Motion' if self.theme.profile.reduced_motion else ''))
 

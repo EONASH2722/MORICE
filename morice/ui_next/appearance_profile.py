@@ -5,7 +5,7 @@ import re
 
 PRESETS = {
     'MORICE': ('#000000', '#0b0b10', '#16161e', '#c4a1fa', '#b1a1ed'),
-    'GLASS': ('#0b1424', '#23334a', '#2f4560', '#abecff', '#c5b7ff'),
+    'GLASS': ('#030305', '#101014', '#1b1b20', '#ddd0f4', '#bda7ec'),
     'OBSIDIAN': ('#0c0e12', '#171a20', '#232730', '#99c8db', '#b5b5cc'),
     'ICE': ('#ffffff', '#ffffff', '#f3f3f6', '#654196', '#64539b'),
     'AMETHYST': ('#100d20', '#1d1832', '#2a2442', '#b9a2ff', '#87dff2'),

@@ -63,6 +63,7 @@ if bundle_models and vision_files:
 # Pint loads its unit definitions from package data at runtime.
 # Release builders install .[dev,research]; fail here if it is missing.
 import pint
+import faster_whisper, ctranslate2, av, tokenizers, onnxruntime
 data_files += collect_data_files('pint')
 data_files += collect_data_files('uiautomation')
 data_files += collect_data_files('faster_whisper')
@@ -74,6 +75,11 @@ a = Analysis(
     datas=data_files,
     hiddenimports=(
         ['morice.plugin_host', 'morice_wake_listener', 'dotenv', 'websockets']
+        + collect_submodules('faster_whisper')
+        + collect_submodules('ctranslate2')
+        + collect_submodules('av')
+        + collect_submodules('tokenizers')
+        + collect_submodules('onnxruntime', filter=lambda name: '.test' not in name and '.tools' not in name)
         + collect_submodules('morice.kernel')
         + collect_submodules('morice.agent_runtime')
         + collect_submodules('morice.action_runtime')
@@ -120,13 +126,16 @@ source_digest = hashlib.sha256()
 for source_path in sorted((Path(project_dir) / 'morice').rglob('*.py')):
     source_digest.update(str(source_path.relative_to(project_dir)).encode())
     source_digest.update(source_path.read_bytes())
+for source_name in ('morice_app_launcher.py', 'morice_wake_listener.py'):
+    source_digest.update(source_name.encode())
+    source_digest.update((Path(project_dir) / source_name).read_bytes())
 # Analysis may retain older module-graph code objects after an incremental
 # build. Compile application modules from the current checkout even when the
 # dependency graph itself is reused. Final archive parity remains mandatory.
 application_code_cache = CONF['code_cache'].get(id(a.pure))
 if application_code_cache is not None:
     for module_name, module_path, module_type in a.pure:
-        if module_name == 'morice' or module_name.startswith('morice.'):
+        if module_name in {'morice', 'morice_wake_listener'} or module_name.startswith('morice.'):
             application_code_cache[module_name] = compile(Path(module_path).read_bytes(), module_path, 'exec', dont_inherit=True, optimize=0)
 pyz = PYZ(a.pure, name=os.path.join(CONF['workpath'], 'PYZ-' + source_digest.hexdigest()[:16] + '.pyz'))
 

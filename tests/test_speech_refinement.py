@@ -44,6 +44,19 @@ def runtime_for(refiner):
     runtime._model_path='owned-fake-model';return runtime,audio
 
 
+def test_completion_budget_includes_endpoint_queue_load_and_decode_but_remains_bounded():
+    refiner=Mock(timeout=45.)
+    runtime,_=runtime_for(refiner)
+    try:
+        assert runtime.completion_timeout_seconds() >= 30 + 3 * 45
+        assert runtime.completion_timeout_seconds(include_capture=False) >= 3 * 45
+        refiner.timeout=float('inf')
+        assert runtime.completion_timeout_seconds() < 500
+        refiner.timeout=10_000
+        assert runtime.completion_timeout_seconds(include_capture=False) <= 365
+    finally:runtime.shutdown()
+
+
 def test_refinement_uses_captured_audio_after_microphone_stops_and_keeps_original():
     refiner=Mock()
     runtime,audio=runtime_for(refiner)

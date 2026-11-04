@@ -11,6 +11,7 @@ import sys
 import time
 import zipfile
 from dataclasses import dataclass
+from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -108,6 +109,8 @@ def norm(text: str) -> str:
 
 
 def magic_phrases(wake_phrase: str) -> list[str]:
+    if os.getenv('MORICE_HELPER_PREFS'):
+        return ['morice','morris','maurice','hey morice','hey morris','hey maurice']
     phrases = [
         wake_phrase,
         "wake up son",
@@ -520,6 +523,7 @@ def wake_morice(source: str) -> None:
 
 
 def configured_wake_phrase() -> str:
+    if os.getenv('MORICE_HELPER_PREFS'):return 'morice'
     settings = load_settings()
     return normalize_wake_phrase(settings.get("wake_phrase", "wake up son"))
 
@@ -802,6 +806,44 @@ def background_wake_enabled(environ: dict[str, str] | None = None) -> bool:
     return value in {"1", "true", "yes", "on", "enabled"}
 
 
+def helper_owner_alive() -> bool:
+    path=os.getenv('MORICE_HELPER_PREFS','')
+    if not path:return True
+    try:
+        from morice.wake_runtime import _pid_is_running
+        selected=json.loads(Path(path).read_text())
+        return bool(selected.get('enabled') and selected.get('wake_enabled') and not selected.get('wake_paused')
+                    and _pid_is_running(int(os.environ['MORICE_HELPER_OWNER_PID'])))
+    except (OSError,ValueError,KeyError):return False
+
+
+def helper_wake_match(payload) -> str:
+    """Exact final MORICE pronunciations; never fuzzy-match arbitrary sentences.
+
+    The existing small Vosk model scores the brand lower than common words.
+    Use its established phrase confidence floor, still requiring a scored final
+    result. Ordinary/legacy listener matching is unchanged.
+    """
+    heard=norm(payload.get('text',''))
+    confidence=recognition_confidence(payload)
+    allowed={'morice','morris','maurice','hey morice','hey morris','hey maurice'}
+    return heard if heard in allowed and confidence is not None and confidence>=MULTI_WORD_WAKE_MIN_CONFIDENCE else ''
+
+
+def verify_helper_audio(model, pcm) -> bool:
+    """Check a grammar candidate against unrestricted speech, using the same model.
+
+    A tiny wake-only grammar can force unrelated speech into 'maurice'. This
+    second pass runs only on a candidate, with the last 3.6 seconds of RAM audio.
+    It allocates no second Vosk model and never opens another microphone.
+    """
+    if model is None or not pcm:return False
+    verifier=KaldiRecognizer(model,SAMPLE_RATE);verifier.SetWords(True)
+    verifier.AcceptWaveform(pcm);payload=json.loads(verifier.FinalResult())
+    confidence=recognition_confidence(payload)
+    return bool(helper_wake_match(payload) and confidence is not None and confidence>=SINGLE_WORD_WAKE_MIN_CONFIDENCE)
+
+
 def main() -> int:
     if "--self-test" in sys.argv:
         return self_test()
@@ -841,6 +883,7 @@ def main() -> int:
     stream_index = 0
 
     while True:
+        if not helper_owner_alive():return 0
         wait_for_voice_session_release()
         if os.getenv('MORICE_ORB_WAKE_SESSION')=='1':
             current=load_settings()
@@ -852,6 +895,7 @@ def main() -> int:
         frontend = AdaptiveAudioFrontend(sensitivity)
         clap_detector = DoubleClapDetector()
         transcript = RollingTranscript()
+        helper_audio=deque(maxlen=90)
         last_input_activity = time.monotonic()
 
         def callback(indata, frames, time_info, status):  # noqa: ARG001
@@ -891,6 +935,7 @@ def main() -> int:
                         raise PauseForVoiceSession()
 
                     if now - last_settings_refresh >= SETTINGS_REFRESH_SECONDS:
+                        if not helper_owner_alive():return 0
                         last_settings_refresh = now
                         if os.getenv('MORICE_ORB_WAKE_SESSION')=='1':
                             current=load_settings()
@@ -929,7 +974,7 @@ def main() -> int:
                         )
                         if clap_state:
                             log(f"clap heard ({clap_state}/2)")
-                        if clap_state == 2:
+                        if clap_state == 2 and not os.getenv('MORICE_HELPER_PREFS'):
                             if now - last_wake >= WAKE_DEDUP_SECONDS:
                                 last_wake = now
                                 wake_morice("double clap")
@@ -941,6 +986,7 @@ def main() -> int:
 
                     if recognizer is not None:
                         conditioned_data = frontend.condition_for_speech(samples).tobytes()
+                        if os.getenv('MORICE_HELPER_PREFS'):helper_audio.append(conditioned_data)
                         accepted = recognizer.AcceptWaveform(conditioned_data)
                         if accepted:
                             final_payload = json.loads(recognizer.Result())
@@ -964,6 +1010,10 @@ def main() -> int:
                             ),
                             "",
                         )
+                        if os.getenv('MORICE_HELPER_PREFS'):
+                            matched_phrase=helper_wake_match(final_payload) if accepted else ''
+                            if matched_phrase and not verify_helper_audio(vosk_model,b''.join(helper_audio)):
+                                matched_phrase='';log('wake grammar candidate rejected by unrestricted speech check')
                         # Restricted Vosk grammars may coerce background audio
                         # into plausible wake words. Require a scored final
                         # result, especially for one-word triggers, before the
@@ -971,7 +1021,7 @@ def main() -> int:
                         if (
                             accepted
                             and matched_phrase
-                            and confident_wake_result(final_payload, matched_phrase)
+                            and (bool(os.getenv('MORICE_HELPER_PREFS')) or confident_wake_result(final_payload, matched_phrase))
                         ):
                             if now - last_wake >= WAKE_DEDUP_SECONDS:
                                 last_wake = now
