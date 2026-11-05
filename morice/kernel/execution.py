@@ -206,7 +206,6 @@ class CapabilityKernel:
             result.success = False
             result.status = TaskStatus.CANCELLED
             result.errors.append(ExecutionError(ErrorCode.CANCELLED, "Task cancelled."))
-        task.result, task.status, task.outputs, task.completed_at = result, result.status, result.output, time.time()
         if self.actions is not None:
             self.actions.attempt_finished(task, result, ctx)
         if entry is not None and entry.on_completed is not None:
@@ -217,7 +216,7 @@ class CapabilityKernel:
                 result.warnings.append(f"Task history could not be saved: {type(exc).__name__}.")
         # Publication callbacks can replace outputs or reject an otherwise
         # verified result. Persist the final outcome consistently everywhere.
-        task.status, task.outputs, task.completed_at = result.status, result.output, time.time()
+        task.result, task.status, task.outputs, task.completed_at = result, result.status, result.output, time.time()
         if self.actions is not None:
             self.actions.complete_task(task, result, ctx)
         self.telemetry.record(task.task_id, result.capability_id, result.execution_id, "task_completed", (time.perf_counter() - queued) * 1000)

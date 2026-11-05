@@ -278,7 +278,10 @@ class KernelTests(unittest.TestCase):
     def test_completion_failure_updates_task_outputs_and_final_action_journal(self):
         events = []
         self.kernel.events.subscribe(events.append)
+        task = TaskNode("test.publish")
+        status_at_publication = []
         def completion(result, _context):
+            status_at_publication.append(task.status)
             result.success = False
             result.status = TaskStatus.FAILED
             result.output = {"publication": "failed"}
@@ -290,8 +293,9 @@ class KernelTests(unittest.TestCase):
         self.kernel.actions = actions
         completed = []
         actions.complete_task.side_effect = lambda task, result, _context: completed.append((task.status, result.status, task.outputs))
-        task = TaskNode("test.publish")
         result = self.kernel.run_task(task, ExecutionContext())
+        self.assertEqual(len(status_at_publication), 1)
+        self.assertFalse(status_at_publication[0].terminal)
         self.assertFalse(result.success)
         self.assertEqual(task.status, TaskStatus.FAILED)
         self.assertIs(task.outputs, result.output)

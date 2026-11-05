@@ -256,7 +256,8 @@ class MediaLab:
 
     def execute(self,args,ctx,intent):
         request=self.request(args['request'],intent);identifier=args.get('generation_id') or uuid.uuid4().hex
-        if len(identifier)!=32 or any(c not in '0123456789abcdef' for c in identifier):raise ValueError('Invalid owned generation identifier.')
+        if not isinstance(identifier,str) or len(identifier)!=32 or any(c not in '0123456789abcdef' for c in identifier):
+            raise ValueError('Invalid owned generation identifier.')
         model=self.select_model(request);owner=ctx.metadata.get('execution_id')
         if not self.kernel.resources.current_holds('GPU') or not self.kernel.resources.current_holds('LOCAL_MODEL'):raise ValueError('Media execution requires shared GPU/model admission.')
         lease=self.kernel.resources.snapshot().get(owner,())
@@ -264,7 +265,11 @@ class MediaLab:
             if identifier not in self._jobs:
                 if len(self._jobs)>=32:raise ValueError('Bounded media queue is full.')
                 record={'generation_id':identifier,'status':'LOADING_MODEL','request':request.to_dict(),'model':model.model_id,'backend':model.backend,'artifacts':[],'warnings':[],'errors':[],'created_at':time.time()}
-                self._jobs[identifier]=record;self.history_store.save(identifier,record)
+                self.history_store.save(identifier,record)
+                self._jobs[identifier]=record
+        # Direct Kernel calls have a different task ID. Keep the generated ID
+        # on the execution context so failure results can still find their job.
+        ctx.metadata['media_generation_id']=identifier
         self._stage(identifier,'LOADING_MODEL')
         self.kernel.events.publish(KernelEvent(EventType.MEDIA_STARTED,source='media',task_id=identifier,project_id=ctx.project_id,payload={'generation_id':identifier,'status':'LOADING_MODEL'}))
         if self._has_owned_idle_llm():
@@ -363,11 +368,18 @@ class MediaLab:
         except Exception as exc:return VerificationResult(VerificationStatus.FAILED,message=str(exc)[:1000])
 
     def completed(self,result,ctx):
-        identifier=(result.output or {}).get('generation_id') if isinstance(result.output,dict) else None
+        identifier=ctx.metadata.get('media_generation_id')
+        if not identifier and isinstance(result.output,dict):
+            identifier=result.output.get('generation_id')
         identifier=identifier or ctx.metadata.get('task_inputs',{}).get('generation_id') or ctx.task_id
-        self._record_completed(identifier,result,ctx)
-        with self._lock:
-            if identifier not in self._futures:self._jobs.pop(identifier,None)
+        if not isinstance(identifier,str):
+            return
+        try:
+            self._record_completed(identifier,result,ctx)
+        finally:
+            with self._lock:
+                if identifier not in self._futures:
+                    self._jobs.pop(identifier,None)
 
     def _record_completed(self,identifier,result,ctx):
         with self._lock:

@@ -88,3 +88,30 @@ def test_remote_terminal_write_failure_settles_future_and_clears_queue(media,mes
         assert lab.result(identifier)['status']!='SUCCEEDED'
         assert not lab._jobs and not lab._futures and lab.load_error
     finally:lab.close()
+
+
+def test_failed_direct_dispatch_finalizes_media_job_and_removes_temp_files(media):
+    result = media.kernel.dispatch('media.image.generate', {'request': request('crash').to_dict()},
+                                   task_id='custom-media-task')
+    assert not result.success
+    history = media.history()
+    assert len(history) == 1 and history[0]['status'] == 'FAILED'
+    assert history[0]['terminal_recorded']
+    assert not media.status()['queue']
+    assert not list((media.directory / 'temp').iterdir())
+
+
+def test_direct_dispatch_terminal_history_failure_releases_queue_entry(media,monkeypatch):
+    original = media.history_store.save
+
+    def unavailable_terminal(identifier, value):
+        if value.get('terminal_recorded'):
+            raise OSError('controlled direct terminal history failure')
+        return original(identifier, value)
+
+    monkeypatch.setattr(media.history_store, 'save', unavailable_terminal)
+    result = media.kernel.dispatch('media.image.generate', {'request': request().to_dict()})
+    assert not result.success
+    assert not media.status()['queue']
+    assert not media.kernel.resources.snapshot()
+    assert any('history' in error.message.lower() for error in result.errors)
