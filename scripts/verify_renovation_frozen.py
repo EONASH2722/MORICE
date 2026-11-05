@@ -11,6 +11,9 @@ ROOT=Path(__file__).resolve().parents[1]
 parser=argparse.ArgumentParser();parser.add_argument('directory');parser.add_argument('--output',default='build/phase10-frozen-current-parity.json');args=parser.parse_args()
 directory=Path(args.directory).resolve();executable=directory/'MORICE.exe'
 embedded=CArchiveReader(str(executable)).open_embedded_archive('PYZ.pyz')
+required_packages=('faster_whisper', 'pyzipper', 'Cryptodome.Cipher.AES')
+for package in required_packages:
+    assert package in embedded.toc, 'Missing shipped runtime dependency: '+package
 def signature(code):
     return (code.co_code,code.co_names,code.co_varnames,code.co_freevars,code.co_cellvars,
         code.co_argcount,code.co_posonlyargcount,code.co_kwonlyargcount,code.co_flags,code.co_exceptiontable,
@@ -45,5 +48,6 @@ record={'status':'FROZEN_ARCHIVE_PARITY_PASSED','production_window_factory':'mor
     'bytes':sum(path.stat().st_size for path in files),'exe_sha256':hashlib.sha256(executable.read_bytes()).hexdigest(),
     'source_sha256':fingerprint.hexdigest(),'web_assets_sha256':web_fingerprint.hexdigest(),'source_equal_modules':len(verified),'omitted_cli_modules':omitted,'asset_equal_files':data,
     'generative_media_or_gguf_weights_embedded':False,'existing_vosk_model_intentionally_embedded':True,
+    'required_runtime_packages':list(required_packages),
     'scope':'Embedded executable bytecode/public asset parity and exclusion scan; startup is a separate check.'}
 (ROOT/args.output).write_text(json.dumps(record,indent=2),encoding='utf-8');print(json.dumps(record))

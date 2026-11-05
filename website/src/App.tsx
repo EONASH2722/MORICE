@@ -607,6 +607,9 @@ export default function App() {
             <h3>Resources</h3>
             <a href={`${repo}/tree/main/docs`}>Documentation</a>
             <a href={`${repo}/issues`}>Feedback & issues</a>
+            <a href="https://hub.xerj.org/contributors/EONASH2722">
+              Xerj contributor profile
+            </a>
             <a href={`${repo}/blob/main/LICENSE`}>MIT license</a>
           </div>
         </div>

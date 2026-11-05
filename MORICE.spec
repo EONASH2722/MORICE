@@ -64,6 +64,9 @@ if bundle_models and vision_files:
 # Release builders install .[dev,research]; fail here if it is missing.
 import pint
 import faster_whisper, ctranslate2, av, tokenizers, onnxruntime
+# Archive recovery is a shipped feature. Missing optional-import targets would
+# otherwise make collect_submodules silently produce an incomplete executable.
+import pyzipper, Cryptodome
 data_files += collect_data_files('pint')
 data_files += collect_data_files('uiautomation')
 data_files += collect_data_files('faster_whisper')

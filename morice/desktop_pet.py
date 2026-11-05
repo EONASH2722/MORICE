@@ -603,7 +603,9 @@ def foreground_is_fullscreen(*, ignored_hwnds: set[int] | None = None) -> bool:
         return False
     ignored = ignored_hwnds or set()
     try:
-        user32 = ctypes.windll.user32
+        # Keep these structure-specific prototypes separate from the shared
+        # windll cache used by WindowManager and other desktop integrations.
+        user32 = ctypes.WinDLL('user32', use_last_error=True)
         user32.GetForegroundWindow.restype = ctypes.c_void_p
         user32.GetShellWindow.restype = ctypes.c_void_p
         user32.GetDesktopWindow.restype = ctypes.c_void_p

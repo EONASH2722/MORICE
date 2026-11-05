@@ -16,6 +16,7 @@ from morice.desktop_pet import (
     PointerGesture,
     SUPPORTED_PETS,
     _is_true_fullscreen_geometry,
+    foreground_is_fullscreen,
     normalize_pet_id,
 )
 from morice.pet_launcher import (
@@ -54,6 +55,49 @@ class PointerGestureTests(unittest.TestCase):
 
 
 class PetConfigurationTests(unittest.TestCase):
+    def test_fullscreen_checks_preserve_other_desktop_rect_bindings(self):
+        """A helper tick must not change WindowManager's native RECT ABI."""
+        import ctypes
+        from ctypes import wintypes
+        from types import SimpleNamespace
+        import morice.desktop_pet as desktop_pet
+
+        def rectangle(_hwnd, address):
+            values=ctypes.cast(address,ctypes.POINTER(ctypes.c_long))
+            for index,value in enumerate((0,0,1920,1080)):values[index]=value
+            return 1
+
+        boundary=ctypes.CFUNCTYPE(ctypes.c_int,ctypes.c_void_p,ctypes.c_void_p)
+        cached_rect=boundary(rectangle)
+        cached_rect.argtypes=[ctypes.c_void_p,ctypes.POINTER(wintypes.RECT)]
+        original_signature=list(cached_rect.argtypes)
+
+        def monitor_info(_monitor, reference):
+            info=reference._obj
+            for name,value in zip(('left','top','right','bottom'),(0,0,1920,1080)):
+                setattr(info.rcMonitor,name,value)
+            return 1
+
+        def library(rect):
+            return SimpleNamespace(GetForegroundWindow=Mock(return_value=101),
+                GetShellWindow=Mock(return_value=1),GetDesktopWindow=Mock(return_value=2),
+                IsIconic=Mock(return_value=False),IsZoomed=Mock(return_value=False),
+                GetWindowRect=rect,MonitorFromWindow=Mock(return_value=202),
+                GetMonitorInfoW=Mock(side_effect=monitor_info))
+
+        cached_library=library(cached_rect)
+        loader=Mock(side_effect=lambda *_args,**_kwargs:library(boundary(rectangle)))
+        native=SimpleNamespace(**vars(ctypes))
+        native.windll=SimpleNamespace(user32=cached_library)
+        native.WinDLL=loader
+        with patch.object(desktop_pet,'ctypes',native),patch.object(desktop_pet,'os',SimpleNamespace(name='nt')):
+            self.assertTrue(foreground_is_fullscreen())
+            self.assertTrue(foreground_is_fullscreen())
+        self.assertEqual(cached_rect.argtypes,original_signature)
+        rect=wintypes.RECT()
+        self.assertTrue(cached_rect(ctypes.c_void_p(101),ctypes.byref(rect)))
+        self.assertEqual((rect.left,rect.top,rect.right,rect.bottom),(0,0,1920,1080))
+
     def test_click_action_defaults_to_open_morice(self):
         self.assertEqual(DEFAULT_SETTINGS["pet_click_action"], "open_morice")
         self.assertEqual(normalize_pet_click_action("Open MORICE Chat"), "open_chat")

@@ -192,5 +192,6 @@ npm run build
 - [Project Mode](docs/project-mode.md), [Android companion](docs/android-companion.md), [desktop companions](docs/desktop-pets.md)
 - [Architecture](docs/architecture.md), [developer guide](docs/developer-guide.md), [plugin SDK](docs/plugin-sdk.md)
 - [Changelog](CHANGELOG.md), [contributing](CONTRIBUTING.md), [security reporting](SECURITY.md), [MIT license](LICENSE)
+- [EONASH2722 on Xerj](https://hub.xerj.org/contributors/EONASH2722)
 
 Screenshots show native MORICE 0.12.0 screens using owned content. They predate Background Helper and the updated black Glass material.

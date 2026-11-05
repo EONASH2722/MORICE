@@ -161,8 +161,12 @@ def test_orb_reports_real_transcription_and_extends_processing_timeout(window,ap
     window.hide();window._wake_from_external('magic words: morice')
     status=SpeechInputStatus(SpeechInputState.TRANSCRIBING,True,True,None)
     monkeypatch.setattr(window.runtime.speech_input,'status',lambda:status)
+    budget=Mock(return_value=140.)
+    monkeypatch.setattr(window.runtime.speech_input,'completion_timeout_seconds',budget)
     window.wake_controller._speech_progress();window.core_presentation.sample()
     assert window.wake_controller.state==WakeState.UNDERSTANDING
-    assert window.wake_controller._deadline-time.monotonic()>40
+    budget.assert_called_once_with(include_capture=False)
+    assert 139<window.wake_controller._deadline-time.monotonic()<=140
+    assert window.wake_controller.timeout.interval()==140_000
     assert window.core_presentation.snapshot.state==CoreState.UNDERSTANDING
     assert not window.isVisible() and not window.wake_controller.overlay.isVisible()
