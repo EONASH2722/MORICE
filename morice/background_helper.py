@@ -198,7 +198,7 @@ class BackgroundHelper(QObject):
         if os.name=='nt':
             ctypes.windll.user32.GetForegroundWindow.restype=ctypes.c_void_p
             self.hook.foreground_hwnd=ctypes.windll.user32.GetForegroundWindow()
-        excluded=name in {s.strip().casefold() for s in p.excluded_apps.replace(',',';').split(';') if s.strip()}
+        excluded=self._application_excluded(name)
         wanted=p.enabled and p.circle_enabled and not p.circle_paused
         self.hook.allowed=wanted and p.screen_capture and not fullscreen and not excluded and not protected and not self._capture_pending
         if wanted and not self.hook.running:self.hook.start()
@@ -256,6 +256,9 @@ class BackgroundHelper(QObject):
     def _screen_allowed(self):
         return self.preferences.screen_capture and self.runtime.kernel.permissions.controller.state('screen_access') not in {PermissionState.DENIED,PermissionState.OS_REQUIRED,PermissionState.UNSUPPORTED}
 
+    def _application_excluded(self,name):
+        return name.casefold() in {s.strip().casefold() for s in self.preferences.excluded_apps.replace(',',';').split(';') if s.strip()}
+
     def activate_voice(self,source='MORICE',*,followup=False):
         if not self.preferences.enabled:return False
         if self.preferences.wake_paused and not followup:return False
@@ -270,13 +273,14 @@ class BackgroundHelper(QObject):
 
     def _begin_session(self):
         self._stop_listener()
-        if not self.session:self._return_mode=self.owner.chat_mode
+        fresh=not self.session
+        if fresh:self._return_mode=self.owner.chat_mode
         self.idle.stop();self._epoch+=1;self._vision_cancel.set();self._vision_cancel=threading.Event()
         self.session=True;self.owner.wake_controller.overlay=self.popup
         self._paused=False;self.popup.set_paused(False)
         self.popup.animate=self.preferences.animation and not (self.preferences.reduced_motion or self.owner.theme_engine.profile.reduced_motion)
         self.popup.orb.reload(self.preferences.reduced_motion)
-        if not self.popup.isVisible():self.popup.reset()
+        if fresh or not self.popup.isVisible():self.popup.reset()
         self.popup.place(screen=QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen());self.popup.show()
 
     def listen(self):
@@ -418,9 +422,16 @@ class BackgroundHelper(QObject):
 
     def _capture(self):
         self.overlay.hide();self._capture_pending=False
+        p=self.preferences
+        if self._closed or not p.enabled or not p.circle_enabled or p.circle_paused:
+            self._status('Circle selection is paused.');return
         if not self._screen_allowed():self._status('Screen capture permission is off.');return
-        _,protected=foreground_identity()
+        name,protected=foreground_identity()
         if protected:self._status('This protected surface cannot be captured.');return
+        if self._application_excluded(name):self._status('Circle selection is paused for this application.');return
+        from .desktop_pet import foreground_is_fullscreen
+        if p.pause_fullscreen and foreground_is_fullscreen(ignored_hwnds=self._visible_handles()):
+            self._status('Circle selection is paused in fullscreen.');return
         start=time.perf_counter()
         try:
             from PIL import ImageGrab,Image,ImageDraw,ImageStat

@@ -144,7 +144,8 @@ class TopAssistantPopup(QWidget):
         if self._screen is not None and not isValid(self._screen):self._screen=None
         self._screen=screen or self._screen or QApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
         if self._screen is None:return
-        area=self._screen.geometry();width=min(460,max(240,area.width()-40));limit=max(150,int(area.height()*.44))
+        area=self._screen.geometry();width=min(460,max(240,area.width()-40))
+        limit=min(max(110,area.height()-12),max(150,int(area.height()*.44),self.root.minimumSize().height()))
         self.setFixedWidth(width);self.setMaximumHeight(limit)
         if self.animation.state()!=QPropertyAnimation.Running:self.resize(width,max(110,min(limit,self.root.sizeHint().height())))
         self._target=QPoint(area.center().x()-width//2,area.top())

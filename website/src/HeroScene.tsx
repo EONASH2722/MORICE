@@ -44,6 +44,7 @@ export default function HeroScene({ motion }: { motion: boolean }) {
   const motionRef = useRef(motion);
   const renderRef = useRef<(() => void) | null>(null);
   const [ready, setReady] = useState(false);
+  const [contextRevision, setContextRevision] = useState(0);
   useEffect(() => {
     motionRef.current = motion;
     renderRef.current?.();
@@ -57,6 +58,7 @@ export default function HeroScene({ motion }: { motion: boolean }) {
       powerPreference: "low-power",
     });
     if (!gl) return;
+    let contextInvalidated = false;
     const shaders: WebGLShader[] = [];
     const compile = (type: number, source: string) => {
       const shader = gl.createShader(type);
@@ -72,6 +74,7 @@ export default function HeroScene({ motion }: { motion: boolean }) {
       buffer = gl.createBuffer(),
       texture = gl.createTexture();
     const release = () => {
+      if (contextInvalidated || gl.isContextLost()) return;
       shaders.forEach((shader) => gl.deleteShader(shader));
       gl.deleteProgram(program);
       gl.deleteBuffer(buffer);
@@ -119,7 +122,7 @@ export default function HeroScene({ motion }: { motion: boolean }) {
       currentY = 0;
     const draw = (now: number) => {
       frame = 0;
-      if (disposed || !textureReady || gl.isContextLost()) return;
+      if (disposed || contextInvalidated || !textureReady || gl.isContextLost()) return;
       const running = motionRef.current && inView && !document.hidden;
       if (running && previous) elapsed += Math.min(now - previous, 60) / 1000;
       previous = running ? now : 0;
@@ -136,12 +139,13 @@ export default function HeroScene({ motion }: { motion: boolean }) {
       if (running) frame = requestAnimationFrame(draw);
     };
     const requestDraw = () => {
-      if (disposed) return;
+      if (disposed || contextInvalidated) return;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(draw);
     };
     renderRef.current = requestDraw;
     const resize = () => {
+      if (disposed || contextInvalidated || gl.isContextLost()) return;
       const bounds = canvas.getBoundingClientRect(),
         dpr = Math.min(devicePixelRatio || 1, innerWidth < 680 ? 1.25 : 1.6);
       canvas.width = Math.round(bounds.width * dpr);
@@ -150,7 +154,7 @@ export default function HeroScene({ motion }: { motion: boolean }) {
       requestDraw();
     };
     const createWordmark = () => {
-      if (disposed || gl.isContextLost()) return;
+      if (disposed || contextInvalidated || gl.isContextLost()) return;
       const image = document.createElement("canvas");
       image.width = 2048;
       image.height = 512;
@@ -187,8 +191,14 @@ export default function HeroScene({ motion }: { motion: boolean }) {
     };
     const contextLost = (event: Event) => {
       event.preventDefault();
+      contextInvalidated = true;
       setReady(false);
       cancelAnimationFrame(frame);
+    };
+    const contextRestored = () => {
+      // Recreate the shaders, texture, and buffer after the browser restores
+      // the context. The lost context's objects are already invalid.
+      if (!disposed) setContextRevision((revision) => revision + 1);
     };
     const observer = new IntersectionObserver((entries) => {
       inView = entries[0]?.isIntersecting ?? false;
@@ -200,6 +210,7 @@ export default function HeroScene({ motion }: { motion: boolean }) {
     resizeObserver.observe(canvas);
     canvas.addEventListener("pointermove", pointerMove, { passive: true });
     canvas.addEventListener("webglcontextlost", contextLost);
+    canvas.addEventListener("webglcontextrestored", contextRestored);
     document.addEventListener("visibilitychange", requestDraw);
     document.fonts
       .load('600 205px "M PLUS 1"')
@@ -213,10 +224,11 @@ export default function HeroScene({ motion }: { motion: boolean }) {
       renderRef.current = null;
       canvas.removeEventListener("pointermove", pointerMove);
       canvas.removeEventListener("webglcontextlost", contextLost);
+      canvas.removeEventListener("webglcontextrestored", contextRestored);
       document.removeEventListener("visibilitychange", requestDraw);
       release();
     };
-  }, []);
+  }, [contextRevision]);
   return (
     <canvas
       ref={canvasRef}

@@ -275,6 +275,30 @@ class KernelTests(unittest.TestCase):
         self.assertIn("execution_completed", {r.stage for r in self.kernel.telemetry.records()})
         self.assertIn("task_started", {r.stage for r in self.kernel.telemetry.records()})
 
+    def test_completion_failure_updates_task_outputs_and_final_action_journal(self):
+        events = []
+        self.kernel.events.subscribe(events.append)
+        def completion(result, _context):
+            result.success = False
+            result.status = TaskStatus.FAILED
+            result.output = {"publication": "failed"}
+        self.kernel.registry.register(CapabilityDescriptor("test.publish", "Publish"),
+            lambda _inputs, _context: ExecutionResult(TaskStatus.SUCCEEDED, True, {"publication": "pending"}),
+            on_completed=completion)
+        actions = SimpleNamespace(prepare_task=Mock(), supports=Mock(return_value=False),
+            attempt_finished=Mock(), complete_task=Mock())
+        self.kernel.actions = actions
+        completed = []
+        actions.complete_task.side_effect = lambda task, result, _context: completed.append((task.status, result.status, task.outputs))
+        task = TaskNode("test.publish")
+        result = self.kernel.run_task(task, ExecutionContext())
+        self.assertFalse(result.success)
+        self.assertEqual(task.status, TaskStatus.FAILED)
+        self.assertIs(task.outputs, result.output)
+        self.assertEqual(completed, [(TaskStatus.FAILED, TaskStatus.FAILED, {"publication": "failed"})])
+        self.assertEqual(self.kernel.history()[-1]["status"], "failed")
+        self.assertEqual(events[-1].event_type, EventType.TASK_FAILED)
+
     def test_priority_and_atomic_worker_claims_support_future_parallelism(self):
         graph = TaskGraph((TaskNode("kernel.echo", task_id="low", priority=Priority.LOW),
             TaskNode("kernel.echo", task_id="high", priority=Priority.INTERACTIVE)))

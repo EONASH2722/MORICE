@@ -2,6 +2,12 @@
 
 This amendment to the existing 0.12.0 publication adds Background Helper, a compact top-edge assistant for wake questions and selected screen content, black translucent Glass, and improved local speech recognition packaging. The version and publication stay the same. It retains the local Security Lab, holographic interface, chat thinking levels and previous reply/rendering fixes.
 
+## Maintenance fixes
+
+- The helper keeps the message composer usable on smaller or scaled displays and clears dismissed content when a new interaction starts. A queued circle capture checks the current pause, permission, fullscreen, and application exclusion settings before capturing.
+- Media jobs release their queue slots when history cannot be saved. Storage failures appear consistently in the task result and history, and generated files remain available for recovery from the media output directory.
+- The website restores its animation when the browser restores the graphics context, including while animations are paused.
+
 ## Added
 
 - **Background Helper:** opt in under Settings → Background Helper. Say “MORICE” or hold the middle mouse button and draw a closed loop to open the same compact assistant. The popup reuses the existing orb, models, speech and voice pipeline. It has a real Pause/Play icon, Enter to send, Esc to dismiss, and no close or expansion arrows.

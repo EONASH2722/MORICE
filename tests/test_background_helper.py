@@ -49,10 +49,14 @@ def test_preference_bounds(changes):
 @pytest.fixture
 def helper(window,app):
     h=window.background_helper;old=h.preferences
-    h.preferences=replace(old,enabled=True,wake_enabled=False,circle_enabled=False,animation=False,auto_hide=False,screen_capture=True)
-    h.apply()
-    yield h
-    h.cancel();h.preferences=old;h.apply();app.processEvents()
+    h.preferences=replace(old,enabled=True,wake_enabled=False,circle_enabled=True,animation=False,auto_hide=False,screen_capture=True)
+    # Exercise capture policy without installing a desktop input hook or
+    # sampling the real foreground window during offscreen tests.
+    with patch.object(h.hook,'start'),patch('morice.desktop_pet.foreground_is_fullscreen',return_value=False), \
+         patch('morice.background_helper.foreground_identity',return_value=('test.exe',False)):
+        h.apply()
+        yield h
+        h.cancel();h.preferences=old;h.apply();app.processEvents()
 
 
 def test_close_hides_without_disposing_runtime_or_wake_timer(helper,window,app):
@@ -110,6 +114,32 @@ def test_permission_denial_never_captures(helper):
     with patch('PIL.ImageGrab.grab') as grab:helper._capture();assert not grab.called
 
 
+@pytest.mark.parametrize('changes',[{'enabled':False},{'circle_enabled':False},{'circle_paused':True}])
+def test_pending_capture_honors_current_circle_switches(helper,changes):
+    helper._geometry=enclosed_selection(circle(),(0,0,800,600))
+    helper._capture_pending=True
+    helper.preferences=replace(helper.preferences,**changes)
+    with patch('PIL.ImageGrab.grab') as grab:
+        helper._capture()
+    assert not grab.called and not helper._capture_pending and helper.selection is None
+
+
+def test_pending_capture_rechecks_new_excluded_foreground(helper):
+    helper._geometry=enclosed_selection(circle(),(0,0,800,600));helper._capture_pending=True
+    helper.preferences=replace(helper.preferences,excluded_apps='test.exe')
+    with patch('PIL.ImageGrab.grab') as grab:
+        helper._capture()
+    assert not grab.called and helper.selection is None
+    assert 'paused for this application' in helper.status
+
+
+def test_pending_capture_rechecks_fullscreen_pause(helper):
+    helper._geometry=enclosed_selection(circle(),(0,0,800,600));helper._capture_pending=True
+    with patch('morice.desktop_pet.foreground_is_fullscreen',return_value=True),patch('PIL.ImageGrab.grab') as grab:
+        helper._capture()
+    assert not grab.called and helper.selection is None and 'fullscreen' in helper.status
+
+
 def test_no_camera_or_new_capture_for_followup(helper,window):
     helper._geometry=enclosed_selection(circle(),(0,0,800,600))
     with patch('PIL.ImageGrab.grab',return_value=Image.new('RGB',(207,147),'white')),patch('morice.background_helper.foreground_identity',return_value=('test.exe',False)):
@@ -133,6 +163,18 @@ def test_dismissal_discards_late_vision_completion(helper,window):
     helper.cancel()
     with patch.object(window,'_on_live_vision_ready') as done:
         callback({'ok':False,'error':'late failure'});assert not done.called
+
+
+def test_new_session_during_dismiss_animation_clears_old_content(helper,app):
+    helper._begin_session();app.processEvents()
+    helper.popup.response('Answer from the dismissed interaction.')
+    helper.popup.transcript.setText('The old question')
+    helper.popup.animate=True
+    helper.cancel()
+    assert helper.popup.isVisible() and helper.popup._closing and not helper.session
+    helper._begin_session()
+    assert helper.session and helper.popup.isVisible() and not helper.popup._closing
+    assert not helper.popup.answer.toPlainText() and not helper.popup.transcript.text()
 
 
 def test_reduced_motion_disables_slide_and_idle_does_not_capture(helper,app):
@@ -205,6 +247,27 @@ def test_glass_paints_alpha_and_real_curved_corners(helper,app):
     assert 0<image.pixelColor(image.width()//2,15).alpha()<220
     assert image.pixelColor(0,image.height()-1).alpha()==0
     assert helper.popup.pause.text()=='' and not helper.popup.pause.icon().isNull()
+
+
+@pytest.mark.parametrize('height',[360,480,600])
+def test_selection_answer_keeps_composer_visible_on_scaled_display(helper,app,height):
+    from types import SimpleNamespace
+    from PySide6.QtCore import QPoint,QRect
+    helper._begin_session();app.processEvents()
+    popup=helper.popup
+    monitor=SimpleNamespace(geometry=lambda:QRect(0,0,800,height))
+    image=Image.new('RGB',(207,147),'white');png=io.BytesIO();image.save(png,'PNG')
+    with patch('morice.ui_next.helper_popup.isValid',return_value=True):
+        popup.place(screen=monitor)
+        popup.set_selection(png.getvalue())
+        popup.transcript.setText('Explain the selected paragraph and summarize its main argument.')
+        popup.sources.setText('An actual source: https://example.test/a-source');popup.sources.show()
+        popup.response('\n'.join('A detailed answer line '+str(i) for i in range(30)))
+        app.processEvents();popup.root.activate()
+        bottom=popup.entry.mapTo(popup,QPoint(0,popup.entry.height())).y()
+        assert bottom<=popup.height()-popup.root.contentsMargins().bottom(),(bottom,popup.height())
+        assert popup.entry.height()>=popup.entry.minimumSizeHint().height()
+        assert popup.transcript.height()>=popup.transcript.fontMetrics().height()
 
 
 def test_worker_missing_decoder_is_structured_error_not_windowed_exception(capsys):

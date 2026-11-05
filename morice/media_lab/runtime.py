@@ -169,8 +169,8 @@ class MediaLab:
         record={'generation_id':identifier,'status':'QUEUED','request':task.inputs['request'],'model':model.model_id,'backend':model.backend,'artifacts':[],'warnings':[],'errors':[],'created_at':time.time(),'project_id':ctx.project_id,'research_project_id':ctx.research_project_id}
         with self._lock:
             if len(self._jobs)>=32:raise ValueError('Bounded media queue is full.')
-            self._jobs[identifier]=record
             self.history_store.save(identifier,record)
+            self._jobs[identifier]=record
         self.kernel.events.publish(KernelEvent(EventType.MEDIA_QUEUED,source='media',task_id=identifier,project_id=ctx.project_id,payload={'generation_id':identifier,'status':'QUEUED'}))
         def prepare(node,context):
             if not self.file_permission(node.inputs,context).allowed:raise PermissionError('Reference file access requires existing authorization.')
@@ -191,9 +191,13 @@ class MediaLab:
         def collect(done):
             try:result=done.result()
             except Exception as exc:result=ExecutionResult.failure(ErrorCode.CANCELLED if done.cancelled() else ErrorCode.INTERNAL_ERROR,'Media queue failed.',detail=type(exc).__name__)
-            self._record_completed(identifier,result,ctx)
-            with self._lock:self._futures.pop(identifier,None);self._jobs.pop(identifier,None)
-            public.set_result(result)
+            try:self._record_completed(identifier,result,ctx)
+            except Exception as exc:
+                self._history_failure(result,exc)
+                self.load_error='Media history could not be saved; check local storage and restart MORICE.'
+            finally:
+                with self._lock:self._futures.pop(identifier,None);self._jobs.pop(identifier,None)
+                public.set_result(result)
         future.add_done_callback(collect)
         return identifier,public
 
@@ -211,7 +215,7 @@ class MediaLab:
             raise ValueError('Pinned node has no compatible published media capability.')
         record={'generation_id':identifier,'status':'QUEUED','request':request.to_dict(),'model':request.model_id,
             'backend':'device_mesh','node_id':request.node_id,'artifacts':[],'warnings':[],'errors':[],'created_at':time.time()}
-        with self._lock:self._jobs[identifier]=record;self.history_store.save(identifier,record)
+        with self._lock:self.history_store.save(identifier,record);self._jobs[identifier]=record
         public=Future();public.set_running_or_notify_cancel()
         with self._lock:self._futures[identifier]=public
         try:future=self.kernel.scheduler.enqueue_task(task,context,max_workers=self.agents.limits.max_workers)
@@ -219,15 +223,22 @@ class MediaLab:
             with self._lock:self._jobs.pop(identifier,None);self._futures.pop(identifier,None)
             record.update(status='FAILED',errors=['Remote admission refused.']);self.history_store.save(identifier,record);raise
         def collect(done):
-            result=done.result();verified=result.success and result.verification and result.verification.status==VerificationStatus.VERIFIED
-            record.update(status='SUCCEEDED' if verified else 'CANCELLED' if result.status==TaskStatus.CANCELLED else 'FAILED',
-                remote_output=result.output,verification=result.verification.status.value if result.verification else None,
-                warnings=['Remote artifacts require existing Mesh hash-verified transfer before local use.'],errors=[e.message for e in result.errors],completed_at=time.time())
-            self.history_store.save(identifier,record)
-            with self._lock:self._jobs.pop(identifier,None);self._futures.pop(identifier,None)
-            self.kernel.events.publish(KernelEvent(EventType.MEDIA_COMPLETED if verified else EventType.MEDIA_FAILED,source='media',task_id=identifier,
-                project_id=context.project_id,payload={'generation_id':identifier,'node_id':request.node_id,'status':record['status']}))
-            public.set_result(result)
+            try:result=done.result()
+            except Exception as exc:result=ExecutionResult.failure(ErrorCode.CANCELLED if done.cancelled() else ErrorCode.INTERNAL_ERROR,'Remote media queue failed.',detail=type(exc).__name__)
+            verified=result.success and result.verification and result.verification.status==VerificationStatus.VERIFIED
+            try:
+                record.update(status='SUCCEEDED' if verified else 'CANCELLED' if result.status==TaskStatus.CANCELLED else 'FAILED',
+                    remote_output=result.output,verification=result.verification.status.value if result.verification else None,
+                    warnings=['Remote artifacts require existing Mesh hash-verified transfer before local use.'],errors=[e.message for e in result.errors],completed_at=time.time())
+                self.history_store.save(identifier,record)
+                self.kernel.events.publish(KernelEvent(EventType.MEDIA_COMPLETED if verified else EventType.MEDIA_FAILED,source='media',task_id=identifier,
+                    project_id=context.project_id,payload={'generation_id':identifier,'node_id':request.node_id,'status':record['status']}))
+            except Exception as exc:
+                self._history_failure(result,exc)
+                self.load_error='Media history could not be saved; check local storage and restart MORICE.'
+            finally:
+                with self._lock:self._jobs.pop(identifier,None);self._futures.pop(identifier,None)
+                public.set_result(result)
         future.add_done_callback(collect)
         return identifier,public
 
@@ -363,6 +374,9 @@ class MediaLab:
             record=self._jobs.get(identifier) or self.history_store.get(identifier)
             if record is None:return
             if record.get('terminal_recorded'):return
+            # A terminal marker only becomes visible after its durable write.
+            # Otherwise a failed write makes the collector skip reconciliation.
+            record=dict(record)
             if result.success and result.verification and result.verification.status==VerificationStatus.VERIFIED:
                 try:
                     result.output['status']='SUCCEEDED'
@@ -376,10 +390,27 @@ class MediaLab:
                     from ..kernel import ExecutionError
                     result.errors.append(ExecutionError(ErrorCode.VERIFICATION_FAILED,'Media publication failed.',str(exc)[:1000]));record.update(status='FAILED',artifacts=[],errors=[str(exc)[:1000]])
             else:record.update(status='CANCELLED' if result.status==TaskStatus.CANCELLED else 'FAILED',artifacts=[],errors=[e.message+(': '+e.detail if e.detail else '') for e in result.errors])
-            record.update(terminal_recorded=True,completed_at=time.time());self.history_store.save(identifier,record)
+            record.update(terminal_recorded=True,completed_at=time.time())
+            try:self.history_store.save(identifier,record)
+            except Exception as exc:
+                self._history_failure(result,exc)
+                raise
+            if identifier in self._jobs:self._jobs[identifier].update(record)
         kind={'SUCCEEDED':EventType.MEDIA_COMPLETED,'FAILED':EventType.MEDIA_FAILED,'CANCELLED':EventType.MEDIA_CANCELLED}[record['status']]
         self.kernel.events.publish(KernelEvent(kind,source='media',task_id=identifier,project_id=ctx.project_id,payload={'generation_id':identifier,'status':record['status']}))
         self._clean_temp(identifier)
+
+    @staticmethod
+    def _history_failure(result,exc):
+        from ..kernel import ExecutionError
+        from ..redaction import redact_text
+        result.success=False
+        if result.status!=TaskStatus.CANCELLED:result.status=TaskStatus.FAILED
+        message='Media history could not be saved.';detail=redact_text(type(exc).__name__+': '+str(exc))[:1000]
+        if not any(error.message==message and error.detail==detail for error in result.errors):
+            result.errors.append(ExecutionError(ErrorCode.EXECUTION_FAILED,message,detail))
+        result.artifacts=[]
+        if isinstance(result.output,dict):result.output={**result.output,'status':'FAILED','artifacts':[]}
 
     def _publish(self,identifier,result):
         output=self.directory/'outputs'/identifier

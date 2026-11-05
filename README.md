@@ -26,6 +26,8 @@ The release keeps MORICE's continuous purple globe, three complete themes, voice
 
 **This update to the existing 0.12.0 publication adds Background Helper:** a compact top-of-screen assistant for the MORICE wake phrase and an optional middle-mouse selection gesture. It also updates the main Glass theme to black translucency and improves local speech recognition support. The version and download links stay the same.
 
+The maintenance update keeps the helper composer usable on smaller or scaled displays, checks current capture settings before a queued selection, and keeps the media queue available after a failed history write. The website animation recovers when the browser restores its graphics context.
+
 [Download 0.12.0](https://github.com/EONASH2722/MORICE/releases/tag/v0.12.0) · [Release notes](docs/release-notes-0.12.0.md) · [Security Lab guide](docs/security-lab-guide.md) · [Validation and limits](docs/security-lab-validation-0.12.0.md)
 
 ## Background Helper

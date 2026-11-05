@@ -209,13 +209,17 @@ class CapabilityKernel:
         task.result, task.status, task.outputs, task.completed_at = result, result.status, result.output, time.time()
         if self.actions is not None:
             self.actions.attempt_finished(task, result, ctx)
-            self.actions.complete_task(task, result, ctx)
         if entry is not None and entry.on_completed is not None:
             try:
                 entry.on_completed(result, ctx)
             except Exception as exc:
                 logging.getLogger(__name__).error("Capability completion sink failed (%s)", type(exc).__name__)
                 result.warnings.append(f"Task history could not be saved: {type(exc).__name__}.")
+        # Publication callbacks can replace outputs or reject an otherwise
+        # verified result. Persist the final outcome consistently everywhere.
+        task.status, task.outputs, task.completed_at = result.status, result.output, time.time()
+        if self.actions is not None:
+            self.actions.complete_task(task, result, ctx)
         self.telemetry.record(task.task_id, result.capability_id, result.execution_id, "task_completed", (time.perf_counter() - queued) * 1000)
         with self._lock:
             self._history.append({"task_id": task.task_id, "capability_id": result.capability_id,
