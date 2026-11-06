@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import tempfile
 import threading
 import time
@@ -76,6 +77,72 @@ class FakeProvider:
 
 
 class LiveVisionTests(unittest.TestCase):
+    @staticmethod
+    def observation_reply(content, finish_reason="length"):
+        return io.BytesIO(json.dumps({"choices": [{"finish_reason": finish_reason,
+            "message": {"content": content}}]}).encode("utf-8"))
+
+    def test_truncated_observation_retries_same_selection_with_compact_prompt(self):
+        provider = LlamaCppVisionProvider()
+        frame = FrameManager().publish(jpeg(), width=160, height=120, camera_id="user-selected-screen-region")
+        complete = json.dumps({"summary": "Two folder icons are visible.", "extracted_text": "",
+            "confidence": 0.7, "uncertainty": "The labels are too small to read.", "regions": []})
+        with (
+            patch.object(provider, "_ensure_server"),
+            patch("morice.live_vision.urllib.request.urlopen", side_effect=[
+                self.observation_reply('{"summary":"Two folder icons'),
+                self.observation_reply(complete, "stop"),
+            ]) as open_url,
+        ):
+            result = provider.analyze(frame, "What are all the apps in there?",
+                cancel_event=threading.Event(), request_id="selection-retry")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.frame_id, frame.frame_id)
+        self.assertEqual(result.summary, "Two folder icons are visible.")
+        first, second = open_url.call_args_list
+        initial = json.loads(first.args[0].data)
+        retry = json.loads(second.args[0].data)
+        self.assertGreater(initial["max_tokens"], 160)
+        self.assertEqual(initial["messages"][0]["content"][1], retry["messages"][0]["content"][1])
+        self.assertIn("selected region of a computer screen", initial["messages"][0]["content"][0]["text"])
+        self.assertIn("Keep this reply compact", retry["messages"][0]["content"][0]["text"])
+        properties = retry["response_format"]["schema"]["properties"]
+        self.assertLessEqual(properties["extracted_text"]["maxLength"], 100)
+        self.assertEqual(properties["regions"]["maxItems"], 0)
+        self.assertLessEqual(second.kwargs["timeout"], first.kwargs["timeout"])
+
+    def test_repeated_truncation_ends_with_image_guidance(self):
+        provider = LlamaCppVisionProvider()
+        frame = FrameManager().publish(jpeg(), width=160, height=120)
+        with (
+            patch.object(provider, "_ensure_server"),
+            patch("morice.live_vision.urllib.request.urlopen", side_effect=lambda *_args, **_kwargs:
+                self.observation_reply('{"summary":"Incomplete')) as open_url,
+        ):
+            result = provider.analyze(frame, "Read the label", cancel_event=threading.Event(), request_id="limit")
+        self.assertFalse(result.success)
+        self.assertEqual(result.failure_code, "incomplete-result")
+        self.assertIn("Try asking about one part", result.message)
+        self.assertEqual(open_url.call_count, 2)
+
+    def test_cancellation_while_receiving_observation_prevents_retry(self):
+        provider = LlamaCppVisionProvider()
+        frame = FrameManager().publish(jpeg(), width=160, height=120)
+        cancel = threading.Event()
+
+        def receive(*_args, **_kwargs):
+            cancel.set()
+            return self.observation_reply('{"summary":"Incomplete')
+
+        with (
+            patch.object(provider, "_ensure_server"),
+            patch("morice.live_vision.urllib.request.urlopen", side_effect=receive) as open_url,
+        ):
+            result = provider.analyze(frame, "Read the label", cancel_event=cancel, request_id="cancel")
+        self.assertEqual(result.failure_code, "cancelled")
+        self.assertEqual(open_url.call_count, 1)
+
     def test_packaged_vision_pair_is_preferred_for_offline_portable_use(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

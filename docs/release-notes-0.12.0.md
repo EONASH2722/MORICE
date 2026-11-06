@@ -4,6 +4,7 @@ This amendment to the existing 0.12.0 publication adds Background Helper, a comp
 
 ## Maintenance fixes
 
+- Visual questions have room for a complete observation. If a reply is cut off or malformed, MORICE retries once with a compact response format and offers a next step if the retry fails.
 - The helper keeps the message composer usable on smaller or scaled displays and clears dismissed content when a new interaction starts. A queued circle capture checks the current pause, permission, fullscreen, and application exclusion settings before capturing.
 - Media jobs release their queue slots when history cannot be saved. Storage failures appear consistently in the task result and history, and generated files remain available for recovery from the media output directory.
 - The website restores its animation when the browser restores the graphics context, including while animations are paused.

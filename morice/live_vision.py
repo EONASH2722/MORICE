@@ -63,6 +63,16 @@ VISION_RESPONSE_SCHEMA: dict[str, Any] = {
     "required": ["summary", "extracted_text", "confidence", "uncertainty", "regions"],
     "additionalProperties": False,
 }
+_COMPACT_VISION_RESPONSE_SCHEMA = {
+    **VISION_RESPONSE_SCHEMA,
+    "properties": {
+        **VISION_RESPONSE_SCHEMA["properties"],
+        "summary": {"type": "string", "minLength": 1, "maxLength": 180},
+        "extracted_text": {"type": "string", "maxLength": 100},
+        "uncertainty": {"type": "string", "maxLength": 120},
+        "regions": {**VISION_RESPONSE_SCHEMA["properties"]["regions"], "maxItems": 0},
+    },
+}
 
 
 @contextmanager
@@ -675,14 +685,21 @@ class LlamaCppVisionProvider:
                 "Visual analysis was interrupted.",
                 provider=self.name,
             )
+        screen_context = (
+            "This is a selected region of a computer screen. Focus on the visible "
+            "interface and labels relevant to the request. If icon labels are too "
+            "small to read, describe the visible icons and say which names are unclear. "
+            if frame.camera_id == "user-selected-screen-region" else ""
+        )
         strict_prompt = (
-            "Analyze only the supplied camera image. Never invent an object, text, "
+            f"Analyze only the supplied image. {screen_context}Never invent an object, text, "
             "condition, connection, or location that is not visibly supported. If the "
             "view is ambiguous, dark, blurry, cropped, or too distant, explain that in "
             "uncertainty. Return only JSON with keys summary, extracted_text, confidence, "
             "uncertainty, and regions. confidence must be 0 to 1. regions must be a list "
             "of optional normalized boxes with label, x, y, width, height, confidence; "
-            "use an empty list unless a box is genuinely supported.\n\n"
+            "use an empty list unless a box is genuinely supported. Keep observations "
+            "concise. In extracted_text, copy only legible text from the image.\n\n"
             f"User request: {str(prompt or 'Describe what is visible.')[:2000]}"
         )
         image_url = "data:image/jpeg;base64," + base64.b64encode(frame.jpeg).decode("ascii")
@@ -698,37 +715,71 @@ class LlamaCppVisionProvider:
                 }
             ],
             "temperature": 0.1,
-            "max_tokens": 160,
-            "response_format": {"type": "json_object", "schema": VISION_RESPONSE_SCHEMA},
+            "max_tokens": 384,
             "stream": False,
         }
-        request = urllib.request.Request(
-            f"{self.base_url}/v1/chat/completions",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
+        compact_prompt = strict_prompt + (
+            "\nKeep this reply compact. Use one short sentence for summary, at most "
+            "100 characters for extracted_text, and an empty regions list. Use "
+            "uncertainty to explain any missing detail."
         )
+        deadline = time.monotonic() + self.timeout_seconds
+        parsed = None
+        failure_code = "invalid-result"
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
-                raw = response.read().decode("utf-8", errors="replace")
-            response_payload = json.loads(raw)
-            content = str(response_payload["choices"][0]["message"]["content"] or "").strip()
-            parsed = _parse_provider_json(content)
-        except (OSError, KeyError, IndexError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            return VisionResult.failure(
-                request_id,
-                frame,
-                "inference-failed",
-                f"The vision provider could not process the current frame: {exc}",
-                provider=self.name,
-                latency_ms=(time.perf_counter() - started) * 1000.0,
-            )
+            for observation_prompt, schema in (
+                (strict_prompt, VISION_RESPONSE_SCHEMA),
+                (compact_prompt, _COMPACT_VISION_RESPONSE_SCHEMA),
+            ):
+                if cancel_event.is_set():
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Visual analysis exceeded its time budget.")
+                payload["messages"][0]["content"][0]["text"] = observation_prompt
+                payload["response_format"] = {"type": "json_object", "schema": schema}
+                request = urllib.request.Request(
+                    f"{self.base_url}/v1/chat/completions",
+                    data=json.dumps(payload).encode("utf-8"),
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=remaining) as response:
+                    choice = json.loads(response.read().decode("utf-8", errors="replace"))["choices"][0]
+                if cancel_event.is_set():
+                    break
+                content = str(choice["message"]["content"] or "")
+                try:
+                    parsed = _parse_provider_json(content)
+                except ValueError:
+                    failure_code = "incomplete-result" if choice.get("finish_reason") == "length" else "invalid-result"
+                else:
+                    break
+        except (OSError, KeyError, IndexError, TypeError, ValueError) as exc:
+            if not cancel_event.is_set():
+                return VisionResult.failure(
+                    request_id,
+                    frame,
+                    "inference-failed",
+                    f"The vision provider could not process the current frame: {exc}",
+                    provider=self.name,
+                    latency_ms=(time.perf_counter() - started) * 1000.0,
+                )
         if cancel_event.is_set():
             return VisionResult.failure(
                 request_id,
                 frame,
                 "cancelled",
                 "Visual analysis was interrupted.",
+                provider=self.name,
+                latency_ms=(time.perf_counter() - started) * 1000.0,
+            )
+        if parsed is None:
+            return VisionResult.failure(
+                request_id,
+                frame,
+                failure_code,
+                "I couldn't get a complete observation from this image. Try asking about one part or using a closer view.",
                 provider=self.name,
                 latency_ms=(time.perf_counter() - started) * 1000.0,
             )
